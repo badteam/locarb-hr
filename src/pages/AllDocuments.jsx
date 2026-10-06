@@ -20,13 +20,13 @@ export default function AllDocuments() {
       <div className="page-head">
         <div><h1>كل المستندات</h1><div className="sub">مرتبة من الأقرب انتهاءً</div></div>
       </div>
-      <DocCounts docs={docs} />
+      <DocCounts docs={docs} admin />
       <div className="row" style={{ flexWrap: 'wrap', marginBottom: 12 }}>
         <div className="chips">{FILTERS.map((x) => <button key={x.k} className={'chip' + (f === x.k ? ' on' : '')} onClick={() => setF(x.k)}>{x.t}</button>)}</div>
         <input className="input" style={{ maxWidth: 260, height: 42 }} placeholder="بحث باسم الموظف…" value={search} onChange={(e) => setSearch(e.target.value)} />
       </div>
-      <DocumentList docs={shown} showEmployee onOpen={setEditing} />
-      {editing && <DocumentForm employeeId={editing.employee_id} doc={editing} onClose={() => setEditing(null)} onSaved={reload} />}
+      <DocumentList docs={shown} showEmployee onOpen={setEditing} admin />
+      {editing && <DocumentForm employeeId={editing.employee_id} doc={editing} onClose={() => setEditing(null)} onSaved={reload} admin />}
     </div>
   )
 }

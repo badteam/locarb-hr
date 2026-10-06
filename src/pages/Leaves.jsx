@@ -3,10 +3,12 @@ import { supabase, fmtDate, errMsg } from '../lib/supabase'
 import { useAccess } from '../lib/access.jsx'
 import Icon from '../components/Icon.jsx'
 import SignaturePad, { uploadSignature, SignatureImage } from '../components/SignaturePad.jsx'
+import { useLang } from '../lib/i18n.jsx'
 
-const STATUS = { pending: ['amber', 'بانتظار الموافقة'], approved: ['ok', 'مقبولة'], rejected: ['red', 'مرفوضة'], cancelled: ['gray', 'ملغية'] }
+const STATUS = { pending: ['amber', 'بانتظار الموافقة', 'st_pending'], approved: ['ok', 'مقبولة', 'st_approved'], rejected: ['red', 'مرفوضة', 'st_rejected'], cancelled: ['gray', 'ملغية', 'st_cancelled'] }
 
 function RequestForm({ types, balance, empId, onClose, onSaved }) {
+  const { t: tr, tn } = useLang()
   const [type, setType] = useState(types[0]?.id || '')
   const [start, setStart] = useState('')
   const [end, setEnd] = useState('')
@@ -19,35 +21,35 @@ function RequestForm({ types, balance, empId, onClose, onSaved }) {
 
   const save = async (e) => {
     e.preventDefault()
-    if (!signed) { setErr('لازم توقّع على الطلب'); return }
+    if (!signed) { setErr(tr('must_sign')); return }
     setBusy(true); setErr('')
     try {
       const sig = await uploadSignature(empId)
       const { error } = await supabase.rpc('request_leave', { p_type: type, p_start: start, p_end: end, p_reason: reason || null, p_signature_path: sig })
       if (error) throw error
       onSaved(); onClose()
-    } catch (e2) { setErr(e2.message?.includes('insufficient') ? 'رصيدك ما يكفي' : errMsg(e2)) }
+    } catch (e2) { setErr(e2.message?.includes('insufficient') ? tr('no_balance') : errMsg(e2)) }
     setBusy(false)
   }
 
   return (
     <div className="overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <form className="sheet form" onSubmit={save}>
-        <div className="sheet-head"><h2 style={{ fontSize: 20 }}>طلب إجازة</h2>
+        <div className="sheet-head"><h2 style={{ fontSize: 20 }}>{tr('request_leave')}</h2>
           <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose}><Icon name="x" /></button></div>
-        <div className="notice">رصيدك الحالي: <strong>{balance}</strong> يوم</div>
-        <div className="field"><span className="lbl">نوع الإجازة</span>
-          <div className="chips">{types.map((x) => <button type="button" key={x.id} className={'chip' + (type === x.id ? ' on' : '')} onClick={() => setType(x.id)}>{x.name}</button>)}</div>
+        <div className="notice">{tr('your_balance', { n: balance })}</div>
+        <div className="field"><span className="lbl">{tr('leave_type')}</span>
+          <div className="chips">{types.map((x) => <button type="button" key={x.id} className={'chip' + (type === x.id ? ' on' : '')} onClick={() => setType(x.id)}>{tn(x.name)}</button>)}</div>
         </div>
         <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-          <div className="field"><label htmlFor="ls">من</label><input id="ls" type="date" className="input" value={start} onChange={(e) => { setStart(e.target.value); if (!end || e.target.value > end) setEnd(e.target.value) }} required /></div>
-          <div className="field"><label htmlFor="le">إلى</label><input id="le" type="date" className="input" min={start} value={end} onChange={(e) => setEnd(e.target.value)} required /></div>
+          <div className="field"><label htmlFor="ls">{tr('from')}</label><input id="ls" type="date" className="input" value={start} onChange={(e) => { setStart(e.target.value); if (!end || e.target.value > end) setEnd(e.target.value) }} required /></div>
+          <div className="field"><label htmlFor="le">{tr('to')}</label><input id="le" type="date" className="input" min={start} value={end} onChange={(e) => setEnd(e.target.value)} required /></div>
         </div>
-        {days > 0 && <div className="sub">{days} يوم {t?.deducts_balance ? '· تنخصم من الرصيد' : '· ما تنخصم من الرصيد'}</div>}
-        <div className="field"><label htmlFor="lr">السبب</label><textarea id="lr" className="input" style={{ height: 80, paddingTop: 10 }} value={reason} onChange={(e) => setReason(e.target.value)} /></div>
+        {days > 0 && <div className="sub">{tr('days_n', { n: days })} · {t?.deducts_balance ? tr('deducts') : tr('not_deducts')}</div>}
+        <div className="field"><label htmlFor="lr">{tr('reason')}</label><textarea id="lr" className="input" style={{ height: 80, paddingTop: 10 }} value={reason} onChange={(e) => setReason(e.target.value)} /></div>
         <SignaturePad onChange={(empty) => setSigned(!empty)} />
         {err && <div className="error">{err}</div>}
-        <button className="btn primary block" disabled={busy}>{busy ? 'جاري الإرسال…' : 'إرسال الطلب'}</button>
+        <button className="btn primary block" disabled={busy}>{busy ? tr('sending') : tr('send')}</button>
       </form>
     </div>
   )
@@ -64,6 +66,7 @@ export default function Leaves() {
   const [note, setNote] = useState({})
   const [msg, setMsg] = useState('')
   const isApprover = can('approve_leaves')
+  const { t, tn, fmtDate: fd, dir } = useLang()
 
   const load = useCallback(() => {
     supabase.from('leave_requests').select('*').eq('employee_id', emp.id).order('created_at', { ascending: false }).then(({ data }) => setMine(data || []))
@@ -72,7 +75,7 @@ export default function Leaves() {
       supabase.from('employees').select('id,full_name,job_title,leave_balance').then(({ data }) => setNames(Object.fromEntries((data || []).map((e) => [e.id, e]))))
     }
   }, [emp.id, isApprover])
-  useEffect(() => { load(); supabase.from('leave_types').select('*').order('sort_order').then(({ data }) => setTypes((data || []).filter((t) => t.name !== 'أوف'))) }, [load])
+  useEffect(() => { load(); supabase.from('leave_types').select('*').order('sort_order').then(({ data }) => setTypes((data || []).filter((x) => x.name !== 'أوف'))) }, [load])
   const tName = Object.fromEntries(types.map((t) => [t.id, t.name]))
 
   const decide = async (id, ok) => {
@@ -83,15 +86,16 @@ export default function Leaves() {
   const cancel = async (id) => { await supabase.rpc('cancel_leave', { p_request: id }); load() }
 
   const Row = ({ r, manager }) => {
-    const [cls, txt] = STATUS[r.status]
+    const [cls, txtAr, key] = STATUS[r.status]
+    const txt = manager ? txtAr : t(key)
     return (
       <div className="list-item" style={{ alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <div className="grow" style={{ minWidth: 220 }}>
-          <div style={{ fontWeight: 600 }}>{manager ? `${names[r.employee_id]?.full_name || ''} · ` : ''}{tName[r.leave_type_id] || 'إجازة'} · {r.days} يوم</div>
-          <div className="sub">{fmtDate(r.start_date)} ← {fmtDate(r.end_date)}</div>
-          {r.reason && <div className="sub">السبب: {r.reason}</div>}
+          <div style={{ fontWeight: 600 }}>{manager ? `${names[r.employee_id]?.full_name || ''} · ${tName[r.leave_type_id] || 'إجازة'} · ${r.days} يوم` : `${tn(tName[r.leave_type_id]) || ''} · ${t('days_n', { n: r.days })}`}</div>
+          <div className="sub">{manager ? `${fmtDate(r.start_date)} ← ${fmtDate(r.end_date)}` : `${fd(r.start_date)} → ${fd(r.end_date)}`}</div>
+          {r.reason && <div className="sub">{manager ? 'السبب' : t('reason')}: {r.reason}</div>}
           {manager && <div className="sub">رصيده: {names[r.employee_id]?.leave_balance} يوم</div>}
-          {r.decision_note && <div className="sub">ملاحظة الإدارة: {r.decision_note}</div>}
+          {r.decision_note && <div className="sub">{manager ? 'ملاحظة الإدارة' : t('mgmt_note')}: {r.decision_note}</div>}
           {manager && r.signature_path && <div style={{ marginTop: 6 }}><SignatureImage path={r.signature_path} /></div>}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
@@ -105,7 +109,7 @@ export default function Leaves() {
               </div>
             </>
           )}
-          {!manager && r.status === 'pending' && <button className="btn" style={{ minHeight: 36 }} onClick={() => cancel(r.id)}>إلغاء</button>}
+          {!manager && r.status === 'pending' && <button className="btn" style={{ minHeight: 36 }} onClick={() => cancel(r.id)}>{t('cancel')}</button>}
         </div>
       </div>
     )
@@ -113,14 +117,14 @@ export default function Leaves() {
 
   const waiting = pending.filter((r) => r.status === 'pending')
   return (
-    <div style={{ maxWidth: 820, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div style={{ maxWidth: 820, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }} dir={dir}>
       <div className="page-head" style={{ marginBottom: 0 }}>
-        <div><h1>الإجازات</h1><div className="sub">رصيدك: {emp.leave_balance} يوم</div></div>
-        <button className="btn primary" onClick={() => setOpen(true)}><Icon name="plus" /> طلب إجازة</button>
+        <div><h1>{t('leave_title')}</h1><div className="sub">{t('your_balance', { n: emp.leave_balance })}</div></div>
+        <button className="btn primary" onClick={() => setOpen(true)}><Icon name="plus" /> {t('request_leave')}</button>
       </div>
       {msg && <div className="error">{msg}</div>}
       {isApprover && (
-        <section>
+        <section dir="rtl" lang="ar">
           <h2 style={{ fontSize: 18, marginBottom: 10 }}>طلبات تنتظر موافقتك {waiting.length > 0 && <span className="badge">{waiting.length}</span>}</h2>
           <div className="card list" style={{ padding: '4px 14px' }}>
             {waiting.length === 0 ? <div className="empty">ما فيه طلبات</div> : waiting.map((r) => <Row key={r.id} r={r} manager />)}
@@ -128,13 +132,13 @@ export default function Leaves() {
         </section>
       )}
       <section>
-        <h2 style={{ fontSize: 18, marginBottom: 10 }}>طلباتي</h2>
+        <h2 style={{ fontSize: 18, marginBottom: 10 }}>{t('my_requests')}</h2>
         <div className="card list" style={{ padding: '4px 14px' }}>
-          {mine.length === 0 ? <div className="empty">ما عندك طلبات</div> : mine.map((r) => <Row key={r.id} r={r} />)}
+          {mine.length === 0 ? <div className="empty">{t('no_requests')}</div> : mine.map((r) => <Row key={r.id} r={r} />)}
         </div>
       </section>
       {isApprover && pending.some((r) => r.status !== 'pending') && (
-        <section>
+        <section dir="rtl" lang="ar">
           <h2 style={{ fontSize: 18, marginBottom: 10 }}>سجل الإجازات</h2>
           <div className="card list" style={{ padding: '4px 14px' }}>{pending.filter((r) => r.status !== 'pending').slice(0, 30).map((r) => <Row key={r.id} r={r} manager />)}</div>
         </section>

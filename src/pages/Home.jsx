@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { supabase, todayKuwait, fmtTime, fmtDate, errMsg } from '../lib/supabase'
+import { supabase, todayKuwait } from '../lib/supabase'
 import { useAccess } from '../lib/access.jsx'
+import { useLang, LangPicker } from '../lib/i18n.jsx'
 import Icon from '../components/Icon.jsx'
 
 const getPosition = () => new Promise((resolve) => {
@@ -13,15 +14,12 @@ const getPosition = () => new Promise((resolve) => {
   )
 })
 
-const greeting = () => {
-  const h = Number(new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: 'Asia/Kuwait' }).format(new Date()))
-  return h < 12 ? 'صباح الخير' : 'مساء الخير'
-}
-
-const hhmm = (t) => (t ? t.slice(0, 5) : '')
+const isMorning = () => Number(new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: 'Asia/Kuwait' }).format(new Date())) < 12
+const hhmm = (x) => (x ? x.slice(0, 5) : '')
 
 export default function Home() {
   const { access } = useAccess()
+  const { t, tn, fmtDate, fmtTime } = useLang()
   const emp = access.employee
   const [today, setToday] = useState(null)
   const [docAlert, setDocAlert] = useState(null)
@@ -38,7 +36,6 @@ export default function Home() {
     supabase.from('missed_punches').select('id', { count: 'exact', head: true }).eq('employee_id', emp.id).eq('resolved', false).then(({ count }) => setMissed(count || 0))
     supabase.from('disciplinary_notices').select('id', { count: 'exact', head: true }).eq('employee_id', emp.id).eq('status', 'pending').then(({ count }) => setNotices(count || 0))
   }, [emp.id])
-
   useEffect(() => { load() }, [load])
 
   const open = today && !today.check_out_at
@@ -50,36 +47,35 @@ export default function Home() {
       if (open) {
         const { error } = await supabase.rpc('check_out')
         if (error) throw error
-        setMsg({ ok: true, text: 'تم تسجيل الانصراف' })
+        setMsg({ ok: true, text: t('checked_out_ok') })
       } else {
         const pos = await getPosition()
         const { data, error } = await supabase.rpc('check_in', { p_lat: pos?.lat ?? null, p_lng: pos?.lng ?? null, p_method: 'app' })
         if (error) throw error
-        let text = 'تم تسجيل الحضور'
-        if (data?.late_minutes > 0) text += ` · متأخر ${data.late_minutes} دقيقة`
-        if (data?.inside_geofence === false) text += ' · ملاحظة: موقعك خارج الفرع'
+        let text = t('checked_in_ok')
+        if (data?.late_minutes > 0) text += ' · ' + t('late_by', { n: data.late_minutes })
+        if (data?.inside_geofence === false) text += ' · ' + t('outside_branch')
         setMsg({ ok: true, text })
       }
       await load()
     } catch (e) {
-      setMsg({ ok: false, text: errMsg(e) })
+      setMsg({ ok: false, text: e.message?.includes('already checked in') ? t('already_in') : e.message })
     }
     setBusy(false)
   }
 
-  const hours = today?.check_in_at
-    ? (((today.check_out_at ? new Date(today.check_out_at) : new Date()) - new Date(today.check_in_at)) / 3600000)
-    : 0
+  const hours = today?.check_in_at ? (((today.check_out_at ? new Date(today.check_out_at) : new Date()) - new Date(today.check_in_at)) / 3600000) : 0
 
   return (
     <div style={{ maxWidth: 520, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div className="row">
         <div className="avatar" style={{ width: 48, height: 48, borderRadius: 24, background: 'var(--green)', color: '#fff' }}>{emp.full_name?.[0]}</div>
         <div className="grow">
-          <h1 style={{ fontSize: 20 }}>{greeting()}، {emp.full_name.split(' ')[0]}</h1>
-          <div className="sub">{[emp.job_title, access.branch_name && `فرع ${access.branch_name}`].filter(Boolean).join(' · ')}</div>
+          <h1 style={{ fontSize: 20 }}>{isMorning() ? t('good_morning') : t('good_evening')}, {emp.full_name.split(' ')[0]}</h1>
+          <div className="sub">{[tn(emp.job_title), access.branch_name && `${t('branch')}: ${tn(access.branch_name)}`].filter(Boolean).join(' · ')}</div>
         </div>
       </div>
+      <LangPicker />
 
       <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -88,38 +84,38 @@ export default function Home() {
         </div>
         {access.shift
           ? <div style={{ fontSize: 26, fontWeight: 600 }} className="ltr">{hhmm(access.shift.start_time)} — {hhmm(access.shift.end_time)}</div>
-          : <div className="sub">ما فيه شفت محدد لك</div>}
+          : <div className="sub">{t('no_shift')}</div>}
       </div>
 
       <div style={{ padding: '18px 0', display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
         {done ? (
-          <div className="notice" style={{ textAlign: 'center' }}>خلصت دوامك اليوم 👋</div>
+          <div className="notice" style={{ textAlign: 'center' }}>{t('day_done')}</div>
         ) : (
           <button className={'checkin' + (open ? ' out' : '')} onClick={act} disabled={busy}>
             <Icon name="finger" size={54} stroke={1.5} />
-            {busy ? 'لحظة…' : open ? 'تسجيل انصراف' : 'تسجيل حضور'}
+            {busy ? t('wait') : open ? t('check_out') : t('check_in')}
           </button>
         )}
         {msg && <div className={msg.ok ? 'notice' : 'error'}>{msg.text}</div>}
       </div>
 
       <div className="grid" style={{ gridTemplateColumns: 'repeat(3, minmax(0,1fr))' }}>
-        <div className="card stat" style={{ textAlign: 'center', padding: 12 }}><div className="label">الحضور</div><div style={{ fontSize: 17, fontWeight: 600 }}>{fmtTime(today?.check_in_at)}</div></div>
-        <div className="card stat" style={{ textAlign: 'center', padding: 12 }}><div className="label">الانصراف</div><div style={{ fontSize: 17, fontWeight: 600 }}>{fmtTime(today?.check_out_at)}</div></div>
-        <div className="card stat" style={{ textAlign: 'center', padding: 12 }}><div className="label">الساعات</div><div style={{ fontSize: 17, fontWeight: 600 }} className="ltr">{Math.floor(hours)}:{String(Math.round((hours % 1) * 60)).padStart(2, '0')}</div></div>
+        <div className="card stat" style={{ textAlign: 'center', padding: 12 }}><div className="label">{t('in_time')}</div><div style={{ fontSize: 17, fontWeight: 600 }}>{fmtTime(today?.check_in_at)}</div></div>
+        <div className="card stat" style={{ textAlign: 'center', padding: 12 }}><div className="label">{t('out_time')}</div><div style={{ fontSize: 17, fontWeight: 600 }}>{fmtTime(today?.check_out_at)}</div></div>
+        <div className="card stat" style={{ textAlign: 'center', padding: 12 }}><div className="label">{t('hours')}</div><div style={{ fontSize: 17, fontWeight: 600 }} className="ltr">{Math.floor(hours)}:{String(Math.round((hours % 1) * 60)).padStart(2, '0')}</div></div>
       </div>
 
-      {missed > 0 && <Link to="/corrections" className="warn"><Icon name="finger" /><span className="grow">عندك {missed} بصمة ناقصة</span><strong>أرسل طلب</strong></Link>}
-      {notices > 0 && <Link to="/notices" className="warn" style={{ background: 'var(--red-bg)', color: 'var(--red)' }}><Icon name="warn" /><span className="grow">وصلك إشعار من الإدارة يحتاج توقيعك</span><strong>اقرأ</strong></Link>}
+      {missed > 0 && <Link to="/corrections" className="warn"><Icon name="finger" /><span className="grow">{t('missed_count', { n: missed })}</span><strong>{t('send_request')}</strong></Link>}
+      {notices > 0 && <Link to="/notices" className="warn" style={{ background: 'var(--red-bg)', color: 'var(--red)' }}><Icon name="warn" /><span className="grow">{t('notice_needs_sign')}</span><strong>{t('read')}</strong></Link>}
       <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-        <Link to="/leaves" className="btn">طلب إجازة · رصيدك {emp.leave_balance}</Link>
-        <Link to="/corrections" className="btn">نسيت أبصم</Link>
+        <Link to="/leaves" className="btn">{t('request_leave_balance', { n: emp.leave_balance })}</Link>
+        <Link to="/corrections" className="btn">{t('forgot_punch')}</Link>
       </div>
       {docAlert && (
         <Link to="/my-documents" className="warn" style={docAlert.status === 'expired' ? { background: 'var(--red-bg)', color: 'var(--red)' } : null}>
           <Icon name="warn" />
-          <span className="grow">{docAlert.document_type_name} {docAlert.status === 'expired' ? 'منتهية' : `تنتهي بعد ${docAlert.days_left} يوم`}</span>
-          <strong>جدّدها</strong>
+          <span className="grow">{docAlert.status === 'expired' ? t('doc_is_expired', { doc: tn(docAlert.document_type_name) }) : t('doc_expires_in', { doc: tn(docAlert.document_type_name), n: docAlert.days_left })}</span>
+          <strong>{t('renew')}</strong>
         </Link>
       )}
     </div>

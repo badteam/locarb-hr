@@ -132,7 +132,7 @@ export default function Payroll() {
         <button className="btn" onClick={() => setView(null)}>رجوع</button>
         <button className="btn" onClick={() => window.print()}>طباعة / PDF</button>
       </div>
-      <PayslipView slip={view} employee={emps[view.employee_id]} branchName={branches[emps[view.employee_id]?.branch_id]} />
+      <PayslipView slip={view} employee={emps[view.employee_id]} branchName={branches[emps[view.employee_id]?.branch_id]} admin />
     </div>
   )
 

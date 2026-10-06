@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { supabase, fmtDate, errMsg } from '../lib/supabase'
 import { useAccess } from '../lib/access.jsx'
 import Icon from '../components/Icon.jsx'
+import { useLang } from '../lib/i18n.jsx'
 
 const KINDS = [
   { k: 'attended', t: 'حضرت ونسيت أبصم' },
@@ -11,9 +12,10 @@ const KINDS = [
   { k: 'day_off', t: 'كان يوم أوف' },
 ]
 const kindText = Object.fromEntries(KINDS.map((x) => [x.k, x.t]))
-const STATUS = { pending: ['amber', 'بانتظار الموافقة'], approved: ['ok', 'مقبول'], rejected: ['red', 'مرفوض'] }
+const STATUS = { pending: ['amber', 'بانتظار الموافقة', 'st_pending'], approved: ['ok', 'مقبول', 'c_approved'], rejected: ['red', 'مرفوض', 'c_rejected'] }
 
 function RequestForm({ date, defaultKind, onClose, onSaved }) {
+  const { t } = useLang()
   const [d, setD] = useState(date || '')
   const [kind, setKind] = useState(defaultKind || 'attended')
   const [tin, setTin] = useState('')
@@ -34,22 +36,22 @@ function RequestForm({ date, defaultKind, onClose, onSaved }) {
   return (
     <div className="overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <form className="sheet form" onSubmit={save}>
-        <div className="sheet-head"><h2 style={{ fontSize: 20 }}>طلب نسيان بصمة</h2>
+        <div className="sheet-head"><h2 style={{ fontSize: 20 }}>{t('corr_form')}</h2>
           <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose}><Icon name="x" /></button></div>
-        <div className="field"><label htmlFor="cd">التاريخ</label><input id="cd" type="date" className="input" value={d} onChange={(e) => setD(e.target.value)} required /></div>
-        <div className="field"><span className="lbl">وش صار؟</span>
-          <div className="chips">{KINDS.map((x) => <button type="button" key={x.k} className={'chip' + (kind === x.k ? ' on' : '')} onClick={() => setKind(x.k)}>{x.t}</button>)}</div>
+        <div className="field"><label htmlFor="cd">{t('date')}</label><input id="cd" type="date" className="input" value={d} onChange={(e) => setD(e.target.value)} required /></div>
+        <div className="field"><span className="lbl">{t('what_happened')}</span>
+          <div className="chips">{KINDS.map((x) => <button type="button" key={x.k} className={'chip' + (kind === x.k ? ' on' : '')} onClick={() => setKind(x.k)}>{t('k_' + x.k)}</button>)}</div>
         </div>
         {['attended', 'missed_checkout'].includes(kind) && (
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-            {kind === 'attended' && <div className="field"><label htmlFor="ti">وقت الحضور</label><input id="ti" type="time" className="input" value={tin} onChange={(e) => setTin(e.target.value)} required /></div>}
-            <div className="field"><label htmlFor="to">وقت الانصراف</label><input id="to" type="time" className="input" value={tout} onChange={(e) => setTout(e.target.value)} required /></div>
+            {kind === 'attended' && <div className="field"><label htmlFor="ti">{t('in_at')}</label><input id="ti" type="time" className="input" value={tin} onChange={(e) => setTin(e.target.value)} required /></div>}
+            <div className="field"><label htmlFor="to">{t('out_at')}</label><input id="to" type="time" className="input" value={tout} onChange={(e) => setTout(e.target.value)} required /></div>
           </div>
         )}
-        {kind === 'leave' && <div className="sub">يوم واحد ينخصم من رصيد إجازاتك لو انقبل الطلب.</div>}
-        <div className="field"><label htmlFor="cr">السبب</label><textarea id="cr" className="input" style={{ height: 80, paddingTop: 10 }} value={reason} onChange={(e) => setReason(e.target.value)} required /></div>
+        {kind === 'leave' && <div className="sub">{t('leave_one_day')}</div>}
+        <div className="field"><label htmlFor="cr">{t('reason')}</label><textarea id="cr" className="input" style={{ height: 80, paddingTop: 10 }} value={reason} onChange={(e) => setReason(e.target.value)} required /></div>
         {err && <div className="error">{err}</div>}
-        <button className="btn primary block" disabled={busy}>إرسال الطلب</button>
+        <button className="btn primary block" disabled={busy}>{t('send')}</button>
       </form>
     </div>
   )
@@ -59,6 +61,7 @@ export default function Corrections() {
   const { access, can } = useAccess()
   const emp = access.employee
   const isHr = can('manage_attendance')
+  const { t, fmtDate: fd, dir } = useLang()
   const [mine, setMine] = useState([])
   const [myMissed, setMyMissed] = useState([])
   const [all, setAll] = useState([])
@@ -87,14 +90,15 @@ export default function Corrections() {
   const resolve = async (id) => { await supabase.from('missed_punches').update({ resolved: true }).eq('id', id); load() }
 
   const Row = ({ r, manager }) => {
-    const [cls, txt] = STATUS[r.status]
+    const [cls, txtAr, key] = STATUS[r.status]
+    const txt = manager ? txtAr : t(key)
     return (
       <div className="list-item" style={{ alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <div className="grow" style={{ minWidth: 220 }}>
-          <div style={{ fontWeight: 600 }}>{manager ? `${names[r.employee_id]?.full_name || ''} · ` : ''}{fmtDate(r.work_date)}</div>
-          <div className="sub">{kindText[r.kind]}{r.check_in_time ? ` · حضور ${r.check_in_time.slice(0, 5)}` : ''}{r.check_out_time ? ` · انصراف ${r.check_out_time.slice(0, 5)}` : ''}</div>
-          {r.reason && <div className="sub">السبب: {r.reason}</div>}
-          {r.decision_note && <div className="sub">ملاحظة الإدارة: {r.decision_note}</div>}
+          <div style={{ fontWeight: 600 }}>{manager ? `${names[r.employee_id]?.full_name || ''} · ${fmtDate(r.work_date)}` : fd(r.work_date)}</div>
+          <div className="sub">{manager ? kindText[r.kind] : t('k_' + r.kind)}{r.check_in_time ? ` · ${manager ? 'حضور' : t('in_time')} ${r.check_in_time.slice(0, 5)}` : ''}{r.check_out_time ? ` · ${manager ? 'انصراف' : t('out_time')} ${r.check_out_time.slice(0, 5)}` : ''}</div>
+          {r.reason && <div className="sub">{manager ? 'السبب' : t('reason')}: {r.reason}</div>}
+          {r.decision_note && <div className="sub">{manager ? 'ملاحظة الإدارة' : t('mgmt_note')}: {r.decision_note}</div>}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
           <span className={'pill ' + cls}>{txt}</span>
@@ -114,21 +118,21 @@ export default function Corrections() {
 
   const waiting = all.filter((r) => r.status === 'pending')
   return (
-    <div style={{ maxWidth: 820, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div style={{ maxWidth: 820, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }} dir={dir}>
       <div className="page-head" style={{ marginBottom: 0 }}>
-        <div><h1>نسيان البصمة</h1><div className="sub">لو نسيت تبصم حضور أو انصراف، أرسل طلب للإدارة</div></div>
-        <button className="btn primary" onClick={() => setForm({})}><Icon name="plus" /> طلب جديد</button>
+        <div><h1>{t('corr_title')}</h1><div className="sub">{t('corr_sub')}</div></div>
+        <button className="btn primary" onClick={() => setForm({})}><Icon name="plus" /> {t('new_request')}</button>
       </div>
       {msg && <div className="error">{msg}</div>}
 
       {myMissed.length > 0 && (
         <section className="card" style={{ background: 'var(--amber-bg)', borderColor: '#F3DDA8' }}>
-          <strong style={{ color: '#78350F' }}>بصمات ناقصة عندك</strong>
+          <strong style={{ color: '#78350F' }}>{t('missing_punches')}</strong>
           <div className="list" style={{ marginTop: 6 }}>
             {myMissed.map((m) => (
               <div key={m.id} className="list-item">
-                <div className="grow">{fmtDate(m.work_date)} · {m.kind === 'no_punch' ? 'ما فيه بصمة' : 'ما فيه انصراف'}</div>
-                <button className="btn" style={{ minHeight: 38 }} onClick={() => setForm({ date: m.work_date, kind: m.kind === 'no_checkout' ? 'missed_checkout' : 'attended' })}>أرسل طلب</button>
+                <div className="grow">{fd(m.work_date)} · {m.kind === 'no_punch' ? t('no_punch') : t('no_checkout')}</div>
+                <button className="btn" style={{ minHeight: 38 }} onClick={() => setForm({ date: m.work_date, kind: m.kind === 'no_checkout' ? 'missed_checkout' : 'attended' })}>{t('send_request')}</button>
               </div>
             ))}
           </div>
@@ -136,7 +140,7 @@ export default function Corrections() {
       )}
 
       {isHr && (
-        <>
+        <div dir="rtl" lang="ar" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <section>
             <h2 style={{ fontSize: 18, marginBottom: 10 }}>طلبات تنتظر موافقتك {waiting.length > 0 && <span className="badge">{waiting.length}</span>}</h2>
             <div className="card list" style={{ padding: '4px 14px' }}>{waiting.length === 0 ? <div className="empty">ما فيه طلبات</div> : waiting.map((r) => <Row key={r.id} r={r} manager />)}</div>
@@ -154,12 +158,12 @@ export default function Corrections() {
               ))}
             </div>
           </section>
-        </>
+        </div>
       )}
 
       <section>
-        <h2 style={{ fontSize: 18, marginBottom: 10 }}>طلباتي</h2>
-        <div className="card list" style={{ padding: '4px 14px' }}>{mine.length === 0 ? <div className="empty">ما عندك طلبات</div> : mine.map((r) => <Row key={r.id} r={r} />)}</div>
+        <h2 style={{ fontSize: 18, marginBottom: 10 }}>{t('my_requests')}</h2>
+        <div className="card list" style={{ padding: '4px 14px' }}>{mine.length === 0 ? <div className="empty">{t('no_requests')}</div> : mine.map((r) => <Row key={r.id} r={r} />)}</div>
       </section>
       {form && <RequestForm date={form.date} defaultKind={form.kind} onClose={() => setForm(null)} onSaved={load} />}
     </div>

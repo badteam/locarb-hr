@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { supabase, errMsg } from '../lib/supabase'
 import Icon from './Icon.jsx'
 import { useAccess } from '../lib/access.jsx'
+import { useT } from '../lib/i18n.jsx'
 
-const REMIND = [{ d: 7, t: 'أسبوع' }, { d: 14, t: 'أسبوعين' }, { d: 30, t: 'شهر' }, { d: 60, t: 'شهرين' }]
+const REMIND = [{ d: 7, k: 'week' }, { d: 14, k: 'two_weeks' }, { d: 30, k: 'month' }, { d: 60, k: 'two_months' }]
 
 function Upload({ label, file, existingUrl, onPick }) {
   const preview = file ? URL.createObjectURL(file) : existingUrl
@@ -19,8 +20,9 @@ function Upload({ label, file, existingUrl, onPick }) {
 }
 
 // employeeId: whose document. doc: existing document (edit/renew) or null
-export default function DocumentForm({ employeeId, doc, onClose, onSaved }) {
+export default function DocumentForm({ employeeId, doc, onClose, onSaved, admin }) {
   const { can } = useAccess()
+  const { t, tn, dir } = useT(admin)
   const [types, setTypes] = useState([])
   const [typeId, setTypeId] = useState(doc?.document_type_id || '')
   const [expiry, setExpiry] = useState(doc?.expiry_date || '')
@@ -61,12 +63,12 @@ export default function DocumentForm({ employeeId, doc, onClose, onSaved }) {
     if (!newType?.trim()) return
     const { data, error } = await supabase.from('document_types').insert({ name: newType.trim(), sort_order: 99 }).select().single()
     if (error) { setErr(errMsg(error)); return }
-    setTypes((t) => [...t, data]); setTypeId(data.id); setNewType(null)
+    setTypes((x) => [...x, data]); setTypeId(data.id); setNewType(null)
   }
 
   const save = async (e) => {
     e.preventDefault()
-    if (!typeId || !expiry) { setErr('اختار نوع المستند وتاريخ الانتهاء'); return }
+    if (!typeId || !expiry) { setErr(t('pick_type_date')); return }
     setBusy(true); setErr('')
     try {
       const frontPath = await upload(front, 'front')
@@ -87,17 +89,17 @@ export default function DocumentForm({ employeeId, doc, onClose, onSaved }) {
 
   return (
     <div className="overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <form className="sheet form" onSubmit={save}>
+      <form className="sheet form" onSubmit={save} dir={dir}>
         <div className="sheet-head">
-          <h2 style={{ fontSize: 20 }}>{doc ? 'تحديث المستند' : 'إضافة مستند'}</h2>
+          <h2 style={{ fontSize: 20 }}>{doc ? t('update_document') : t('add_document')}</h2>
           <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose}><Icon name="x" /></button>
         </div>
 
         <div className="field">
-          <span className="lbl">نوع المستند</span>
+          <span className="lbl">{t('doc_type')}</span>
           <div className="chips">
-            {types.map((t) => (
-              <button type="button" key={t.id} className={'chip' + (typeId === t.id ? ' on' : '')} onClick={() => { setTypeId(t.id); if (!doc) setRemind(t.default_remind_days) }}>{t.name}</button>
+            {types.map((x) => (
+              <button type="button" key={x.id} className={'chip' + (typeId === x.id ? ' on' : '')} onClick={() => { setTypeId(x.id); if (!doc) setRemind(x.default_remind_days) }}>{tn(x.name)}</button>
             ))}
             {!can('manage_employees') ? null : newType === null
               ? <button type="button" className="chip" style={{ borderStyle: 'dashed' }} onClick={() => setNewType('')}>+ نوع آخر</button>
@@ -109,43 +111,43 @@ export default function DocumentForm({ employeeId, doc, onClose, onSaved }) {
         </div>
 
         <div className="field">
-          <span className="lbl">صورة المستند</span>
+          <span className="lbl">{t('doc_photo')}</span>
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-            <Upload label="الوجه الأمامي" file={front} existingUrl={urls[doc?.front_image_path]} onPick={setFront} />
-            <Upload label="الوجه الخلفي" file={back} existingUrl={urls[doc?.back_image_path]} onPick={setBack} />
+            <Upload label={t('front')} file={front} existingUrl={urls[doc?.front_image_path]} onPick={setFront} />
+            <Upload label={t('back')} file={back} existingUrl={urls[doc?.back_image_path]} onPick={setBack} />
           </div>
         </div>
 
         <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
           <div className="field">
-            <label htmlFor="exp">تاريخ الانتهاء</label>
+            <label htmlFor="exp">{t('expiry_date')}</label>
             <input id="exp" type="date" className="input" value={expiry} onChange={(e) => setExpiry(e.target.value)} required />
           </div>
           <div className="field">
-            <label htmlFor="num">رقم المستند (اختياري)</label>
+            <label htmlFor="num">{t('doc_number')}</label>
             <input id="num" className="input" value={number} onChange={(e) => setNumber(e.target.value)} />
           </div>
         </div>
 
         <div className="field">
-          <span className="lbl">نبّهني قبل الانتهاء بـ</span>
+          <span className="lbl">{t('remind_before')}</span>
           <div className="grid" style={{ gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 8 }}>
-            {REMIND.map((r) => <button type="button" key={r.d} className={'chip' + (remind === r.d ? ' on' : '')} style={{ borderRadius: 12 }} onClick={() => setRemind(r.d)}>{r.t}</button>)}
+            {REMIND.map((r) => <button type="button" key={r.d} className={'chip' + (remind === r.d ? ' on' : '')} style={{ borderRadius: 12 }} onClick={() => setRemind(r.d)}>{t(r.k)}</button>)}
           </div>
           <div className="row sub" style={{ gap: 8 }}>
-            أو عدد أيام:
+            {t('or_days')}
             <input type="number" min="1" max="365" className="input" style={{ height: 38, width: 90 }} value={remind} onChange={(e) => setRemind(Math.max(1, Math.min(365, Number(e.target.value) || 1)))} />
           </div>
         </div>
 
         <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span className="lbl" style={{ fontWeight: 600, fontSize: 14 }}>يوصل التنبيه عن طريق</span>
-          <label className="check"><input type="checkbox" checked={inApp} onChange={(e) => setInApp(e.target.checked)} /> إشعار في التطبيق</label>
-          <label className="check"><input type="checkbox" checked={email} onChange={(e) => setEmail(e.target.checked)} /> إيميل للإدارة</label>
+          <span className="lbl" style={{ fontWeight: 600, fontSize: 14 }}>{t('notify_via')}</span>
+          <label className="check"><input type="checkbox" checked={inApp} onChange={(e) => setInApp(e.target.checked)} /> {t('in_app')}</label>
+          <label className="check"><input type="checkbox" checked={email} onChange={(e) => setEmail(e.target.checked)} /> {t('email_mgmt')}</label>
         </div>
 
         {err && <div className="error">{err}</div>}
-        <button className="btn primary block" disabled={busy}>{busy ? 'جاري الحفظ…' : 'حفظ المستند'}</button>
+        <button className="btn primary block" disabled={busy}>{busy ? t('saving') : t('save_document')}</button>
       </form>
     </div>
   )

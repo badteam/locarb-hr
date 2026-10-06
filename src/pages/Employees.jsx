@@ -25,7 +25,6 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
     supabase.from('employee_allowances').select('*').eq('employee_id', emp.id).eq('active', true).then(({ data }) => setAllowances(data || []))
   }, [emp, canPay])
   const toggleDay = (d) => setF((x) => ({ ...x, weekly_holidays: x.weekly_holidays.includes(d) ? x.weekly_holidays.filter((y) => y !== d) : [...x.weekly_holidays, d] }))
-  const [password, setPassword] = useState('')
   const [err, setErr] = useState('')
   const [ok, setOk] = useState('')
   const [busy, setBusy] = useState(false)
@@ -33,12 +32,12 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
   const editable = can('manage_employees')
   const isOwnerRow = emp?.app_role === 'admin'
 
-  const genCode = async () => {
+  const resetPw = async () => {
     setErr(''); setOk('')
-    if (!emp?.phone) { setErr('احفظ رقم هاتف الموظف أول'); return }
-    const { data, error } = await supabase.rpc('generate_setup_code', { p_employee_id: emp.id })
-    if (error) setErr(errMsg(error))
-    else setOk(`رمز التفعيل: ${data} — أرسله للموظف. يفتح التطبيق، يضغط "أول مرة؟ فعّل حسابك"، ويكتب رقمه ${emp.phone} والرمز ويختار كلمة سره. الرمز صالح ٧ أيام.`)
+    const { data, error } = await supabase.functions.invoke('employee-account', { body: { employee_id: emp.id } })
+    const body = data || (await error?.context?.json?.().catch(() => null))
+    if (!body?.ok) setErr(body?.error || error?.message || 'صار خطأ')
+    else { setOk(`تم. يدخل برقم ${body.login} وكلمة السر نفس الرقم، وبيطلب منه يغيّرها أول ما يدخل.`); onSaved() }
   }
 
   const save = async (e) => {
@@ -64,13 +63,8 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
           const { error } = await supabase.from('employee_allowances').insert({ employee_id: id, name: newAllow.name, amount: Number(newAllow.amount) }); if (error) throw error
         }
       }
-      if (password) {
-        const { data, error } = await supabase.functions.invoke('employee-account', { body: { action: emp?.user_id ? 'update' : 'create', employee_id: id, phone: row.phone, password } })
-        if (error || data?.error) throw new Error(data?.error || (await error?.context?.json?.())?.error || error.message)
-        setOk(`تم. يدخل الموظف برقم ${data.login} وكلمة السر اللي حطيتها`)
-      }
       onSaved()
-      if (!password) onClose()
+      onClose()
     } catch (e2) { setErr(errMsg(e2)) }
     setBusy(false)
   }
@@ -129,11 +123,11 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
           <div className="field"><label htmlFor="em">الإيميل (اختياري، للتنبيهات)</label><input id="em" type="email" className="input ltr" style={{ textAlign: 'right' }} value={f.email} onChange={set('email')} /></div>
           <label className="check"><input type="checkbox" checked={f.active} onChange={set('active')} /> الموظف على رأس عمله</label>
 
-          <div className="card form" style={{ gap: 10 }}>
-            <strong style={{ fontSize: 14 }}>{emp?.user_id ? 'تغيير كلمة السر' : 'تفعيل دخول التطبيق'}</strong>
-            <div className="sub">{emp?.user_id ? `الموظف يدخل برقم ${emp.phone}. اكتب كلمة سر جديدة لو نسيها.` : 'اكتب كلمة سر، والموظف يدخل برقم هاتفه وهذي الكلمة.'}</div>
-            <input className="input" type="text" placeholder="كلمة السر (٦ أحرف على الأقل)" value={password} onChange={(e) => setPassword(e.target.value)} minLength={6} autoComplete="new-password" />
-            {emp && <button type="button" className="btn" onClick={genCode}>أو أرسل له رمز تفعيل يختار فيه كلمة سره بنفسه</button>}
+          <div className="card form" style={{ gap: 8 }}>
+            <strong style={{ fontSize: 14 }}>دخول التطبيق</strong>
+            <div className="sub">الموظف يدخل برقم هاتفه، وكلمة السر أول مرة هي نفس الرقم. وأول ما يدخل يطلب منه يغيّرها.</div>
+            {emp?.user_id && <div className="sub">✓ الموظف فعّل حسابه{emp.must_change_password ? ' (ما غيّر كلمة السر للحين)' : ''}</div>}
+            {emp?.user_id && <button type="button" className="btn" onClick={resetPw}>نسى كلمة السر؟ رجّعها لرقم الهاتف</button>}
           </div>
         </fieldset>
         {err && <div className="error">{err}</div>}
@@ -199,7 +193,7 @@ export default function Employees() {
         ))}
       </div>
       {editing !== undefined && <EmployeeForm emp={editing} branches={branches} shifts={shifts} roles={roles} onClose={() => setEditing(undefined)} onSaved={load} />}
-      {docFor && <DocumentForm employeeId={docFor.id} doc={null} onClose={() => setDocFor(null)} />}
+      {docFor && <DocumentForm employeeId={docFor.id} doc={null} onClose={() => setDocFor(null)} admin />}
     </div>
   )
 }

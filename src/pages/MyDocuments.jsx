@@ -4,6 +4,7 @@ import { useAccess } from '../lib/access.jsx'
 import DocumentForm from '../components/DocumentForm.jsx'
 import DocumentList from '../components/DocumentList.jsx'
 import Icon from '../components/Icon.jsx'
+import { useT } from '../lib/i18n.jsx'
 
 export function useDocs(filter) {
   const [docs, setDocs] = useState([])
@@ -17,13 +18,14 @@ export function useDocs(filter) {
   return [docs, load]
 }
 
-export function DocCounts({ docs }) {
+export function DocCounts({ docs, admin }) {
+  const { t } = useT(admin)
   const c = (s) => docs.filter((d) => d.status === s).length
   return (
     <div className="grid" style={{ gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: 8, marginBottom: 14 }}>
-      <div className="card" style={{ textAlign: 'center', padding: 10 }}><div style={{ fontSize: 20, fontWeight: 600, color: 'var(--ok)' }}>{c('valid')}</div><div className="sub">ساري</div></div>
-      <div className="card" style={{ textAlign: 'center', padding: 10 }}><div style={{ fontSize: 20, fontWeight: 600, color: 'var(--amber)' }}>{c('expiring')}</div><div className="sub">قرب ينتهي</div></div>
-      <div className="card" style={{ textAlign: 'center', padding: 10 }}><div style={{ fontSize: 20, fontWeight: 600, color: 'var(--red)' }}>{c('expired')}</div><div className="sub">منتهي</div></div>
+      <div className="card" style={{ textAlign: 'center', padding: 10 }}><div style={{ fontSize: 20, fontWeight: 600, color: 'var(--ok)' }}>{c('valid')}</div><div className="sub">{t('valid')}</div></div>
+      <div className="card" style={{ textAlign: 'center', padding: 10 }}><div style={{ fontSize: 20, fontWeight: 600, color: 'var(--amber)' }}>{c('expiring')}</div><div className="sub">{t('expiring')}</div></div>
+      <div className="card" style={{ textAlign: 'center', padding: 10 }}><div style={{ fontSize: 20, fontWeight: 600, color: 'var(--red)' }}>{c('expired')}</div><div className="sub">{t('expired')}</div></div>
     </div>
   )
 }
@@ -34,12 +36,13 @@ export default function MyDocuments() {
   const filter = useCallback((q) => q.eq('employee_id', empId), [empId])
   const [docs, reload] = useDocs(filter)
   const [editing, setEditing] = useState(undefined)
+  const { t } = useT(false)
 
   return (
     <div style={{ maxWidth: 640, margin: '0 auto' }}>
       <div className="page-head">
-        <h1>مستنداتي</h1>
-        <button className="btn primary" onClick={() => setEditing(null)}><Icon name="plus" /> إضافة مستند</button>
+        <h1>{t('nav_docs')}</h1>
+        <button className="btn primary" onClick={() => setEditing(null)}><Icon name="plus" /> {t('add_document')}</button>
       </div>
       <DocCounts docs={docs} />
       <DocumentList docs={docs} onOpen={setEditing} />

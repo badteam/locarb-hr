@@ -1,8 +1,10 @@
 import { useRef, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useLang } from '../lib/i18n.jsx'
 
 // Finger/mouse signature pad. Exposes upload() via ref-less callback pattern.
 export default function SignaturePad({ onChange }) {
+  const { t } = useLang()
   const canvas = useRef(null)
   const drawing = useRef(false)
   const [empty, setEmpty] = useState(true)
@@ -48,13 +50,13 @@ export default function SignaturePad({ onChange }) {
   return (
     <div className="field">
       <div className="row" style={{ justifyContent: 'space-between' }}>
-        <span className="lbl">التوقيع</span>
-        <button type="button" className="sub" style={{ background: 'none', border: 0, color: 'var(--green)', cursor: 'pointer' }} onClick={clear}>مسح</button>
+        <span className="lbl">{t('signature')}</span>
+        <button type="button" className="sub" style={{ background: 'none', border: 0, color: 'var(--green)', cursor: 'pointer' }} onClick={clear}>{t('clear')}</button>
       </div>
       <canvas ref={canvas} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerLeave={up}
         style={{ width: '100%', height: 150, background: '#fff', border: '1.5px dashed #9AA79D', borderRadius: 14, touchAction: 'none', cursor: 'crosshair' }}
-        aria-label="مكان التوقيع" />
-      {empty && <div className="sub">وقّع بإصبعك أو بالماوس داخل المربع</div>}
+        aria-label={t('signature')} />
+      {empty && <div className="sub">{t('sign_here')}</div>}
     </div>
   )
 }
@@ -77,5 +79,5 @@ export function SignatureImage({ path, height = 60 }) {
     supabase.storage.from('signatures').createSignedUrl(path, 600).then(({ data }) => setUrl(data?.signedUrl))
   }, [path])
   if (!path) return null
-  return url ? <img src={url} alt="التوقيع" style={{ height, background: '#fff', borderRadius: 8, border: '1px solid var(--line)' }} /> : null
+  return url ? <img src={url} alt="signature" style={{ height, background: '#fff', borderRadius: 8, border: '1px solid var(--line)' }} /> : null
 }

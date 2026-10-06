@@ -3,9 +3,10 @@ import { supabase, fmtDate, errMsg } from '../lib/supabase'
 import { useAccess } from '../lib/access.jsx'
 import Icon from '../components/Icon.jsx'
 import SignaturePad, { uploadSignature, SignatureImage } from '../components/SignaturePad.jsx'
+import { useLang } from '../lib/i18n.jsx'
 
 const TYPES = { warning: 'إنذار', final_warning: 'إنذار نهائي', deduction: 'خصم', other: 'إشعار' }
-const STATUS = { pending: ['amber', 'بانتظار التوقيع'], signed: ['ok', 'تم التوقيع'], refused: ['red', 'رفض التوقيع'] }
+const STATUS = { pending: ['amber', 'بانتظار التوقيع', 'ns_pending'], signed: ['ok', 'تم التوقيع', 'ns_signed'], refused: ['red', 'رفض التوقيع', 'ns_refused'] }
 
 function IssueForm({ employees, onClose, onSaved }) {
   const [emp, setEmp] = useState('')
@@ -25,7 +26,7 @@ function IssueForm({ employees, onClose, onSaved }) {
   }
   return (
     <div className="overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <form className="sheet form" onSubmit={save}>
+      <form className="sheet form" onSubmit={save} dir="rtl" lang="ar">
         <div className="sheet-head"><h2 style={{ fontSize: 20 }}>إصدار عقوبة / إنذار</h2>
           <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose}><Icon name="x" /></button></div>
         <div className="field"><label htmlFor="ne">الموظف</label>
@@ -52,12 +53,13 @@ function IssueForm({ employees, onClose, onSaved }) {
 }
 
 function SignSheet({ notice, empId, onClose, onSaved }) {
+  const { t, fmtDate: fd, dir } = useLang()
   const [signed, setSigned] = useState(false)
   const [comment, setComment] = useState('')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const respond = async (sign) => {
-    if (sign && !signed) { setErr('وقّع أول'); return }
+    if (sign && !signed) { setErr(t('sign_first')); return }
     setBusy(true); setErr('')
     try {
       const path = sign ? await uploadSignature(empId) : null
@@ -69,18 +71,18 @@ function SignSheet({ notice, empId, onClose, onSaved }) {
   }
   return (
     <div className="overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="sheet form">
-        <div className="sheet-head"><h2 style={{ fontSize: 20 }}>{TYPES[notice.notice_type]}: {notice.title}</h2>
+      <div className="sheet form" dir={dir}>
+        <div className="sheet-head"><h2 style={{ fontSize: 20 }}>{t('n_' + notice.notice_type)}: {notice.title}</h2>
           <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose}><Icon name="x" /></button></div>
-        <div className="sub">صادر بتاريخ {fmtDate(notice.issued_at)}</div>
+        <div className="sub">{t('issued_on', { d: fd(notice.issued_at) })}</div>
         {notice.details && <div className="card" style={{ whiteSpace: 'pre-line' }}>{notice.details}</div>}
-        {notice.deduction_amount && <div className="warn">خصم {notice.deduction_amount} د.ك من راتب شهر {notice.deduction_period?.slice(0, 7)}</div>}
-        <div className="field"><label htmlFor="sc">تعليقك (اختياري)</label><textarea id="sc" className="input" style={{ height: 70, paddingTop: 10 }} value={comment} onChange={(e) => setComment(e.target.value)} /></div>
+        {notice.deduction_amount && <div className="warn">{t('deduct_from', { a: notice.deduction_amount, m: notice.deduction_period?.slice(0, 7) })}</div>}
+        <div className="field"><label htmlFor="sc">{t('your_comment')}</label><textarea id="sc" className="input" style={{ height: 70, paddingTop: 10 }} value={comment} onChange={(e) => setComment(e.target.value)} /></div>
         <SignaturePad onChange={(empty) => setSigned(!empty)} />
-        <div className="sub">توقيعك يعني إنك استلمت الإشعار واطلعت عليه.</div>
+        <div className="sub">{t('sign_means')}</div>
         {err && <div className="error">{err}</div>}
-        <button className="btn primary block" disabled={busy} onClick={() => respond(true)}>توقيع واستلام</button>
-        <button className="btn danger" disabled={busy} onClick={() => respond(false)}>رفض التوقيع</button>
+        <button className="btn primary block" disabled={busy} onClick={() => respond(true)}>{t('sign_receive')}</button>
+        <button className="btn danger" disabled={busy} onClick={() => respond(false)}>{t('refuse_sign')}</button>
       </div>
     </div>
   )
@@ -90,6 +92,7 @@ export default function Notices() {
   const { access, can } = useAccess()
   const emp = access.employee
   const isIssuer = can('issue_notices')
+  const { t, fmtDate: fd, dir } = useLang()
   const [mine, setMine] = useState([])
   const [all, setAll] = useState([])
   const [employees, setEmployees] = useState([])
@@ -107,37 +110,38 @@ export default function Notices() {
   const name = Object.fromEntries(employees.map((e) => [e.id, e.full_name]))
 
   const Row = ({ n, manager }) => {
-    const [cls, txt] = STATUS[n.status]
+    const [cls, txtAr, key] = STATUS[n.status]
+    const txt = manager ? txtAr : t(key)
     return (
       <div className="list-item" style={{ alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <div className="grow" style={{ minWidth: 220 }}>
-          <div style={{ fontWeight: 600 }}>{manager ? `${name[n.employee_id] || ''} · ` : ''}{TYPES[n.notice_type]}: {n.title}</div>
-          <div className="sub">{fmtDate(n.issued_at)}{n.deduction_amount ? ` · خصم ${n.deduction_amount} د.ك (${n.deduction_period?.slice(0, 7)})` : ''}</div>
-          {n.employee_comment && <div className="sub">تعليق الموظف: {n.employee_comment}</div>}
+          <div style={{ fontWeight: 600 }}>{manager ? `${name[n.employee_id] || ''} · ${TYPES[n.notice_type]}` : t('n_' + n.notice_type)}: {n.title}</div>
+          <div className="sub">{manager ? fmtDate(n.issued_at) : fd(n.issued_at)}{n.deduction_amount ? (manager ? ` · خصم ${n.deduction_amount} د.ك (${n.deduction_period?.slice(0, 7)})` : ` · ${t('deduct_from', { a: n.deduction_amount, m: n.deduction_period?.slice(0, 7) })}`) : ''}</div>
+          {n.employee_comment && <div className="sub">{manager ? 'تعليق الموظف' : t('emp_comment')}: {n.employee_comment}</div>}
           {manager && n.signature_path && <div style={{ marginTop: 6 }}><SignatureImage path={n.signature_path} /></div>}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
           <span className={'pill ' + cls}>{txt}</span>
-          {!manager && n.status === 'pending' && <button className="btn primary" style={{ minHeight: 38 }} onClick={() => setSigning(n)}>اقرأ ووقّع</button>}
+          {!manager && n.status === 'pending' && <button className="btn primary" style={{ minHeight: 38 }} onClick={() => setSigning(n)}>{t('read_sign')}</button>}
         </div>
       </div>
     )
   }
 
   return (
-    <div style={{ maxWidth: 820, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div style={{ maxWidth: 820, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }} dir={dir}>
       <div className="page-head" style={{ marginBottom: 0 }}>
-        <h1>العقوبات والإنذارات</h1>
-        {isIssuer && <button className="btn primary" onClick={() => setIssuing(true)}><Icon name="plus" /> إصدار جديد</button>}
+        <h1>{t('notices_title')}</h1>
+        {isIssuer && <button className="btn primary" lang="ar" onClick={() => setIssuing(true)}><Icon name="plus" /> إصدار جديد</button>}
       </div>
       {(mine.length > 0 || !isIssuer) && (
         <section>
-          <h2 style={{ fontSize: 18, marginBottom: 10 }}>الإشعارات الموجهة لك</h2>
-          <div className="card list" style={{ padding: '4px 14px' }}>{mine.length === 0 ? <div className="empty">ما فيه شي ✓</div> : mine.map((n) => <Row key={n.id} n={n} />)}</div>
+          <h2 style={{ fontSize: 18, marginBottom: 10 }}>{t('notices_for_you')}</h2>
+          <div className="card list" style={{ padding: '4px 14px' }}>{mine.length === 0 ? <div className="empty">{t('nothing')}</div> : mine.map((n) => <Row key={n.id} n={n} />)}</div>
         </section>
       )}
       {isIssuer && (
-        <section>
+        <section dir="rtl" lang="ar">
           <h2 style={{ fontSize: 18, marginBottom: 10 }}>كل الإشعارات الصادرة</h2>
           <div className="card list" style={{ padding: '4px 14px' }}>{all.length === 0 ? <div className="empty">ما فيه إشعارات</div> : all.map((n) => <Row key={n.id} n={n} manager />)}</div>
         </section>
