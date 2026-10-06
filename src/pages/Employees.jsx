@@ -17,8 +17,11 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
   })
   const canPay = can('manage_payroll')
   const [salary, setSalary] = useState('')
+  // allowances being edited: existing rows keep their id; new rows have none; removed rows are flagged
   const [allowances, setAllowances] = useState([])
-  const [newAllow, setNewAllow] = useState({ name: '', amount: '' })
+  const addAllow = (name = '') => setAllowances((a) => [...a, { key: Math.random(), name, amount: '' }])
+  const editAllow = (i, k, v) => setAllowances((a) => a.map((x, j) => (j === i ? { ...x, [k]: v } : x)))
+  const removeAllow = (i) => setAllowances((a) => a.map((x, j) => (j === i ? { ...x, removed: true } : x)))
   useEffect(() => {
     if (!emp || !canPay) return
     supabase.from('employee_salaries').select('basic_salary').eq('employee_id', emp.id).maybeSingle().then(({ data }) => setSalary(data?.basic_salary ?? ''))
@@ -59,8 +62,15 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
         if (salary !== '') {
           const { error } = await supabase.from('employee_salaries').upsert({ employee_id: id, basic_salary: Number(salary), updated_at: new Date().toISOString() }); if (error) throw error
         }
-        if (newAllow.name && newAllow.amount) {
-          const { error } = await supabase.from('employee_allowances').insert({ employee_id: id, name: newAllow.name, amount: Number(newAllow.amount) }); if (error) throw error
+        for (const a of allowances) {
+          const name = String(a.name || '').trim()
+          if (a.id && (a.removed || !name)) {
+            const { error } = await supabase.from('employee_allowances').update({ active: false }).eq('id', a.id); if (error) throw error
+          } else if (a.id) {
+            const { error } = await supabase.from('employee_allowances').update({ name, amount: Number(a.amount) || 0 }).eq('id', a.id); if (error) throw error
+          } else if (!a.removed && name && Number(a.amount) > 0) {
+            const { error } = await supabase.from('employee_allowances').insert({ employee_id: id, name, amount: Number(a.amount) }); if (error) throw error
+          }
         }
       }
       onSaved()
@@ -109,14 +119,22 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
                 <div className="field"><label htmlFor="bs">الراتب الأساسي (د.ك)</label><input id="bs" type="number" step="0.001" className="input" value={salary} onChange={(e) => setSalary(e.target.value)} /></div>
                 <div className="field"><label htmlFor="lb">رصيد الإجازات (يوم)</label><input id="lb" type="number" step="0.25" className="input" value={f.leave_balance} onChange={set('leave_balance')} /></div>
               </div>
-              <span className="lbl" style={{ fontSize: 14, fontWeight: 600 }}>البدلات الشهرية</span>
-              {allowances.map((a) => (
-                <div key={a.id} className="row"><span className="grow">{a.name}</span><strong>{Number(a.amount).toFixed(3)}</strong>
-                  <button type="button" className="btn danger" style={{ minHeight: 34 }} onClick={async () => { await supabase.from('employee_allowances').update({ active: false }).eq('id', a.id); setAllowances(allowances.filter((x) => x.id !== a.id)) }}>إزالة</button></div>
+              <div className="row" style={{ justifyContent: 'space-between' }}>
+                <span className="lbl" style={{ fontSize: 14, fontWeight: 600 }}>البدلات الشهرية</span>
+                <span className="sub">المجموع: {allowances.filter((a) => !a.removed).reduce((t, a) => t + (Number(a.amount) || 0), 0).toFixed(3)} د.ك</span>
+              </div>
+              {allowances.map((a, i) => a.removed ? null : (
+                <div key={a.id || a.key} className="grid" style={{ gridTemplateColumns: '2fr 1fr auto', alignItems: 'center' }}>
+                  <input className="input" aria-label="اسم البدل" placeholder="اسم البدل" value={a.name} onChange={(e) => editAllow(i, 'name', e.target.value)} />
+                  <input className="input ltr" aria-label="المبلغ" type="number" step="0.001" min="0" placeholder="المبلغ" value={a.amount} onChange={(e) => editAllow(i, 'amount', e.target.value)} />
+                  <button type="button" className="icon-btn" aria-label="إزالة البدل" onClick={() => removeAllow(i)}><Icon name="x" /></button>
+                </div>
               ))}
-              <div className="grid" style={{ gridTemplateColumns: '2fr 1fr' }}>
-                <input className="input" placeholder="اسم البدل (سكن، مواصلات…)" value={newAllow.name} onChange={(e) => setNewAllow({ ...newAllow, name: e.target.value })} />
-                <input className="input" type="number" step="0.001" placeholder="المبلغ" value={newAllow.amount} onChange={(e) => setNewAllow({ ...newAllow, amount: e.target.value })} />
+              <div className="chips">
+                <button type="button" className="chip" onClick={() => addAllow()}>+ إضافة بدل</button>
+                {['بدل سكن', 'بدل مواصلات', 'بدل عدوى', 'بدل طعام', 'بدل هاتف']
+                  .filter((n) => !allowances.some((a) => !a.removed && a.name === n))
+                  .map((n) => <button type="button" key={n} className="chip" style={{ borderStyle: 'dashed' }} onClick={() => addAllow(n)}>+ {n}</button>)}
               </div>
             </div>
           )}
