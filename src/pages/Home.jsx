@@ -25,6 +25,8 @@ export default function Home() {
   const emp = access.employee
   const [today, setToday] = useState(null)
   const [docAlert, setDocAlert] = useState(null)
+  const [missed, setMissed] = useState(0)
+  const [notices, setNotices] = useState(0)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState(null)
 
@@ -33,6 +35,8 @@ export default function Home() {
     setToday(data?.[0] || null)
     const { data: docs } = await supabase.from('employee_documents_status').select('document_type_name,days_left,status').eq('employee_id', emp.id).neq('status', 'valid').order('days_left').limit(1)
     setDocAlert(docs?.[0] || null)
+    supabase.from('missed_punches').select('id', { count: 'exact', head: true }).eq('employee_id', emp.id).eq('resolved', false).then(({ count }) => setMissed(count || 0))
+    supabase.from('disciplinary_notices').select('id', { count: 'exact', head: true }).eq('employee_id', emp.id).eq('status', 'pending').then(({ count }) => setNotices(count || 0))
   }, [emp.id])
 
   useEffect(() => { load() }, [load])
@@ -105,6 +109,12 @@ export default function Home() {
         <div className="card stat" style={{ textAlign: 'center', padding: 12 }}><div className="label">الساعات</div><div style={{ fontSize: 17, fontWeight: 600 }} className="ltr">{Math.floor(hours)}:{String(Math.round((hours % 1) * 60)).padStart(2, '0')}</div></div>
       </div>
 
+      {missed > 0 && <Link to="/corrections" className="warn"><Icon name="finger" /><span className="grow">عندك {missed} بصمة ناقصة</span><strong>أرسل طلب</strong></Link>}
+      {notices > 0 && <Link to="/notices" className="warn" style={{ background: 'var(--red-bg)', color: 'var(--red)' }}><Icon name="warn" /><span className="grow">وصلك إشعار من الإدارة يحتاج توقيعك</span><strong>اقرأ</strong></Link>}
+      <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+        <Link to="/leaves" className="btn">طلب إجازة · رصيدك {emp.leave_balance}</Link>
+        <Link to="/corrections" className="btn">نسيت أبصم</Link>
+      </div>
       {docAlert && (
         <Link to="/my-documents" className="warn" style={docAlert.status === 'expired' ? { background: 'var(--red-bg)', color: 'var(--red)' } : null}>
           <Icon name="warn" />

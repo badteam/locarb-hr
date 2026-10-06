@@ -113,3 +113,9 @@ td { padding: 12px 8px; border-bottom: 1px solid #EEF1EC; }
 .bar { height: 10px; border-radius: 5px; background: #EEF1EC; flex: 1; overflow: hidden; }
 .bar > div { height: 100%; background: var(--green); border-radius: 5px; }
 .ltr { direction: ltr; unicode-bidi: isolate; }
+
+@media print {
+  .no-print, .side, .bottomnav { display: none !important; }
+  body, .main { background: #fff; padding: 0 !important; }
+  .payslip { border: 0; }
+}

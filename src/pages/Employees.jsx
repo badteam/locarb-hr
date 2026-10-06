@@ -4,13 +4,27 @@ import { useAccess } from '../lib/access.jsx'
 import Icon from '../components/Icon.jsx'
 import DocumentForm from '../components/DocumentForm.jsx'
 
+const DAYS = [['saturday','السبت'],['sunday','الأحد'],['monday','الاثنين'],['tuesday','الثلاثاء'],['wednesday','الأربعاء'],['thursday','الخميس'],['friday','الجمعة']]
+
 function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
   const { access, can } = useAccess()
   const [f, setF] = useState({
     full_name: emp?.full_name || '', phone: emp?.phone || '', email: emp?.email || '', job_title: emp?.job_title || '',
     branch_id: emp?.branch_id || '', shift_id: emp?.shift_id || '', role_id: emp?.role_id || roles.find((r) => r.name === 'موظف')?.id || '',
     hire_date: emp?.hire_date || '', active: emp?.active ?? true,
+    working_hours: emp?.working_hours ?? '', annual_leave_days: emp?.annual_leave_days ?? 30,
+    weekly_holidays: emp?.weekly_holidays || [], leave_balance: emp?.leave_balance ?? 0,
   })
+  const canPay = can('manage_payroll')
+  const [salary, setSalary] = useState('')
+  const [allowances, setAllowances] = useState([])
+  const [newAllow, setNewAllow] = useState({ name: '', amount: '' })
+  useEffect(() => {
+    if (!emp || !canPay) return
+    supabase.from('employee_salaries').select('basic_salary').eq('employee_id', emp.id).maybeSingle().then(({ data }) => setSalary(data?.basic_salary ?? ''))
+    supabase.from('employee_allowances').select('*').eq('employee_id', emp.id).eq('active', true).then(({ data }) => setAllowances(data || []))
+  }, [emp, canPay])
+  const toggleDay = (d) => setF((x) => ({ ...x, weekly_holidays: x.weekly_holidays.includes(d) ? x.weekly_holidays.filter((y) => y !== d) : [...x.weekly_holidays, d] }))
   const [password, setPassword] = useState('')
   const [err, setErr] = useState('')
   const [ok, setOk] = useState('')
@@ -30,8 +44,10 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
   const save = async (e) => {
     e.preventDefault(); setBusy(true); setErr(''); setOk('')
     try {
-      const row = { ...f, branch_id: f.branch_id || null, shift_id: f.shift_id || null, role_id: f.role_id || null, hire_date: f.hire_date || null, phone: f.phone.replace(/\D/g, '') || null }
+      const row = { ...f, branch_id: f.branch_id || null, shift_id: f.shift_id || null, role_id: f.role_id || null, hire_date: f.hire_date || null, phone: f.phone.replace(/\D/g, '') || null,
+        working_hours: f.working_hours === '' ? null : Number(f.working_hours), annual_leave_days: Number(f.annual_leave_days) || 0, leave_balance: Number(f.leave_balance) || 0 }
       if (!access.is_owner) delete row.role_id
+      if (!canPay) delete row.leave_balance
       let id = emp?.id
       if (emp) {
         const { error } = await supabase.from('employees').update(row).eq('id', emp.id); if (error) throw error
@@ -39,6 +55,14 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
         if (!access.is_owner) row.role_id = roles.find((r) => r.name === 'موظف')?.id || null
         const { data, error } = await supabase.from('employees').insert(row).select('id').single(); if (error) throw error
         id = data.id
+      }
+      if (canPay) {
+        if (salary !== '') {
+          const { error } = await supabase.from('employee_salaries').upsert({ employee_id: id, basic_salary: Number(salary), updated_at: new Date().toISOString() }); if (error) throw error
+        }
+        if (newAllow.name && newAllow.amount) {
+          const { error } = await supabase.from('employee_allowances').insert({ employee_id: id, name: newAllow.name, amount: Number(newAllow.amount) }); if (error) throw error
+        }
       }
       if (password) {
         const { data, error } = await supabase.functions.invoke('employee-account', { body: { action: emp?.user_id ? 'update' : 'create', employee_id: id, phone: row.phone, password } })
@@ -77,6 +101,31 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
               </select></div>
             <div className="field"><label htmlFor="h">تاريخ التعيين</label><input id="h" type="date" className="input" value={f.hire_date} onChange={set('hire_date')} /></div>
           </div>
+          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <div className="field"><label htmlFor="wh">ساعات العمل باليوم</label><input id="wh" type="number" step="0.5" className="input" value={f.working_hours} onChange={set('working_hours')} /></div>
+            <div className="field"><label htmlFor="al">الإجازة السنوية (يوم)</label><input id="al" type="number" className="input" value={f.annual_leave_days} onChange={set('annual_leave_days')} /></div>
+          </div>
+          <div className="field"><span className="lbl">أيام العطلة الأسبوعية</span>
+            <div className="chips">{DAYS.map(([k, t]) => <button type="button" key={k} className={'chip' + (f.weekly_holidays.includes(k) ? ' on' : '')} onClick={() => toggleDay(k)}>{t}</button>)}</div>
+          </div>
+          {canPay && (
+            <div className="card form" style={{ gap: 10 }}>
+              <strong style={{ fontSize: 14 }}>الراتب والإجازات</strong>
+              <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                <div className="field"><label htmlFor="bs">الراتب الأساسي (د.ك)</label><input id="bs" type="number" step="0.001" className="input" value={salary} onChange={(e) => setSalary(e.target.value)} /></div>
+                <div className="field"><label htmlFor="lb">رصيد الإجازات (يوم)</label><input id="lb" type="number" step="0.25" className="input" value={f.leave_balance} onChange={set('leave_balance')} /></div>
+              </div>
+              <span className="lbl" style={{ fontSize: 14, fontWeight: 600 }}>البدلات الشهرية</span>
+              {allowances.map((a) => (
+                <div key={a.id} className="row"><span className="grow">{a.name}</span><strong>{Number(a.amount).toFixed(3)}</strong>
+                  <button type="button" className="btn danger" style={{ minHeight: 34 }} onClick={async () => { await supabase.from('employee_allowances').update({ active: false }).eq('id', a.id); setAllowances(allowances.filter((x) => x.id !== a.id)) }}>إزالة</button></div>
+              ))}
+              <div className="grid" style={{ gridTemplateColumns: '2fr 1fr' }}>
+                <input className="input" placeholder="اسم البدل (سكن، مواصلات…)" value={newAllow.name} onChange={(e) => setNewAllow({ ...newAllow, name: e.target.value })} />
+                <input className="input" type="number" step="0.001" placeholder="المبلغ" value={newAllow.amount} onChange={(e) => setNewAllow({ ...newAllow, amount: e.target.value })} />
+              </div>
+            </div>
+          )}
           <div className="field"><label htmlFor="em">الإيميل (اختياري، للتنبيهات)</label><input id="em" type="email" className="input ltr" style={{ textAlign: 'right' }} value={f.email} onChange={set('email')} /></div>
           <label className="check"><input type="checkbox" checked={f.active} onChange={set('active')} /> الموظف على رأس عمله</label>
 

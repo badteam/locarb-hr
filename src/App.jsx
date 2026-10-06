@@ -13,6 +13,11 @@ import Branches from './pages/Branches.jsx'
 import Roles from './pages/Roles.jsx'
 import Notifications from './pages/Notifications.jsx'
 import Attendance from './pages/Attendance.jsx'
+import Leaves from './pages/Leaves.jsx'
+import Corrections from './pages/Corrections.jsx'
+import Notices from './pages/Notices.jsx'
+import Payroll from './pages/Payroll.jsx'
+import Payslips from './pages/Payslips.jsx'
 
 function useUnread(enabled) {
   const [n, setN] = useState(0)
@@ -45,7 +50,12 @@ export default function App() {
   const nav = [
     { to: '/', icon: 'home', label: 'الرئيسية', show: true },
     { to: '/my-documents', icon: 'doc', label: 'مستنداتي', show: true },
+    { to: '/leaves', icon: 'calendar', label: 'الإجازات', show: true },
+    { to: '/corrections', icon: 'finger', label: 'نسيان البصمة', show: true },
+    { to: '/payslips', icon: 'doc', label: 'كشوف راتبي', show: true },
+    { to: '/notices', icon: 'warn', label: 'العقوبات والإنذارات', show: true },
     { to: '/dashboard', icon: 'dash', label: 'لوحة اليوم', show: isManager },
+    { to: '/payroll', icon: 'box', label: 'الرواتب', show: can('manage_payroll') },
     { to: '/attendance', icon: 'calendar', label: 'سجل الحضور', show: can('view_attendance') },
     { to: '/documents', icon: 'warn', label: 'كل المستندات', show: can('manage_documents') },
     { to: '/employees', icon: 'users', label: 'الموظفين', show: can('view_employees') || can('manage_employees') },
@@ -56,11 +66,11 @@ export default function App() {
 
   const mobileNav = isManager
     ? nav.filter((x) => ['/', '/dashboard', '/employees', '/documents', '/notifications'].includes(x.to))
-    : nav.filter((x) => ['/', '/my-documents', '/notifications'].includes(x.to))
+    : nav.filter((x) => ['/', '/leaves', '/my-documents', '/payslips', '/notifications'].includes(x.to))
 
   return (
     <div className="shell">
-      <aside className="side">
+      <aside className="side no-print">
         <div className="brand">LoCarb HR</div>
         {nav.map((x) => (
           <NavLink key={x.to} to={x.to} end className={({ isActive }) => 'navlink' + (isActive ? ' active' : '')}>
@@ -79,6 +89,11 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/my-documents" element={<MyDocuments />} />
           <Route path="/notifications" element={<Notifications />} />
+          <Route path="/leaves" element={<Leaves />} />
+          <Route path="/corrections" element={<Corrections />} />
+          <Route path="/notices" element={<Notices />} />
+          <Route path="/payslips" element={<Payslips />} />
+          {can('manage_payroll') && <Route path="/payroll" element={<Payroll />} />}
           {isManager && <Route path="/dashboard" element={<Dashboard />} />}
           {can('view_attendance') && <Route path="/attendance" element={<Attendance />} />}
           {can('manage_documents') && <Route path="/documents" element={<AllDocuments />} />}
@@ -89,7 +104,7 @@ export default function App() {
         </Routes>
       </main>
 
-      <nav className="bottomnav">
+      <nav className="bottomnav no-print">
         {mobileNav.map((x) => (
           <NavLink key={x.to} to={x.to} end className={({ isActive }) => (isActive ? 'active' : '')}>
             <span style={{ position: 'relative' }}>
