@@ -25,6 +25,7 @@ export default function Home() {
   const [docAlert, setDocAlert] = useState(null)
   const [missed, setMissed] = useState(0)
   const [notices, setNotices] = useState(0)
+  const [ot, setOt] = useState({ a: 0, p: 0 })
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState(null)
 
@@ -34,9 +35,12 @@ export default function Home() {
     const { data: docs } = await supabase.from('employee_documents_status').select('document_type_name,days_left,status').eq('employee_id', emp.id).neq('status', 'valid').order('days_left').limit(1)
     setDocAlert(docs?.[0] || null)
     supabase.from('missed_punches').select('id', { count: 'exact', head: true }).eq('employee_id', emp.id).eq('resolved', false).then(({ count }) => setMissed(count || 0))
+    supabase.from('overtime_entries').select('status,minutes,approved_minutes').eq('employee_id', emp.id).gte('work_date', todayKuwait().slice(0, 7) + '-01').in('status', ['approved', 'pending'])
+      .then(({ data }) => setOt({ a: (data || []).filter((x) => x.status === 'approved').reduce((s, x) => s + (x.approved_minutes || 0), 0), p: (data || []).filter((x) => x.status === 'pending').reduce((s, x) => s + x.minutes, 0) }))
     supabase.from('disciplinary_notices').select('id', { count: 'exact', head: true }).eq('employee_id', emp.id).eq('status', 'pending').then(({ count }) => setNotices(count || 0))
   }, [emp.id])
-  useEffect(() => { load() }, [load])
+  const { reload } = useAccess()
+  useEffect(() => { load(); reload() }, [load, reload])
 
   const open = today && !today.check_out_at
   const done = today && today.check_out_at
@@ -105,6 +109,12 @@ export default function Home() {
         <div className="card stat" style={{ textAlign: 'center', padding: 12 }}><div className="label">{t('hours')}</div><div style={{ fontSize: 17, fontWeight: 600 }} className="ltr">{Math.floor(hours)}:{String(Math.round((hours % 1) * 60)).padStart(2, '0')}</div></div>
       </div>
 
+      {(ot.a > 0 || ot.p > 0) && (
+        <div className="card row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+          <strong>{t('ot_month')}</strong>
+          <span className="sub">{t('ot_approved', { n: (ot.a / 60).toFixed(1) })}{ot.p > 0 ? ' · ' + t('ot_pending', { n: (ot.p / 60).toFixed(1) }) : ''}</span>
+        </div>
+      )}
       {missed > 0 && <Link to="/corrections" className="warn"><Icon name="finger" /><span className="grow">{t('missed_count', { n: missed })}</span><strong>{t('send_request')}</strong></Link>}
       {notices > 0 && <Link to="/notices" className="warn" style={{ background: 'var(--red-bg)', color: 'var(--red)' }}><Icon name="warn" /><span className="grow">{t('notice_needs_sign')}</span><strong>{t('read')}</strong></Link>}
       <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>

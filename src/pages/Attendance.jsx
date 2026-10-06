@@ -63,6 +63,7 @@ export default function Attendance() {
   const [branch, setBranch] = useState('')
   const [branches, setBranches] = useState([])
   const [rows, setRows] = useState([])
+  const [ot, setOt] = useState({})
   const [emps, setEmps] = useState({})
 
   useEffect(() => {
@@ -74,6 +75,8 @@ export default function Attendance() {
     let q = supabase.from('attendance').select('*').gte('work_date', from).lte('work_date', to).order('check_in_at', { ascending: false }).limit(1000)
     if (branch) q = q.eq('branch_id', branch)
     q.then(({ data }) => setRows(data || []))
+    supabase.from('overtime_entries').select('employee_id,work_date,minutes,approved_minutes,status').gte('work_date', from).lte('work_date', to).in('status', ['pending', 'approved'])
+      .then(({ data }) => setOt(Object.fromEntries((data || []).map((o) => [o.employee_id + o.work_date, o]))))
   }, [from, to, branch, tick])
 
   const bName = Object.fromEntries(branches.map((b) => [b.id, b.name]))
@@ -109,7 +112,7 @@ export default function Attendance() {
       <div className="card table-wrap">
         {rows.length === 0 ? <div className="empty">ما فيه سجلات في هالفترة</div> : (
           <table>
-            <thead><tr><th>الموظف</th><th>الفرع</th><th>التاريخ</th><th>الحضور</th><th>الانصراف</th><th>الساعات</th><th>ملاحظات</th>{canEdit && <th></th>}</tr></thead>
+            <thead><tr><th>الموظف</th><th>الفرع</th><th>التاريخ</th><th>الحضور</th><th>الانصراف</th><th>الساعات</th><th>إضافي</th><th>ملاحظات</th>{canEdit && <th></th>}</tr></thead>
             <tbody>
               {rows.map((a) => (
                 <tr key={a.id}>
@@ -119,6 +122,7 @@ export default function Attendance() {
                   <td>{fmtTime(a.check_in_at)}</td>
                   <td>{fmtTime(a.check_out_at)}</td>
                   <td>{hours(a)}</td>
+                  <td>{(() => { const o = ot[a.employee_id + a.work_date]; if (!o) return '—'; const m = o.status === 'approved' ? o.approved_minutes : o.minutes; return <span className={'pill ' + (o.status === 'approved' ? 'ok' : 'amber')}>{(m / 60).toFixed(1)} س{o.status === 'pending' ? ' · ينتظر' : ''}</span> })()}</td>
                   <td>
                     {a.late_minutes > 0 && <span className="pill amber">متأخر {a.late_minutes} د</span>}{' '}
                     {a.inside_geofence === false && <span className="pill red">برا الفرع</span>}{' '}

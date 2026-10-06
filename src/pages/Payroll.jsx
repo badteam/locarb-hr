@@ -54,6 +54,8 @@ function Settings({ onClose }) {
       working_days_per_month: Number(s.working_days_per_month), hours_per_day: Number(s.hours_per_day),
       late_deduction_enabled: s.late_deduction_enabled, absence_deduction_enabled: s.absence_deduction_enabled,
       monthly_leave_accrual: Number(s.monthly_leave_accrual),
+      ot_mode: s.ot_mode, ot_rate: Number(s.ot_rate) || 0, ot_multiplier: Number(s.ot_multiplier) || 1,
+      ot_offday_factor: Number(s.ot_offday_factor) || 1, ot_min_minutes: Number(s.ot_min_minutes) || 0,
     }).eq('id', 1)
     if (error) setErr(errMsg(error)); else onClose()
   }
@@ -70,6 +72,22 @@ function Settings({ onClose }) {
         <label className="check"><input type="checkbox" checked={s.absence_deduction_enabled} onChange={set('absence_deduction_enabled')} /> خصم الغياب تلقائياً (باليوم)</label>
         <div className="field"><label htmlFor="ac">رصيد الإجازة اللي ينضاف كل شهر (يوم)</label><input id="ac" type="number" step="0.25" className="input" value={s.monthly_leave_accrual} onChange={set('monthly_leave_accrual')} /></div>
         <div className="sub">قيمة اليوم = الراتب الأساسي ÷ أيام العمل. قيمة الدقيقة = قيمة اليوم ÷ (الساعات × 60).</div>
+        <div className="card form" style={{ gap: 10 }}>
+          <strong style={{ fontSize: 15 }}>الإضافي (السعر العام لكل الموظفين)</strong>
+          <div className="chips">
+            <button type="button" className={'chip' + (s.ot_mode === 'fixed' ? ' on' : '')} onClick={() => setS({ ...s, ot_mode: 'fixed' })}>مبلغ ثابت للساعة</button>
+            <button type="button" className={'chip' + (s.ot_mode === 'multiplier' ? ' on' : '')} onClick={() => setS({ ...s, ot_mode: 'multiplier' })}>نسبة من أجر الساعة</button>
+          </div>
+          {s.ot_mode === 'fixed'
+            ? <div className="field"><label htmlFor="otr">سعر الساعة الإضافية (د.ك)</label><input id="otr" type="number" step="0.001" min="0" className="input" value={s.ot_rate} onChange={set('ot_rate')} /></div>
+            : <div className="field"><label htmlFor="otm">كم ضعف أجر الساعة العادية</label><input id="otm" type="number" step="0.05" min="1" className="input" value={s.ot_multiplier} onChange={set('ot_multiplier')} />
+                <div className="sub">مثلاً 1.25 = أجر الساعة + ٢٥٪. أجر الساعة = الراتب ÷ أيام العمل ÷ ساعات اليوم.</div></div>}
+          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <div className="field"><label htmlFor="otf">يوم العطلة / الأوف: × كم</label><input id="otf" type="number" step="0.05" min="1" className="input" value={s.ot_offday_factor} onChange={set('ot_offday_factor')} /></div>
+            <div className="field"><label htmlFor="otmin">أقل مدة تنحسب (دقيقة)</label><input id="otmin" type="number" step="5" min="0" className="input" value={s.ot_min_minutes} onChange={set('ot_min_minutes')} /></div>
+          </div>
+          <div className="sub">تقدر تحط سعر خاص لموظف معيّن من صفحته في "الموظفين".</div>
+        </div>
         {err && <div className="error">{err}</div>}
         <button className="btn primary block">حفظ</button>
       </form>

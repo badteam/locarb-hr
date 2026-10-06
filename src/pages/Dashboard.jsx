@@ -9,7 +9,7 @@ export default function Dashboard() {
   const [att, setAtt] = useState([])
   const [branches, setBranches] = useState([])
   const [docs, setDocs] = useState([])
-  const [pend, setPend] = useState({ leaves: 0, corrections: 0, missed: 0, notices: 0 })
+  const [pend, setPend] = useState({ leaves: 0, corrections: 0, missed: 0, notices: 0, ot: 0 })
 
   useEffect(() => {
     supabase.from('employees').select('id,full_name,job_title,branch_id').eq('active', true).then(({ data }) => setEmps(data || []))
@@ -22,7 +22,8 @@ export default function Dashboard() {
       can('manage_attendance') ? cnt(supabase.from('punch_corrections').select('id', { count: 'exact', head: true }).eq('status', 'pending')) : 0,
       can('view_attendance') ? cnt(supabase.from('missed_punches').select('id', { count: 'exact', head: true }).eq('resolved', false)) : 0,
       can('issue_notices') ? cnt(supabase.from('disciplinary_notices').select('id', { count: 'exact', head: true }).eq('status', 'refused')) : 0,
-    ]).then(([leaves, corrections, missed, notices]) => setPend({ leaves, corrections, missed, notices }))
+      can('approve_overtime') ? cnt(supabase.from('overtime_entries').select('id', { count: 'exact', head: true }).eq('status', 'pending')) : 0,
+    ]).then(([leaves, corrections, missed, notices, ot]) => setPend({ leaves, corrections, missed, notices, ot }))
   }, [can])
 
   const present = new Set(att.filter((a) => !a.check_out_at).map((a) => a.employee_id))
@@ -48,11 +49,12 @@ export default function Dashboard() {
         </div>
       )}
 
-      {(pend.leaves + pend.corrections + pend.missed + pend.notices) > 0 && (
+      {(pend.leaves + pend.corrections + pend.missed + pend.notices + pend.ot) > 0 && (
         <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom: 20 }}>
           {pend.leaves > 0 && <Link to="/leaves" className="warn"><strong>{pend.leaves}</strong> طلب إجازة ينتظر موافقتك</Link>}
           {pend.corrections > 0 && <Link to="/corrections" className="warn"><strong>{pend.corrections}</strong> طلب نسيان بصمة</Link>}
           {pend.missed > 0 && <Link to="/corrections" className="warn"><strong>{pend.missed}</strong> بصمة ناقصة</Link>}
+          {pend.ot > 0 && <Link to="/overtime" className="warn"><strong>{pend.ot}</strong> إضافي ينتظر موافقتك</Link>}
           {pend.notices > 0 && <Link to="/notices" className="warn" style={{ background: 'var(--red-bg)', color: 'var(--red)' }}><strong>{pend.notices}</strong> رفض توقيع</Link>}
         </div>
       )}

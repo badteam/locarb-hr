@@ -13,7 +13,7 @@ export default function AllDocuments() {
 
   const shown = docs.filter((d) =>
     (f === 'all' || (f === 'attention' ? d.status !== 'valid' : d.status === f)) &&
-    (!search || d.employee_name?.includes(search) || d.document_type_name?.includes(search)))
+    (!search || d.employee_name?.toLowerCase().includes(search.trim().toLowerCase()) || d.document_type_name?.includes(search.trim())))
 
   return (
     <div>

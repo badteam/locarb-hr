@@ -14,7 +14,7 @@ export default function PayslipView({ slip, employee, branchName, admin }) {
   const earn = [
     [t('basic_salary'), slip.basic_salary],
     ...(slip.allowances || []).map((a) => [item(a.name), a.amount]),
-    ...(Number(slip.overtime_total) ? [[t('overtime'), slip.overtime_total]] : []),
+    ...(Number(slip.overtime_total) ? [[slip.overtime_minutes ? `${t('overtime')} (${t('ot_hours', { n: (slip.overtime_minutes / 60).toFixed(2) })})` : t('overtime'), slip.overtime_total]] : []),
     ...(slip.extra_items || []).filter((x) => x.amount > 0).map((x) => [item(x.name), x.amount]),
   ]
   const ded = [

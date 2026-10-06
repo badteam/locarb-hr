@@ -65,6 +65,7 @@ export default function Leaves() {
   const [open, setOpen] = useState(false)
   const [note, setNote] = useState({})
   const [msg, setMsg] = useState('')
+  const [okMsg, setOkMsg] = useState('')
   const isApprover = can('approve_leaves')
   const { t, tn, fmtDate: fd, dir } = useLang()
 
@@ -75,13 +76,21 @@ export default function Leaves() {
       supabase.from('employees').select('id,full_name,job_title,leave_balance').then(({ data }) => setNames(Object.fromEntries((data || []).map((e) => [e.id, e]))))
     }
   }, [emp.id, isApprover])
-  useEffect(() => { load(); supabase.from('leave_types').select('*').order('sort_order').then(({ data }) => setTypes((data || []).filter((x) => x.name !== 'أوف'))) }, [load])
+  useEffect(() => { reload(); load(); supabase.from('leave_types').select('*').order('sort_order').then(({ data }) => setTypes((data || []).filter((x) => x.name !== 'أوف'))) }, [load])
   const tName = Object.fromEntries(types.map((t) => [t.id, t.name]))
 
   const decide = async (id, ok) => {
-    setMsg('')
+    setMsg(''); setOkMsg('')
+    const r = pending.find((x) => x.id === id)
+    const before = Number(names[r?.employee_id]?.leave_balance ?? 0)
     const { error } = await supabase.rpc('decide_leave', { p_request: id, p_approve: ok, p_note: note[id] || null })
-    if (error) setMsg(error.message.includes('insufficient') ? 'رصيد الموظف ما يكفي' : errMsg(error)); else load()
+    if (error) { setMsg(error.message.includes('insufficient') ? 'رصيد الموظف ما يكفي' : errMsg(error)); return }
+    const { data: after } = await supabase.from('employees').select('leave_balance').eq('id', r.employee_id).single()
+    const nm = names[r.employee_id]?.full_name || ''
+    setOkMsg(ok
+      ? (Number(after?.leave_balance) !== before ? `تمت الموافقة. رصيد ${nm} كان ${before} يوم وصار ${Number(after?.leave_balance)} يوم.` : `تمت الموافقة على إجازة ${nm} (هالنوع ما ينخصم من الرصيد).`)
+      : `تم رفض طلب ${nm}.`)
+    load()
   }
   const cancel = async (id) => { await supabase.rpc('cancel_leave', { p_request: id }); load() }
 
@@ -122,7 +131,8 @@ export default function Leaves() {
         <div><h1>{t('leave_title')}</h1><div className="sub">{t('your_balance', { n: emp.leave_balance })}</div></div>
         <button className="btn primary" onClick={() => setOpen(true)}><Icon name="plus" /> {t('request_leave')}</button>
       </div>
-      {msg && <div className="error">{msg}</div>}
+      {msg && <div className="error" dir="rtl">{msg}</div>}
+      {okMsg && <div className="notice" dir="rtl">{okMsg}</div>}
       {isApprover && (
         <section dir="rtl" lang="ar">
           <h2 style={{ fontSize: 18, marginBottom: 10 }}>طلبات تنتظر موافقتك {waiting.length > 0 && <span className="badge">{waiting.length}</span>}</h2>

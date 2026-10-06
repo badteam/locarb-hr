@@ -14,6 +14,7 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
     hire_date: emp?.hire_date || '', active: emp?.active ?? true,
     working_hours: emp?.working_hours ?? '', annual_leave_days: emp?.annual_leave_days ?? 30,
     weekly_holidays: emp?.weekly_holidays || [], leave_balance: emp?.leave_balance ?? 0,
+    ot_mode: emp?.ot_mode || '', ot_rate: emp?.ot_rate ?? '', ot_multiplier: emp?.ot_multiplier ?? '',
   })
   const canPay = can('manage_payroll')
   const [salary, setSalary] = useState('')
@@ -47,9 +48,10 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
     e.preventDefault(); setBusy(true); setErr(''); setOk('')
     try {
       const row = { ...f, branch_id: f.branch_id || null, shift_id: f.shift_id || null, role_id: f.role_id || null, hire_date: f.hire_date || null, phone: f.phone.replace(/\D/g, '') || null,
-        working_hours: f.working_hours === '' ? null : Number(f.working_hours), annual_leave_days: Number(f.annual_leave_days) || 0, leave_balance: Number(f.leave_balance) || 0 }
+        working_hours: f.working_hours === '' ? null : Number(f.working_hours), annual_leave_days: Number(f.annual_leave_days) || 0, leave_balance: Number(f.leave_balance) || 0,
+        ot_mode: f.ot_mode || null, ot_rate: f.ot_mode === 'fixed' && f.ot_rate !== '' ? Number(f.ot_rate) : null, ot_multiplier: f.ot_mode === 'multiplier' && f.ot_multiplier !== '' ? Number(f.ot_multiplier) : null }
       if (!access.is_owner) delete row.role_id
-      if (!canPay) delete row.leave_balance
+      if (!canPay) { delete row.leave_balance; delete row.ot_mode; delete row.ot_rate; delete row.ot_multiplier }
       let id = emp?.id
       if (emp) {
         const { error } = await supabase.from('employees').update(row).eq('id', emp.id); if (error) throw error
@@ -119,6 +121,14 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
                 <div className="field"><label htmlFor="bs">الراتب الأساسي (د.ك)</label><input id="bs" type="number" step="0.001" className="input" value={salary} onChange={(e) => setSalary(e.target.value)} /></div>
                 <div className="field"><label htmlFor="lb">رصيد الإجازات (يوم)</label><input id="lb" type="number" step="0.25" className="input" value={f.leave_balance} onChange={set('leave_balance')} /></div>
               </div>
+              <span className="lbl" style={{ fontSize: 14, fontWeight: 600 }}>سعر الإضافي لهذا الموظف</span>
+              <div className="chips">
+                <button type="button" className={'chip' + (!f.ot_mode ? ' on' : '')} onClick={() => setF({ ...f, ot_mode: '' })}>السعر العام</button>
+                <button type="button" className={'chip' + (f.ot_mode === 'fixed' ? ' on' : '')} onClick={() => setF({ ...f, ot_mode: 'fixed' })}>مبلغ ثابت</button>
+                <button type="button" className={'chip' + (f.ot_mode === 'multiplier' ? ' on' : '')} onClick={() => setF({ ...f, ot_mode: 'multiplier' })}>نسبة من أجره</button>
+              </div>
+              {f.ot_mode === 'fixed' && <input className="input" type="number" step="0.001" min="0" aria-label="سعر الساعة" placeholder="سعر الساعة (د.ك)" value={f.ot_rate} onChange={set('ot_rate')} />}
+              {f.ot_mode === 'multiplier' && <input className="input" type="number" step="0.05" min="1" aria-label="النسبة" placeholder="مثلاً 1.25" value={f.ot_multiplier} onChange={set('ot_multiplier')} />}
               <div className="row" style={{ justifyContent: 'space-between' }}>
                 <span className="lbl" style={{ fontSize: 14, fontWeight: 600 }}>البدلات الشهرية</span>
                 <span className="sub">المجموع: {allowances.filter((a) => !a.removed).reduce((t, a) => t + (Number(a.amount) || 0), 0).toFixed(3)} د.ك</span>
@@ -180,8 +190,9 @@ export default function Employees() {
 
   const bName = Object.fromEntries(branches.map((b) => [b.id, b.name]))
   const rName = Object.fromEntries(roles.map((r) => [r.id, r.name]))
+  const q = search.trim().toLowerCase()
   const shown = emps.filter((e) => (showInactive || e.active) && (!branch || e.branch_id === branch) &&
-    (!search || e.full_name.includes(search) || (e.phone || '').includes(search) || (e.job_title || '').includes(search)))
+    (!q || e.full_name.toLowerCase().includes(q) || (e.phone || '').includes(q) || (e.job_title || '').toLowerCase().includes(q)))
 
   return (
     <div>
@@ -203,7 +214,7 @@ export default function Employees() {
             <div className="avatar">{e.full_name[0]}</div>
             <button className="grow" style={{ background: 'none', border: 0, textAlign: 'right', cursor: 'pointer', padding: 0 }} onClick={() => setEditing(e)}>
               <div style={{ fontWeight: 600 }}>{e.full_name} {!e.active && <span className="pill gray">موقوف</span>}</div>
-              <div className="sub">{[e.job_title, bName[e.branch_id], e.app_role === 'admin' ? 'المالك' : rName[e.role_id]].filter(Boolean).join(' · ')}</div>
+              <div className="sub">{[e.job_title, bName[e.branch_id], e.app_role === 'admin' ? 'المالك' : rName[e.role_id], `رصيد الإجازات: ${Number(e.leave_balance)} يوم`].filter(Boolean).join(' · ')}</div>
             </button>
             {!e.user_id && <span className="pill gray">بدون دخول</span>}
             {can('manage_documents') && <button className="btn" style={{ minHeight: 38 }} onClick={() => setDocFor(e)}>+ مستند</button>}

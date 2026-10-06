@@ -20,6 +20,7 @@ import Notices from './pages/Notices.jsx'
 import Payroll from './pages/Payroll.jsx'
 import Payslips from './pages/Payslips.jsx'
 import ChangePassword from './pages/ChangePassword.jsx'
+import Overtime from './pages/Overtime.jsx'
 
 function useUnread(enabled) {
   const [n, setN] = useState(0)
@@ -34,7 +35,7 @@ function useUnread(enabled) {
   return n
 }
 
-const ADMIN_PATHS = ['/dashboard', '/payroll', '/attendance', '/documents', '/employees', '/branches', '/roles']
+const ADMIN_PATHS = ['/overtime', '/dashboard', '/payroll', '/attendance', '/documents', '/employees', '/branches', '/roles']
 
 export default function App() {
   const { access } = useAccess()
@@ -69,6 +70,7 @@ function Shell() {
     { to: '/notices', icon: 'warn', label: t('nav_notices'), show: true },
     { to: '/dashboard', icon: 'dash', label: 'لوحة اليوم', show: isManager },
     { to: '/payroll', icon: 'box', label: 'الرواتب', show: can('manage_payroll') },
+    { to: '/overtime', icon: 'calendar', label: 'الإضافي', show: can('approve_overtime') },
     { to: '/attendance', icon: 'calendar', label: 'سجل الحضور', show: can('view_attendance') },
     { to: '/documents', icon: 'warn', label: 'كل المستندات', show: can('manage_documents') },
     { to: '/employees', icon: 'users', label: 'الموظفين', show: can('view_employees') || can('manage_employees') },
@@ -107,6 +109,7 @@ function Shell() {
           <Route path="/notices" element={<Notices />} />
           <Route path="/payslips" element={<Payslips />} />
           {can('manage_payroll') && <Route path="/payroll" element={<Payroll />} />}
+          {can('approve_overtime') && <Route path="/overtime" element={<Overtime />} />}
           {isManager && <Route path="/dashboard" element={<Dashboard />} />}
           {can('view_attendance') && <Route path="/attendance" element={<Attendance />} />}
           {can('manage_documents') && <Route path="/documents" element={<AllDocuments />} />}
