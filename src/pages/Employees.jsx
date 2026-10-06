@@ -19,6 +19,14 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
   const editable = can('manage_employees')
   const isOwnerRow = emp?.app_role === 'admin'
 
+  const genCode = async () => {
+    setErr(''); setOk('')
+    if (!emp?.phone) { setErr('احفظ رقم هاتف الموظف أول'); return }
+    const { data, error } = await supabase.rpc('generate_setup_code', { p_employee_id: emp.id })
+    if (error) setErr(errMsg(error))
+    else setOk(`رمز التفعيل: ${data} — أرسله للموظف. يفتح التطبيق، يضغط "أول مرة؟ فعّل حسابك"، ويكتب رقمه ${emp.phone} والرمز ويختار كلمة سره. الرمز صالح ٧ أيام.`)
+  }
+
   const save = async (e) => {
     e.preventDefault(); setBusy(true); setErr(''); setOk('')
     try {
@@ -76,6 +84,7 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
             <strong style={{ fontSize: 14 }}>{emp?.user_id ? 'تغيير كلمة السر' : 'تفعيل دخول التطبيق'}</strong>
             <div className="sub">{emp?.user_id ? `الموظف يدخل برقم ${emp.phone}. اكتب كلمة سر جديدة لو نسيها.` : 'اكتب كلمة سر، والموظف يدخل برقم هاتفه وهذي الكلمة.'}</div>
             <input className="input" type="text" placeholder="كلمة السر (٦ أحرف على الأقل)" value={password} onChange={(e) => setPassword(e.target.value)} minLength={6} autoComplete="new-password" />
+            {emp && <button type="button" className="btn" onClick={genCode}>أو أرسل له رمز تفعيل يختار فيه كلمة سره بنفسه</button>}
           </div>
         </fieldset>
         {err && <div className="error">{err}</div>}
