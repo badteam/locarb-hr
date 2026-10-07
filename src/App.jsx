@@ -27,6 +27,9 @@ import InvoiceDetail from './pages/inventory/InvoiceDetail.jsx'
 import Suppliers from './pages/inventory/Suppliers.jsx'
 import Movements from './pages/inventory/Movements.jsx'
 import Orders from './pages/inventory/Orders.jsx'
+import BranchStock from './pages/inventory/BranchStock.jsx'
+import StockCount from './pages/inventory/StockCount.jsx'
+import Reports from './pages/inventory/Reports.jsx'
 import NewOrder from './pages/inventory/NewOrder.jsx'
 import OrderDetail from './pages/inventory/OrderDetail.jsx'
 
@@ -71,7 +74,9 @@ function Shell() {
   const isManager = can('view_attendance') || can('manage_documents') || can('manage_employees')
   const canInv = can('manage_inventory') || can('manage_suppliers') || can('approve_purchases') || can('approve_branch_requests') || can('view_reports')
   const canOrders = can('branch_orders') || can('approve_branch_requests') || can('manage_inventory') || can('view_reports')
-  const invHome = canInv ? '/inventory' : '/inventory/orders'
+  const canCount = can('branch_count') || can('manage_inventory')
+  const canReports = can('view_reports') || can('manage_inventory') || can('approve_branch_requests')
+  const invHome = canInv ? '/inventory' : canOrders ? '/inventory/orders' : '/inventory/stock'
   const canInvoices = can('manage_suppliers') || can('approve_purchases') || can('view_reports')
   const section = location.pathname.startsWith('/inventory') ? 'inv' : 'hr'
 
@@ -95,6 +100,8 @@ function Shell() {
   const invNav = [
     { to: '/inventory', icon: 'box', label: 'المخزون', show: canInv },
     { to: '/inventory/orders', icon: 'list', label: 'طلبات الفروع', show: canOrders },
+    { to: '/inventory/stock', icon: 'check', label: 'رصيد الفرع والجرد', show: canCount },
+    { to: '/inventory/reports', icon: 'dash', label: 'التقارير', show: canReports },
     { to: '/inventory/invoices', icon: 'receipt', label: 'فواتير الموردين', show: canInvoices },
     { to: '/inventory/suppliers', icon: 'truck', label: 'الموردين', show: canInv },
     { to: '/inventory/movements', icon: 'arrows', label: 'حركة المخزون', show: canInv },
@@ -102,13 +109,14 @@ function Shell() {
   ]
   const nav = (section === 'inv' ? invNav : hrNav).filter((x) => x.show)
 
+  const INV_MOBILE = ['/inventory', '/inventory/orders', '/inventory/stock', '/inventory/invoices', '/inventory/reports']
   const mobileNav = section === 'inv'
-    ? nav
+    ? [...INV_MOBILE.map((p) => nav.find((x) => x.to === p)).filter(Boolean).slice(0, 4), nav.find((x) => x.to === '/notifications')].filter(Boolean)
     : isManager
       ? nav.filter((x) => ['/', '/dashboard', '/employees', '/documents', '/notifications'].includes(x.to))
       : nav.filter((x) => ['/', '/leaves', '/my-documents', '/payslips', '/notifications'].includes(x.to))
 
-  const switcher = (canInv || canOrders) && (
+  const switcher = (canInv || canOrders || canCount) && (
     <div className="seg no-print" role="tablist" aria-label="القسم">
       <NavLink to="/" className={section === 'hr' ? 'on' : ''} role="tab" aria-selected={section === 'hr'}><Icon name="users" size={18} /> الموارد البشرية</NavLink>
       <NavLink to={invHome} className={section === 'inv' ? 'on' : ''} role="tab" aria-selected={section === 'inv'}><Icon name="box" size={18} /> المخزون والتوريد</NavLink>
@@ -156,6 +164,9 @@ function Shell() {
           {canInv && <Route path="/inventory/suppliers" element={<Suppliers />} />}
           {canInv && <Route path="/inventory/movements" element={<Movements />} />}
           {canOrders && <Route path="/inventory/orders" element={<Orders />} />}
+          {canCount && <Route path="/inventory/stock" element={<BranchStock />} />}
+          {canCount && <Route path="/inventory/count" element={<StockCount />} />}
+          {canReports && <Route path="/inventory/reports" element={<Reports />} />}
           {canOrders && <Route path="/inventory/orders/new" element={<NewOrder />} />}
           {canOrders && <Route path="/inventory/orders/:id" element={<OrderDetail />} />}
           <Route path="*" element={<Navigate to="/" replace />} />
