@@ -66,7 +66,28 @@ Deno.serve(async (req) => {
   const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
     global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } },
   });
-  const { invoice_id } = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => ({}));
+  const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const { data: saved } = await admin.rpc("get_app_secret", { p_key: "anthropic_api_key" });
+  const key = (saved as string | null) || Deno.env.get("ANTHROPIC_API_KEY");
+
+  // settings page: check that the saved key works (owner only)
+  if (body.test) {
+    const { data: acc } = await db.rpc("my_access");
+    if (!acc?.is_owner) return json({ error: "owner only" }, 403);
+    if (!key) return json({ ok: false, error: "not_configured" });
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({ model: MODEL, max_tokens: 5, messages: [{ role: "user", content: "ok" }] }),
+    });
+    if (r.ok) return json({ ok: true });
+    const t = await r.text();
+    const reason = r.status === 401 ? "invalid_key" : /credit|balance|billing/i.test(t) ? "no_credit" : `error_${r.status}`;
+    return json({ ok: false, error: reason, detail: t.slice(0, 200) });
+  }
+
+  const { invoice_id } = body;
   if (!invoice_id) return json({ error: "invoice_id required" }, 400);
 
   const { data: inv, error: invErr } = await db.from("purchase_invoices").select("*").eq("id", invoice_id).maybeSingle();
@@ -74,7 +95,6 @@ Deno.serve(async (req) => {
   if (!["draft", "failed", "review"].includes(inv.status)) return json({ error: "invoice is not open" }, 409);
   if (!inv.image_paths?.length) return json({ error: "no image" }, 400);
 
-  const key = Deno.env.get("ANTHROPIC_API_KEY");
   if (!key) {
     await db.from("purchase_invoices").update({ status: "draft", read_error: "not_configured" }).eq("id", invoice_id);
     return json({ error: "not_configured" }, 503);
@@ -108,7 +128,10 @@ Deno.serve(async (req) => {
         messages: [{ role: "user", content }],
       }),
     });
-    if (!res.ok) return await fail(`reader error ${res.status}: ${(await res.text()).slice(0, 300)}`, 502);
+    if (!res.ok) {
+      const t = await res.text();
+      return await fail(res.status === 401 ? "invalid_key" : /credit|balance|billing/i.test(t) ? "no_credit" : `reader error ${res.status}: ${t.slice(0, 300)}`, 502);
+    }
     const out = await res.json();
     const r = out.content?.find((c: any) => c.type === "tool_use")?.input;
     if (!r || r.unreadable || !Array.isArray(r.lines) || !r.lines.length) return await fail("unreadable", 422);

@@ -193,7 +193,9 @@ export default function InvoiceDetail() {
     setInv({ ...inv, status: 'reading' })
     const r = await startRead(id)
     await load()
-    if (r?.error === 'not_configured') setErr('قراءة الصور لسه ما تفعّلت. تقدر تدخل الأصناف يدوي.')
+    if (r?.error === 'not_configured') setErr('قراءة الصور لسه ما تفعّلت. المالك يحط المفتاح من صفحة الإعدادات. تقدر تدخل الأصناف يدوي.')
+    else if (r?.error === 'invalid_key') setErr('مفتاح قراءة الفواتير غلط. المالك يغيّره من صفحة الإعدادات.')
+    else if (r?.error === 'no_credit') setErr('رصيد حساب Anthropic خلص. اشحن الرصيد وجرّب من جديد.')
     else if (r?.error === 'unreadable') setErr('ما قدرنا نقرا الصورة. صوّرها من جديد بإضاءة أوضح، أو دخّل الأصناف يدوي.')
     else if (r?.error) setErr('صار خطأ في القراءة: ' + r.error)
   })
@@ -216,8 +218,10 @@ export default function InvoiceDetail() {
       </div>
 
       {inv.status === 'reading' && <div className="notice row" style={{ marginBottom: 14 }}><span className="spinner" /> جاري قراءة الفاتورة… تاخذ تقريباً ٢٠ ثانية.</div>}
-      {inv.status === 'failed' && <div className="error" style={{ marginBottom: 14 }}>ما قدرنا نقرا الفاتورة. جرّب تصورها من جديد بإضاءة أوضح، أو دخّل الأصناف يدوي.</div>}
-      {inv.read_error === 'not_configured' && inv.status === 'draft' && <div className="warn" style={{ marginBottom: 14 }}><Icon name="warn" /> قراءة الصور لسه ما تفعّلت. دخّل الأصناف يدوي، والصورة محفوظة مع الفاتورة.</div>}
+      {inv.status === 'failed' && <div className="error" style={{ marginBottom: 14 }}>{inv.read_error === 'invalid_key' ? 'مفتاح قراءة الفواتير غلط. المالك يغيّره من صفحة الإعدادات، وبعدين اضغط "اقرا الصورة من جديد".'
+        : inv.read_error === 'no_credit' ? 'رصيد حساب Anthropic خلص. اشحن الرصيد، وبعدين اضغط "اقرا الصورة من جديد".'
+        : 'ما قدرنا نقرا الفاتورة. جرّب تصورها من جديد بإضاءة أوضح، أو دخّل الأصناف يدوي.'}</div>}
+      {inv.read_error === 'not_configured' && inv.status === 'draft' && <div className="warn" style={{ marginBottom: 14 }}><Icon name="warn" /> قراءة الصور لسه ما تفعّلت (المالك يفعّلها من صفحة الإعدادات). دخّل الأصناف يدوي، والصورة محفوظة مع الفاتورة.</div>}
       {inv.status === 'approved' && <div className="notice" style={{ marginBottom: 14 }}>اعتمدها {names[inv.approved_by] || '—'} · {fmtDate(inv.approved_at)}. الكميات انضافت للمخزون والأسعار اتحدثت.</div>}
       {inv.status === 'rejected' && <div className="error" style={{ marginBottom: 14 }}>انرفضت{inv.reject_note ? `: ${inv.reject_note}` : ''}</div>}
       {msg && <div className="notice" style={{ marginBottom: 14 }}>{msg}</div>}

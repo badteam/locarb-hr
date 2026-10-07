@@ -27,6 +27,7 @@ import InvoiceDetail from './pages/inventory/InvoiceDetail.jsx'
 import Suppliers from './pages/inventory/Suppliers.jsx'
 import Movements from './pages/inventory/Movements.jsx'
 import Orders from './pages/inventory/Orders.jsx'
+import Settings from './pages/Settings.jsx'
 import BranchStock from './pages/inventory/BranchStock.jsx'
 import StockCount from './pages/inventory/StockCount.jsx'
 import Reports from './pages/inventory/Reports.jsx'
@@ -46,7 +47,7 @@ function useUnread(enabled) {
   return n
 }
 
-const ADMIN_PATHS = ['/inventory', '/overtime', '/dashboard', '/payroll', '/attendance', '/documents', '/employees', '/branches', '/roles']
+const ADMIN_PATHS = ['/settings', '/inventory', '/overtime', '/dashboard', '/payroll', '/attendance', '/documents', '/employees', '/branches', '/roles']
 
 export default function App() {
   const { access } = useAccess()
@@ -95,6 +96,7 @@ function Shell() {
     { to: '/employees', icon: 'users', label: 'الموظفين', show: can('view_employees') || can('manage_employees') },
     { to: '/branches', icon: 'branch', label: 'الفروع', show: can('manage_branches') },
     { to: '/roles', icon: 'shield', label: 'الأدوار والصلاحيات', show: access.is_owner },
+    { to: '/settings', icon: 'gear', label: 'الإعدادات', show: access.is_owner },
     { to: '/notifications', icon: 'bell', label: t('nav_notifications'), show: true, badge: unread },
   ]
   const invNav = [
@@ -105,6 +107,7 @@ function Shell() {
     { to: '/inventory/invoices', icon: 'receipt', label: 'فواتير الموردين', show: canInvoices },
     { to: '/inventory/suppliers', icon: 'truck', label: 'الموردين', show: canInv },
     { to: '/inventory/movements', icon: 'arrows', label: 'حركة المخزون', show: canInv },
+    { to: '/settings', icon: 'gear', label: 'الإعدادات', show: access.is_owner },
     { to: '/notifications', icon: 'bell', label: t('nav_notifications'), show: true, badge: unread },
   ]
   const nav = (section === 'inv' ? invNav : hrNav).filter((x) => x.show)
@@ -158,6 +161,7 @@ function Shell() {
           {(can('view_employees') || can('manage_employees')) && <Route path="/employees" element={<Employees />} />}
           {can('manage_branches') && <Route path="/branches" element={<Branches />} />}
           {access.is_owner && <Route path="/roles" element={<Roles />} />}
+          {access.is_owner && <Route path="/settings" element={<Settings />} />}
           {canInv && <Route path="/inventory" element={<Inventory />} />}
           {canInvoices && <Route path="/inventory/invoices" element={<Invoices />} />}
           {canInvoices && <Route path="/inventory/invoices/:id" element={<InvoiceDetail />} />}
