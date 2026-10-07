@@ -26,6 +26,14 @@ export const INVOICE_STATUS = {
   failed: ['red', 'ما انقرت'],
 }
 
+export const ORDER_STATUS = {
+  submitted: ['amber', 'تنتظر المطبخ'],
+  dispatched: ['ok', 'في الطريق'],
+  received: ['gray', 'انستلمت'],
+  rejected: ['red', 'مرفوضة'],
+  cancelled: ['gray', 'ملغية'],
+}
+
 export const pctChange = (now, prev) => (prev && Number(prev) > 0 ? ((Number(now) - Number(prev)) / Number(prev)) * 100 : null)
 
 let lookupsCache = null
@@ -45,12 +53,19 @@ export const clearLookups = () => { lookupsCache = null }
 
 export const invErr = (e) => {
   const m = e?.message || String(e)
+  if (m.includes('not allowed to approve branch')) return 'ما عندك صلاحية الموافقة على طلبات الفروع'
+  if (m.includes('request is not open')) return 'الطلب هذا انقفل من قبل'
   if (m.includes('every line needs')) return 'كل سطر لازم يكون مربوط بصنف وفيه كمية'
   if (m.includes('needs a supplier')) return 'اختار المورد أول'
   if (m.includes('not allowed to approve')) return 'ما عندك صلاحية الموافقة على الفواتير'
   if (m.includes('is not open')) return 'الفاتورة هذي انقفلت من قبل'
   if (m.includes('no lines')) return 'الفاتورة ما فيها أصناف'
   if (m.includes('row-level security')) return 'ما عندك صلاحية لهذا الإجراء'
+  if (m.includes('order has no quantities')) return 'اكتب كمية لصنف واحد على الأقل'
+  if (m.includes('cannot order from itself')) return 'المطبخ المركزي ما يطلب من نفسه. اختار الفرع'
+  if (m.includes('not allowed to order')) return 'ما عندك صلاحية تطلب لهالفرع'
+  if (m.includes('nothing to send')) return 'كل الكميات صفر. لو ما فيه شي ينرسل، ارفض الطلب'
+  if (m.includes('not on the way')) return 'الطلب ما انرسل للحين'
   if (m.includes('duplicate key')) return 'موجود من قبل'
   return m
 }

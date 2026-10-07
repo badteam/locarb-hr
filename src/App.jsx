@@ -26,6 +26,9 @@ import Invoices from './pages/inventory/Invoices.jsx'
 import InvoiceDetail from './pages/inventory/InvoiceDetail.jsx'
 import Suppliers from './pages/inventory/Suppliers.jsx'
 import Movements from './pages/inventory/Movements.jsx'
+import Orders from './pages/inventory/Orders.jsx'
+import NewOrder from './pages/inventory/NewOrder.jsx'
+import OrderDetail from './pages/inventory/OrderDetail.jsx'
 
 function useUnread(enabled) {
   const [n, setN] = useState(0)
@@ -67,6 +70,8 @@ function Shell() {
 
   const isManager = can('view_attendance') || can('manage_documents') || can('manage_employees')
   const canInv = can('manage_inventory') || can('manage_suppliers') || can('approve_purchases') || can('approve_branch_requests') || can('view_reports')
+  const canOrders = can('branch_orders') || can('approve_branch_requests') || can('manage_inventory') || can('view_reports')
+  const invHome = canInv ? '/inventory' : '/inventory/orders'
   const canInvoices = can('manage_suppliers') || can('approve_purchases') || can('view_reports')
   const section = location.pathname.startsWith('/inventory') ? 'inv' : 'hr'
 
@@ -89,6 +94,7 @@ function Shell() {
   ]
   const invNav = [
     { to: '/inventory', icon: 'box', label: 'المخزون', show: canInv },
+    { to: '/inventory/orders', icon: 'list', label: 'طلبات الفروع', show: canOrders },
     { to: '/inventory/invoices', icon: 'receipt', label: 'فواتير الموردين', show: canInvoices },
     { to: '/inventory/suppliers', icon: 'truck', label: 'الموردين', show: canInv },
     { to: '/inventory/movements', icon: 'arrows', label: 'حركة المخزون', show: canInv },
@@ -102,10 +108,10 @@ function Shell() {
       ? nav.filter((x) => ['/', '/dashboard', '/employees', '/documents', '/notifications'].includes(x.to))
       : nav.filter((x) => ['/', '/leaves', '/my-documents', '/payslips', '/notifications'].includes(x.to))
 
-  const switcher = canInv && (
+  const switcher = (canInv || canOrders) && (
     <div className="seg no-print" role="tablist" aria-label="القسم">
       <NavLink to="/" className={section === 'hr' ? 'on' : ''} role="tab" aria-selected={section === 'hr'}><Icon name="users" size={18} /> الموارد البشرية</NavLink>
-      <NavLink to="/inventory" className={section === 'inv' ? 'on' : ''} role="tab" aria-selected={section === 'inv'}><Icon name="box" size={18} /> المخزون والتوريد</NavLink>
+      <NavLink to={invHome} className={section === 'inv' ? 'on' : ''} role="tab" aria-selected={section === 'inv'}><Icon name="box" size={18} /> المخزون والتوريد</NavLink>
     </div>
   )
 
@@ -115,7 +121,7 @@ function Shell() {
         <div className="brand">LoCarb</div>
         {switcher}
         {nav.map((x) => (
-          <NavLink key={x.to} to={x.to} end={x.to !== '/inventory/invoices'} className={({ isActive }) => 'navlink' + (isActive ? ' active' : '')}>
+          <NavLink key={x.to} to={x.to} end={!['/inventory/invoices', '/inventory/orders'].includes(x.to)} className={({ isActive }) => 'navlink' + (isActive ? ' active' : '')}>
             <Icon name={x.icon} /> {x.label} {x.badge ? <span className="badge">{x.badge}</span> : null}
           </NavLink>
         ))}
@@ -149,13 +155,16 @@ function Shell() {
           {canInvoices && <Route path="/inventory/invoices/:id" element={<InvoiceDetail />} />}
           {canInv && <Route path="/inventory/suppliers" element={<Suppliers />} />}
           {canInv && <Route path="/inventory/movements" element={<Movements />} />}
+          {canOrders && <Route path="/inventory/orders" element={<Orders />} />}
+          {canOrders && <Route path="/inventory/orders/new" element={<NewOrder />} />}
+          {canOrders && <Route path="/inventory/orders/:id" element={<OrderDetail />} />}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
 
       <nav className="bottomnav no-print">
         {mobileNav.map((x) => (
-          <NavLink key={x.to} to={x.to} end={x.to !== '/inventory/invoices'} className={({ isActive }) => (isActive ? 'active' : '')}>
+          <NavLink key={x.to} to={x.to} end={!['/inventory/invoices', '/inventory/orders'].includes(x.to)} className={({ isActive }) => (isActive ? 'active' : '')}>
             <span style={{ position: 'relative' }}>
               <Icon name={x.icon} size={22} />
               {x.badge ? <span className="badge" style={{ position: 'absolute', top: -6, left: -10 }}>{x.badge}</span> : null}
