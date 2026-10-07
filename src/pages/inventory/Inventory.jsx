@@ -150,6 +150,64 @@ function ItemSheet({ item, lookups, canEdit, onClose, onChanged }) {
   )
 }
 
+function CategoriesSheet({ items, onClose, onChanged }) {
+  const [cats, setCats] = useState([])
+  const [edit, setEdit] = useState({})
+  const [newName, setNewName] = useState('')
+  const [err, setErr] = useState('')
+  const load = useCallback(() => {
+    supabase.from('inv_categories').select('id,name,sort_order').order('sort_order').order('name').then(({ data }) => setCats(data || []))
+  }, [])
+  useEffect(() => { load() }, [load])
+  const count = (id) => items.filter((i) => i.category_id === id).length
+  const done = () => { clearLookups(); load(); onChanged() }
+  const rename = async (c) => {
+    const name = (edit[c.id] ?? c.name).trim()
+    if (!name || name === c.name) return
+    const { error } = await supabase.from('inv_categories').update({ name }).eq('id', c.id)
+    if (error) setErr(invErr(error)); else done()
+  }
+  const remove = async (c) => {
+    if (!window.confirm(`تمسح تصنيف "${c.name}"؟`)) return
+    const { error } = await supabase.from('inv_categories').delete().eq('id', c.id)
+    if (error) setErr(invErr(error)); else done()
+  }
+  const add = async (e) => {
+    e.preventDefault(); setErr('')
+    if (!newName.trim()) return
+    const { error } = await supabase.from('inv_categories').insert({ name: newName.trim(), sort_order: 50 })
+    if (error) setErr(invErr(error)); else { setNewName(''); done() }
+  }
+  return (
+    <div className="overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="sheet form">
+        <div className="sheet-head"><h2 style={{ fontSize: 20 }}>التصنيفات</h2>
+          <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose}><Icon name="x" /></button></div>
+        <div className="sub">غيّر الاسم واضغط برا الخانة عشان ينحفظ. التصنيف الفاضي بس اللي ينمسح.</div>
+        <div className="card list" style={{ padding: '2px 12px' }}>
+          {cats.map((c) => {
+            const n = count(c.id)
+            return (
+              <div key={c.id} className="list-item">
+                <input className="input grow" style={{ height: 40 }} value={edit[c.id] ?? c.name} aria-label="اسم التصنيف"
+                  onChange={(e) => setEdit({ ...edit, [c.id]: e.target.value })} onBlur={() => rename(c)} />
+                <span className="pill gray num">{n}</span>
+                <button className="icon-btn" style={{ width: 38, height: 38 }} disabled={n > 0} title={n > 0 ? 'فيه أصناف، انقلها أول' : 'مسح'}
+                  aria-label={`مسح ${c.name}`} onClick={() => remove(c)}><Icon name="trash" size={16} /></button>
+              </div>
+            )
+          })}
+        </div>
+        <form className="row" style={{ gap: 8 }} onSubmit={add}>
+          <input className="input grow" placeholder="تصنيف جديد" value={newName} onChange={(e) => setNewName(e.target.value)} />
+          <button className="btn" disabled={!newName.trim()}><Icon name="plus" /> إضافة</button>
+        </form>
+        {err && <div className="error">{err}</div>}
+      </div>
+    </div>
+  )
+}
+
 export default function Inventory() {
   const { can } = useAccess()
   const [items, setItems] = useState([])
@@ -160,6 +218,7 @@ export default function Inventory() {
   const [limit, setLimit] = useState(PAGE)
   const [open, setOpen] = useState(null)
   const [adding, setAdding] = useState(false)
+  const [catsOpen, setCatsOpen] = useState(false)
   const [pending, setPending] = useState(0)
 
   const load = useCallback(() => {
@@ -188,6 +247,7 @@ export default function Inventory() {
       <div className="page-head">
         <div><h1>المخزون</h1><div className="sub">المطبخ المركزي والفروع</div></div>
         <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+          {canEdit && <button className="btn" onClick={() => setCatsOpen(true)}><Icon name="list" /> التصنيفات</button>}
           {canEdit && <button className="btn" onClick={() => setAdding(true)}><Icon name="plus" /> صنف جديد</button>}
           {(can('manage_suppliers') || can('approve_purchases')) && <Link className="btn primary" to="/inventory/invoices?new=1"><Icon name="camera" /> فاتورة مورد</Link>}
         </div>
@@ -239,6 +299,7 @@ export default function Inventory() {
 
       {open && lookups && <ItemSheet item={open} lookups={lookups} canEdit={canEdit} onClose={() => setOpen(null)} onChanged={load} />}
       {adding && lookups && <ItemForm lookups={lookups} onClose={() => setAdding(false)} onSaved={load} />}
+      {catsOpen && <CategoriesSheet items={items} onClose={() => setCatsOpen(false)} onChanged={() => { load(); loadLookups(true).then(setLookups) }} />}
     </div>
   )
 }

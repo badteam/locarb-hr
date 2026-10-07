@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { supabase } from './supabase'
+import PHRASES from './phrases.js'
 
 export const LANGS = [
   { code: 'ar', name: 'العربية', dir: 'rtl', locale: 'ar-KW' },
@@ -279,11 +280,16 @@ export function LangProvider({ employee, children }) {
     const s = D[key]?.[lang] ?? D[key]?.ar ?? key
     return s.replace(/\{(\w+)\}/g, (_, k) => (p[k] ?? ''))
   }, [lang])
+  // translate an Arabic phrase used directly in a page (see phrases.js)
+  const tr = useCallback((ar, p = {}) => {
+    const s = lang === 'ar' ? ar : PHRASES[ar]?.[lang] ?? ar
+    return String(s).replace(/\{(\w+)\}/g, (_, k) => (p[k] ?? ''))
+  }, [lang])
   const tn = useCallback((name) => (name && lang !== 'ar' ? NAMES[name]?.[lang] ?? name : name), [lang])
   const fmtDate = useCallback((d) => d ? new Intl.DateTimeFormat(info.locale, { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Kuwait', numberingSystem: 'latn' }).format(new Date(d)) : '—', [info.locale])
   const fmtTime = useCallback((d) => d ? new Intl.DateTimeFormat(info.locale, { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kuwait', numberingSystem: 'latn' }).format(new Date(d)) : '—', [info.locale])
 
-  return <LangCtx.Provider value={{ lang, dir: info.dir, setLang, t, tn, fmtDate, fmtTime }}>{children}</LangCtx.Provider>
+  return <LangCtx.Provider value={{ lang, dir: info.dir, setLang, t, tr, tn, fmtDate, fmtTime }}>{children}</LangCtx.Provider>
 }
 
 export const useLang = () => useContext(LangCtx)
@@ -307,5 +313,5 @@ const arTime = (d) => d ? new Intl.DateTimeFormat('ar-KW', { hour: 'numeric', mi
 export function useT(forceAr) {
   const c = useLang()
   if (!forceAr) return c
-  return { ...c, lang: 'ar', dir: 'rtl', t: arT, tn: (n) => n, fmtDate: arDate, fmtTime: arTime }
+  return { ...c, lang: 'ar', dir: 'rtl', t: arT, tr: (a, p = {}) => String(a).replace(/\{(\w+)\}/g, (_, k) => (p[k] ?? '')), tn: (n) => n, fmtDate: arDate, fmtTime: arTime }
 }

@@ -69,3 +69,10 @@ export const invErr = (e) => {
   if (m.includes('duplicate key')) return 'موجود من قبل'
   return m
 }
+
+// item name in the reader's language: Arabic readers see Arabic first, everyone else English first
+export const itemNames = (i, lang) => {
+  const ar = i?.name_ar || i?.inv_items?.name_ar || ''
+  const en = i?.name_en || i?.inv_items?.name_en || ''
+  return lang === 'ar' || !en ? [ar, en] : [en, ar]
+}

@@ -47,6 +47,7 @@ function useUnread(enabled) {
   return n
 }
 
+const BRANCH_PATHS = ['/inventory/orders', '/inventory/stock', '/inventory/count']
 const ADMIN_PATHS = ['/settings', '/inventory', '/overtime', '/dashboard', '/payroll', '/attendance', '/documents', '/employees', '/branches', '/roles']
 
 export default function App() {
@@ -56,10 +57,10 @@ export default function App() {
 
 function Shell() {
   const { session, access, loading, can } = useAccess()
-  const { t, dir } = useLang()
+  const { t, tr, dir } = useLang()
   const location = useLocation()
   const unread = useUnread(!!access)
-  const adminPage = ADMIN_PATHS.some((p) => location.pathname.startsWith(p))
+  const adminPage = ADMIN_PATHS.some((p) => location.pathname.startsWith(p)) && !BRANCH_PATHS.some((p) => location.pathname.startsWith(p))
 
   if (session === undefined || loading) return <div className="center sub">{t('loading')}</div>
   if (!session) return <Login />
@@ -88,26 +89,26 @@ function Shell() {
     { to: '/corrections', icon: 'finger', label: t('nav_corrections'), show: true },
     { to: '/payslips', icon: 'doc', label: t('nav_payslips'), show: true },
     { to: '/notices', icon: 'warn', label: t('nav_notices'), show: true },
-    { to: '/dashboard', icon: 'dash', label: 'لوحة اليوم', show: isManager, group: 'الإدارة' },
-    { to: '/payroll', icon: 'box', label: 'الرواتب', show: can('manage_payroll') },
-    { to: '/overtime', icon: 'calendar', label: 'الإضافي', show: can('approve_overtime') },
-    { to: '/attendance', icon: 'calendar', label: 'سجل الحضور', show: can('view_attendance') },
-    { to: '/documents', icon: 'warn', label: 'كل المستندات', show: can('manage_documents') },
-    { to: '/employees', icon: 'users', label: 'الموظفين', show: can('view_employees') || can('manage_employees') },
-    { to: '/branches', icon: 'branch', label: 'الفروع', show: can('manage_branches') },
-    { to: '/roles', icon: 'shield', label: 'الأدوار والصلاحيات', show: access.is_owner },
-    { to: '/settings', icon: 'gear', label: 'الإعدادات', show: access.is_owner },
+    { to: '/dashboard', icon: 'dash', label: tr('لوحة اليوم'), show: isManager, group: 'الإدارة' },
+    { to: '/payroll', icon: 'box', label: tr('الرواتب'), show: can('manage_payroll') },
+    { to: '/overtime', icon: 'calendar', label: tr('الإضافي'), show: can('approve_overtime') },
+    { to: '/attendance', icon: 'calendar', label: tr('سجل الحضور'), show: can('view_attendance') },
+    { to: '/documents', icon: 'warn', label: tr('كل المستندات'), show: can('manage_documents') },
+    { to: '/employees', icon: 'users', label: tr('الموظفين'), show: can('view_employees') || can('manage_employees') },
+    { to: '/branches', icon: 'branch', label: tr('الفروع'), show: can('manage_branches') },
+    { to: '/roles', icon: 'shield', label: tr('الأدوار والصلاحيات'), show: access.is_owner },
+    { to: '/settings', icon: 'gear', label: tr('الإعدادات'), show: access.is_owner },
     { to: '/notifications', icon: 'bell', label: t('nav_notifications'), show: true, badge: unread },
   ]
   const invNav = [
-    { to: '/inventory', icon: 'box', label: 'المخزون', show: canInv },
-    { to: '/inventory/orders', icon: 'list', label: 'طلبات الفروع', show: canOrders },
-    { to: '/inventory/stock', icon: 'check', label: 'رصيد الفرع والجرد', show: canCount },
-    { to: '/inventory/reports', icon: 'dash', label: 'التقارير', show: canReports },
-    { to: '/inventory/invoices', icon: 'receipt', label: 'فواتير الموردين', show: canInvoices },
-    { to: '/inventory/suppliers', icon: 'truck', label: 'الموردين', show: canInv },
-    { to: '/inventory/movements', icon: 'arrows', label: 'حركة المخزون', show: canInv },
-    { to: '/settings', icon: 'gear', label: 'الإعدادات', show: access.is_owner },
+    { to: '/inventory', icon: 'box', label: tr('المخزون'), show: canInv },
+    { to: '/inventory/orders', icon: 'list', label: tr('طلبات الفروع'), show: canOrders },
+    { to: '/inventory/stock', icon: 'check', label: tr('رصيد الفرع والجرد'), show: canCount },
+    { to: '/inventory/reports', icon: 'dash', label: tr('التقارير'), show: canReports },
+    { to: '/inventory/invoices', icon: 'receipt', label: tr('فواتير الموردين'), show: canInvoices },
+    { to: '/inventory/suppliers', icon: 'truck', label: tr('الموردين'), show: canInv },
+    { to: '/inventory/movements', icon: 'arrows', label: tr('حركة المخزون'), show: canInv },
+    { to: '/settings', icon: 'gear', label: tr('الإعدادات'), show: access.is_owner },
     { to: '/notifications', icon: 'bell', label: t('nav_notifications'), show: true, badge: unread },
   ]
   const nav = (section === 'inv' ? invNav : hrNav).filter((x) => x.show)
@@ -120,9 +121,9 @@ function Shell() {
       : nav.filter((x) => ['/', '/leaves', '/my-documents', '/payslips', '/notifications'].includes(x.to))
 
   const switcher = (canInv || canOrders || canCount) && (
-    <div className="seg no-print" role="tablist" aria-label="القسم">
-      <NavLink to="/" className={section === 'hr' ? 'on' : ''} role="tab" aria-selected={section === 'hr'}><Icon name="users" size={18} /> الموارد البشرية</NavLink>
-      <NavLink to={invHome} className={section === 'inv' ? 'on' : ''} role="tab" aria-selected={section === 'inv'}><Icon name="box" size={18} /> المخزون والتوريد</NavLink>
+    <div className="seg no-print" role="tablist" aria-label={tr('القسم')}>
+      <NavLink to="/" className={section === 'hr' ? 'on' : ''} role="tab" aria-selected={section === 'hr'}><Icon name="users" size={18} /> {tr('الموارد البشرية')}</NavLink>
+      <NavLink to={invHome} className={section === 'inv' ? 'on' : ''} role="tab" aria-selected={section === 'inv'}><Icon name="box" size={18} /> {tr('المخزون والتوريد')}</NavLink>
     </div>
   )
 
@@ -137,7 +138,7 @@ function Shell() {
           </NavLink>
         ))}
         <div className="spacer" />
-        <div className="sub" style={{ padding: '0 12px 8px' }}>{access.employee.full_name} · {access.role_name || ''}</div>
+        <div className="sub" style={{ padding: '0 12px 8px' }}>{access.employee.full_name} · {tr(access.role_name || '')}</div>
         <button className="navlink" style={{ border: 0, background: 'none', cursor: 'pointer' }} onClick={() => supabase.auth.signOut()}>
           <Icon name="logout" /> {t('logout')}
         </button>
