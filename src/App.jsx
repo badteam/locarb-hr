@@ -21,6 +21,11 @@ import Payroll from './pages/Payroll.jsx'
 import Payslips from './pages/Payslips.jsx'
 import ChangePassword from './pages/ChangePassword.jsx'
 import Overtime from './pages/Overtime.jsx'
+import Inventory from './pages/inventory/Inventory.jsx'
+import Invoices from './pages/inventory/Invoices.jsx'
+import InvoiceDetail from './pages/inventory/InvoiceDetail.jsx'
+import Suppliers from './pages/inventory/Suppliers.jsx'
+import Movements from './pages/inventory/Movements.jsx'
 
 function useUnread(enabled) {
   const [n, setN] = useState(0)
@@ -35,7 +40,7 @@ function useUnread(enabled) {
   return n
 }
 
-const ADMIN_PATHS = ['/overtime', '/dashboard', '/payroll', '/attendance', '/documents', '/employees', '/branches', '/roles']
+const ADMIN_PATHS = ['/inventory', '/overtime', '/dashboard', '/payroll', '/attendance', '/documents', '/employees', '/branches', '/roles']
 
 export default function App() {
   const { access } = useAccess()
@@ -61,14 +66,18 @@ function Shell() {
   if (access.employee.must_change_password) return <ChangePassword />
 
   const isManager = can('view_attendance') || can('manage_documents') || can('manage_employees')
-  const nav = [
+  const canInv = can('manage_inventory') || can('manage_suppliers') || can('approve_purchases') || can('approve_branch_requests') || can('view_reports')
+  const canInvoices = can('manage_suppliers') || can('approve_purchases') || can('view_reports')
+  const section = location.pathname.startsWith('/inventory') ? 'inv' : 'hr'
+
+  const hrNav = [
     { to: '/', icon: 'home', label: t('nav_home'), show: true },
     { to: '/my-documents', icon: 'doc', label: t('nav_docs'), show: true },
     { to: '/leaves', icon: 'calendar', label: t('nav_leaves'), show: true },
     { to: '/corrections', icon: 'finger', label: t('nav_corrections'), show: true },
     { to: '/payslips', icon: 'doc', label: t('nav_payslips'), show: true },
     { to: '/notices', icon: 'warn', label: t('nav_notices'), show: true },
-    { to: '/dashboard', icon: 'dash', label: 'لوحة اليوم', show: isManager },
+    { to: '/dashboard', icon: 'dash', label: 'لوحة اليوم', show: isManager, group: 'الإدارة' },
     { to: '/payroll', icon: 'box', label: 'الرواتب', show: can('manage_payroll') },
     { to: '/overtime', icon: 'calendar', label: 'الإضافي', show: can('approve_overtime') },
     { to: '/attendance', icon: 'calendar', label: 'سجل الحضور', show: can('view_attendance') },
@@ -77,18 +86,36 @@ function Shell() {
     { to: '/branches', icon: 'branch', label: 'الفروع', show: can('manage_branches') },
     { to: '/roles', icon: 'shield', label: 'الأدوار والصلاحيات', show: access.is_owner },
     { to: '/notifications', icon: 'bell', label: t('nav_notifications'), show: true, badge: unread },
-  ].filter((x) => x.show)
+  ]
+  const invNav = [
+    { to: '/inventory', icon: 'box', label: 'المخزون', show: canInv },
+    { to: '/inventory/invoices', icon: 'receipt', label: 'فواتير الموردين', show: canInvoices },
+    { to: '/inventory/suppliers', icon: 'truck', label: 'الموردين', show: canInv },
+    { to: '/inventory/movements', icon: 'arrows', label: 'حركة المخزون', show: canInv },
+    { to: '/notifications', icon: 'bell', label: t('nav_notifications'), show: true, badge: unread },
+  ]
+  const nav = (section === 'inv' ? invNav : hrNav).filter((x) => x.show)
 
-  const mobileNav = isManager
-    ? nav.filter((x) => ['/', '/dashboard', '/employees', '/documents', '/notifications'].includes(x.to))
-    : nav.filter((x) => ['/', '/leaves', '/my-documents', '/payslips', '/notifications'].includes(x.to))
+  const mobileNav = section === 'inv'
+    ? nav
+    : isManager
+      ? nav.filter((x) => ['/', '/dashboard', '/employees', '/documents', '/notifications'].includes(x.to))
+      : nav.filter((x) => ['/', '/leaves', '/my-documents', '/payslips', '/notifications'].includes(x.to))
+
+  const switcher = canInv && (
+    <div className="seg no-print" role="tablist" aria-label="القسم">
+      <NavLink to="/" className={section === 'hr' ? 'on' : ''} role="tab" aria-selected={section === 'hr'}><Icon name="users" size={18} /> الموارد البشرية</NavLink>
+      <NavLink to="/inventory" className={section === 'inv' ? 'on' : ''} role="tab" aria-selected={section === 'inv'}><Icon name="box" size={18} /> المخزون والتوريد</NavLink>
+    </div>
+  )
 
   return (
     <div className="shell">
       <aside className="side no-print">
-        <div className="brand">LoCarb HR</div>
+        <div className="brand">LoCarb</div>
+        {switcher}
         {nav.map((x) => (
-          <NavLink key={x.to} to={x.to} end className={({ isActive }) => 'navlink' + (isActive ? ' active' : '')}>
+          <NavLink key={x.to} to={x.to} end={x.to !== '/inventory/invoices'} className={({ isActive }) => 'navlink' + (isActive ? ' active' : '')}>
             <Icon name={x.icon} /> {x.label} {x.badge ? <span className="badge">{x.badge}</span> : null}
           </NavLink>
         ))}
@@ -100,6 +127,7 @@ function Shell() {
       </aside>
 
       <main className="main" dir={adminPage ? 'rtl' : dir} lang={adminPage ? 'ar' : undefined}>
+        {switcher && <div className="mobile-only" style={{ marginBottom: 16 }}>{switcher}</div>}
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/my-documents" element={<MyDocuments />} />
@@ -116,13 +144,18 @@ function Shell() {
           {(can('view_employees') || can('manage_employees')) && <Route path="/employees" element={<Employees />} />}
           {can('manage_branches') && <Route path="/branches" element={<Branches />} />}
           {access.is_owner && <Route path="/roles" element={<Roles />} />}
+          {canInv && <Route path="/inventory" element={<Inventory />} />}
+          {canInvoices && <Route path="/inventory/invoices" element={<Invoices />} />}
+          {canInvoices && <Route path="/inventory/invoices/:id" element={<InvoiceDetail />} />}
+          {canInv && <Route path="/inventory/suppliers" element={<Suppliers />} />}
+          {canInv && <Route path="/inventory/movements" element={<Movements />} />}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
 
       <nav className="bottomnav no-print">
         {mobileNav.map((x) => (
-          <NavLink key={x.to} to={x.to} end className={({ isActive }) => (isActive ? 'active' : '')}>
+          <NavLink key={x.to} to={x.to} end={x.to !== '/inventory/invoices'} className={({ isActive }) => (isActive ? 'active' : '')}>
             <span style={{ position: 'relative' }}>
               <Icon name={x.icon} size={22} />
               {x.badge ? <span className="badge" style={{ position: 'absolute', top: -6, left: -10 }}>{x.badge}</span> : null}
