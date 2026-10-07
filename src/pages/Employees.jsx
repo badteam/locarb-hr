@@ -3,6 +3,7 @@ import { supabase, errMsg } from '../lib/supabase'
 import { useAccess } from '../lib/access.jsx'
 import Icon from '../components/Icon.jsx'
 import DocumentForm from '../components/DocumentForm.jsx'
+import EmployeesIO from '../components/EmployeesIO.jsx'
 
 const DAYS = [['saturday','السبت'],['sunday','الأحد'],['monday','الاثنين'],['tuesday','الثلاثاء'],['wednesday','الأربعاء'],['thursday','الخميس'],['friday','الجمعة']]
 
@@ -200,6 +201,7 @@ export default function Employees() {
         <div><h1>الموظفين</h1><div className="sub">{emps.filter((e) => e.active).length} موظف فعّال</div></div>
         {can('manage_employees') && <button className="btn primary" onClick={() => setEditing(null)}><Icon name="plus" /> موظف جديد</button>}
       </div>
+      <EmployeesIO branches={branches} shifts={shifts} roles={roles} onDone={load} />
       <div className="row" style={{ flexWrap: 'wrap', marginBottom: 12 }}>
         <input className="input" style={{ maxWidth: 280, height: 42 }} placeholder="بحث بالاسم أو الرقم أو الوظيفة…" value={search} onChange={(e) => setSearch(e.target.value)} />
         <select className="input" style={{ maxWidth: 200, height: 42 }} value={branch} onChange={(e) => setBranch(e.target.value)}>

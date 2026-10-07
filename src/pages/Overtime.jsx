@@ -49,6 +49,7 @@ export default function Overtime() {
   const [edit, setEdit] = useState({})
   const [msg, setMsg] = useState(null)
   const [adding, setAdding] = useState(false)
+  const [settings, setSettings] = useState(null)
 
   const load = useCallback(() => {
     const from = `${month}-01`
@@ -56,11 +57,12 @@ export default function Overtime() {
     supabase.from('overtime_view').select('*').neq('status', 'void').or(`status.eq.pending,and(work_date.gte.${from},work_date.lte.${to})`)
       .order('work_date', { ascending: false }).then(({ data }) => setRows(data || []))
   }, [month])
-  useEffect(() => { load(); supabase.from('employees').select('id,full_name').eq('active', true).order('full_name').then(({ data }) => setEmployees(data || [])) }, [load])
+  useEffect(() => { load(); supabase.from('payroll_settings').select('ot_mode,ot_rate').eq('id', 1).single().then(({ data }) => setSettings(data)); supabase.from('employees').select('id,full_name').eq('active', true).order('full_name').then(({ data }) => setEmployees(data || [])) }, [load])
 
   const decide = async (r, ok) => {
     setMsg(null)
     const h = edit[r.id]
+    if (ok && !r.minutes && !(Number(h) > 0)) { setMsg({ ok: false, t: 'اكتب عدد الساعات المعتمدة قبل الموافقة' }); return }
     const { error } = await supabase.rpc('decide_overtime', { p_id: r.id, p_approve: ok, p_minutes: h !== undefined && h !== '' ? Math.round(Number(h) * 60) : null, p_note: null })
     if (error) setMsg({ ok: false, t: error.message.includes('approved') ? 'كشف راتب هالشهر معتمد، ما ينفع تعدّل الإضافي' : errMsg(error) })
     else { setMsg({ ok: true, t: ok ? `تم اعتماد ${h || hrs(r.minutes)} ساعة إضافي لـ ${r.full_name}` : `تم رفض إضافي ${r.full_name}` }); load() }
@@ -80,6 +82,9 @@ export default function Overtime() {
           <button className="btn primary" onClick={() => setAdding(true)}><Icon name="plus" /> إضافي يدوي</button>
         </div>
       </div>
+      {settings?.ot_mode === 'fixed' && !Number(settings?.ot_rate) && (
+        <div className="warn">سعر الإضافي العام صفر، يعني الإضافي المعتمد ما بينحسب له مبلغ (إلا الموظفين اللي لهم سعر خاص). حدده من الرواتب ← الإعدادات.</div>
+      )}
       {msg && <div className={msg.ok ? 'notice' : 'error'}>{msg.t}</div>}
 
       <section>
@@ -89,7 +94,8 @@ export default function Overtime() {
             <div key={r.id} className="list-item" style={{ flexWrap: 'wrap' }}>
               <div className="grow" style={{ minWidth: 200 }}>
                 <div style={{ fontWeight: 600 }}>{r.full_name}</div>
-                <div className="sub">{fmtDate(r.work_date)} · من البصمة: {hrs(r.minutes)} ساعة{r.is_offday ? ' · يوم عطلة' : ''}</div>
+                <div className="sub">{fmtDate(r.work_date)} · {r.source === 'manual' ? 'يدوي' : `من البصمة: ${hrs(r.minutes)} ساعة`}{r.is_offday ? ' · يوم عطلة' : ''}</div>
+                {r.note && <div className="sub">{r.note}</div>}
               </div>
               <label className="row sub" style={{ gap: 6 }}>الساعات المعتمدة
                 <input type="number" step="0.25" min="0" className="input" style={{ width: 90, height: 38 }} placeholder={(r.minutes / 60).toFixed(2)} value={edit[r.id] ?? ''} onChange={(e) => setEdit({ ...edit, [r.id]: e.target.value })} />

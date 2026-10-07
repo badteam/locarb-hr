@@ -5,7 +5,7 @@ import PayslipView from '../components/PayslipView.jsx'
 
 const money = (n) => Number(n || 0).toFixed(3)
 const thisMonth = () => new Date().toISOString().slice(0, 7)
-const KIND = { bonus: ['ok', 'مكافأة'], deduction: ['red', 'خصم'], overtime: ['amber', 'إضافي'] }
+const KIND = { bonus: ['ok', 'مكافأة'], deduction: ['red', 'خصم'] }
 
 function AdjustmentForm({ employees, month, onClose, onSaved }) {
   const [emp, setEmp] = useState('')
@@ -22,7 +22,7 @@ function AdjustmentForm({ employees, month, onClose, onSaved }) {
   return (
     <div className="overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <form className="sheet form" onSubmit={save}>
-        <div className="sheet-head"><h2 style={{ fontSize: 20 }}>مكافأة / خصم / إضافي</h2>
+        <div className="sheet-head"><h2 style={{ fontSize: 20 }}>مكافأة / خصم</h2>
           <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose}><Icon name="x" /></button></div>
         <div className="field"><label htmlFor="ae">الموظف</label>
           <select id="ae" className="input" value={emp} onChange={(e) => setEmp(e.target.value)} required>
@@ -110,7 +110,7 @@ export default function Payroll() {
 
   const load = useCallback(() => {
     supabase.from('payslips').select('*').eq('period', period).then(({ data }) => setSlips(data || []))
-    supabase.from('salary_adjustments').select('*').eq('period', period).order('created_at', { ascending: false }).then(({ data }) => setAdjs(data || []))
+    supabase.from('salary_adjustments').select('*').eq('period', period).in('kind', ['bonus', 'deduction']).order('created_at', { ascending: false }).then(({ data }) => setAdjs(data || []))
   }, [period])
   useEffect(() => {
     load()
@@ -173,13 +173,14 @@ export default function Payroll() {
       <div className="row" style={{ flexWrap: 'wrap' }}>
         <button className="btn primary" disabled={busy} onClick={generate}>{slips.length ? 'إعادة حساب الكشوف' : 'تجهيز كشوف الشهر'}</button>
         {drafts > 0 && <button className="btn" disabled={busy} onClick={approve}>اعتماد وإرسال للموظفين</button>}
-        <button className="btn" onClick={() => setAdding(true)}><Icon name="plus" /> مكافأة / خصم / إضافي</button>
+        <button className="btn" onClick={() => setAdding(true)}><Icon name="plus" /> مكافأة / خصم</button>
         {slips.length > 0 && <button className="btn" onClick={exportCsv}>تنزيل Excel</button>}
       </div>
       {msg && <div className={msg.ok ? 'notice' : 'error'}>{msg.t}</div>}
 
       <section>
         <h2 style={{ fontSize: 18, marginBottom: 10 }}>المكافآت والخصومات لهالشهر</h2>
+        <div className="sub" style={{ marginBottom: 8 }}>الإضافي صار من صفحة "الإضافي" بالساعات وبعد الموافقة.</div>
         <div className="card list" style={{ padding: '4px 14px' }}>
           {adjs.length === 0 ? <div className="empty">ما فيه شي لهالشهر</div> : adjs.map((a) => (
             <div key={a.id} className="list-item">
