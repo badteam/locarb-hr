@@ -39,11 +39,28 @@ const TOOL = {
   },
 };
 
+// if the model answered in text instead of calling the tool, take the JSON from the text
+const fromText = (content: any[]) => {
+  const t = (content ?? []).filter((c) => c.type === "text").map((c) => c.text).join("\n");
+  const a = t.indexOf("{"), b = t.lastIndexOf("}");
+  if (a < 0 || b <= a) return null;
+  try { return JSON.parse(t.slice(a, b + 1)); } catch { return null; }
+};
 const b64 = (buf: ArrayBuffer) => {
   let s = "";
   const bytes = new Uint8Array(buf);
   for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(s);
+};
+// real file type from the first bytes (the stored content-type is not reliable)
+const sniff = (h: Uint8Array) => {
+  const s = String.fromCharCode(...h);
+  if (s.startsWith("%PDF")) return "application/pdf";
+  if (h[0] === 0x89 && s.slice(1, 4) === "PNG") return "image/png";
+  if (h[0] === 0xff && h[1] === 0xd8) return "image/jpeg";
+  if (s.startsWith("RIFF") && s.slice(8, 12) === "WEBP") return "image/webp";
+  if (s.startsWith("GIF8")) return "image/gif";
+  return null;
 };
 const okDate = (s?: string) => {
   if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
@@ -56,11 +73,13 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "method" }, 405);
 
-  const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
+  const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const { kind, id, debug_token } = await req.json().catch(() => ({}));
+  // support: a short-lived token lets the developer re-run a reading and see the exact error
+  const debug = debug_token ? (await admin.rpc("check_debug_token", { t: debug_token })).data === true : false;
+  const db = debug ? admin : createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
     global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } },
   });
-  const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-  const { kind, id } = await req.json().catch(() => ({}));
   if (!["employee", "branch"].includes(kind) || !id) return json({ error: "kind and id required" }, 400);
 
   const table = kind === "employee" ? "employee_documents" : "branch_documents";
@@ -98,11 +117,13 @@ Deno.serve(async (req) => {
     for (const p of paths) {
       const { data: file, error } = await db.storage.from(bucket).download(p);
       if (error || !file) throw new Error("could not open file");
-      const type = file.type || (p.endsWith(".pdf") ? "application/pdf" : "image/jpeg");
-      const data = b64(await file.arrayBuffer());
+      const buf = await file.arrayBuffer();
+      const type = sniff(new Uint8Array(buf.slice(0, 12)));
+      if (!type) throw new Error("unsupported file type");
+      const data = b64(buf);
       content.push(type === "application/pdf"
-        ? { type: "document", source: { type: "base64", media_type: "application/pdf", data } }
-        : { type: "image", source: { type: "base64", media_type: ["image/png", "image/webp", "image/gif"].includes(type) ? type : "image/jpeg", data } });
+        ? { type: "document", source: { type: "base64", media_type: type, data } }
+        : { type: "image", source: { type: "base64", media_type: type, data } });
     }
     content.push({
       type: "text",
@@ -114,22 +135,24 @@ Rules:
 - If several dates appear and you cannot tell which one is the expiry, leave expiry_date empty or put your best guess, set expiry_confident=false and add "expiry_date" to uncertain_fields.
 - Never invent values; leave a field empty if it is not printed.
 - If there are front and back images, combine them.
-Call save_document once.`,
+Answer only by calling the save_document tool once.`,
     });
 
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model: MODEL, max_tokens: 6000, tools: [TOOL], tool_choice: { type: "tool", name: "save_document" }, messages: [{ role: "user", content }] }),
+      body: JSON.stringify({ model: MODEL, max_tokens: 6000, tools: [TOOL], tool_choice: { type: "auto" }, messages: [{ role: "user", content }] }),
     });
     if (!res.ok) {
       const t = await res.text();
-      const reason = res.status === 401 ? "invalid_key" : /credit|balance|billing/i.test(t) ? "no_credit" : `reader error ${res.status}`;
+      let detail = t;
+      try { detail = JSON.parse(t)?.error?.message ?? t; } catch { /* keep text */ }
+      const reason = res.status === 401 ? "invalid_key" : /credit|balance|billing/i.test(t) ? "no_credit" : `reader error ${res.status}: ${detail}`.slice(0, 400);
       await setDoc({ ai_status: "failed", ai_error: reason, review_status: "pending" });
       return json({ ok: false, error: reason }, 502);
     }
     const out = await res.json();
-    const r = out.content?.find((c: any) => c.type === "tool_use")?.input;
+    const r = out.content?.find((c: any) => c.type === "tool_use")?.input ?? fromText(out.content);
     if (!r || r.unreadable) {
       await setDoc({ ai_status: "failed", ai_error: "unreadable", review_status: "pending", ai_data: r ?? null, extracted_text: r?.full_text || null });
       return json({ ok: false, error: "unreadable" });

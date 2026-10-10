@@ -49,8 +49,25 @@ Read every product line. Rules:
 - If only a line total is shown, compute unit_price = line_total / qty.
 - Skip subtotal, VAT, delivery and payment lines.
 - Numbers: use "." for decimals; convert Arabic-Indic digits.
-Call save_invoice once.`;
+Answer only by calling the save_invoice tool once.`;
 
+// if the model answered in text instead of calling the tool, take the JSON from the text
+const fromText = (content: any[]) => {
+  const t = (content ?? []).filter((c) => c.type === "text").map((c) => c.text).join("\n");
+  const a = t.indexOf("{"), b = t.lastIndexOf("}");
+  if (a < 0 || b <= a) return null;
+  try { return JSON.parse(t.slice(a, b + 1)); } catch { return null; }
+};
+// real file type from the first bytes (the stored content-type is not reliable)
+const sniff = (h: Uint8Array) => {
+  const s = String.fromCharCode(...h);
+  if (s.startsWith("%PDF")) return "application/pdf";
+  if (h[0] === 0x89 && s.slice(1, 4) === "PNG") return "image/png";
+  if (h[0] === 0xff && h[1] === 0xd8) return "image/jpeg";
+  if (s.startsWith("RIFF") && s.slice(8, 12) === "WEBP") return "image/webp";
+  if (s.startsWith("GIF8")) return "image/gif";
+  return null;
+};
 const b64 = (buf: ArrayBuffer) => {
   let s = "";
   const bytes = new Uint8Array(buf);
@@ -112,11 +129,13 @@ Deno.serve(async (req) => {
     for (const path of inv.image_paths) {
       const { data: file, error } = await db.storage.from("invoices").download(path);
       if (error || !file) return await fail("could not open photo");
-      const type = file.type || (path.endsWith(".pdf") ? "application/pdf" : "image/jpeg");
-      const data = b64(await file.arrayBuffer());
+      const buf = await file.arrayBuffer();
+      const type = sniff(new Uint8Array(buf.slice(0, 12)));
+      if (!type) return await fail("unsupported file type");
+      const data = b64(buf);
       content.push(type === "application/pdf"
-        ? { type: "document", source: { type: "base64", media_type: "application/pdf", data } }
-        : { type: "image", source: { type: "base64", media_type: ["image/png", "image/webp", "image/gif"].includes(type) ? type : "image/jpeg", data } });
+        ? { type: "document", source: { type: "base64", media_type: type, data } }
+        : { type: "image", source: { type: "base64", media_type: type, data } });
     }
     content.push({ type: "text", text: PROMPT });
 
@@ -124,16 +143,16 @@ Deno.serve(async (req) => {
       method: "POST",
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({
-        model: MODEL, max_tokens: 8000, tools: [TOOL], tool_choice: { type: "tool", name: "save_invoice" },
+        model: MODEL, max_tokens: 8000, tools: [TOOL], tool_choice: { type: "auto" },
         messages: [{ role: "user", content }],
       }),
     });
     if (!res.ok) {
       const t = await res.text();
-      return await fail(res.status === 401 ? "invalid_key" : /credit|balance|billing/i.test(t) ? "no_credit" : `reader error ${res.status}: ${t.slice(0, 300)}`, 502);
+      return await fail(res.status === 401 ? "invalid_key" : /credit|balance|billing/i.test(t) ? "no_credit" : `reader error ${res.status}: ${(() => { try { return JSON.parse(t)?.error?.message ?? t; } catch { return t; } })().slice(0, 300)}`, 502);
     }
     const out = await res.json();
-    const r = out.content?.find((c: any) => c.type === "tool_use")?.input;
+    const r = out.content?.find((c: any) => c.type === "tool_use")?.input ?? fromText(out.content);
     if (!r || r.unreadable || !Array.isArray(r.lines) || !r.lines.length) return await fail("unreadable", 422);
 
     // supplier: match by name against existing suppliers
