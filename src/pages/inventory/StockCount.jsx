@@ -3,11 +3,19 @@ import { useSearchParams, Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { qtyFmt, kwd, invErr, itemNames } from '../../lib/inv'
 import { useLang } from '../../lib/i18n.jsx'
+import { useAccess } from '../../lib/access.jsx'
 import { useBranchChoice, BranchPicker } from './BranchStock.jsx'
 import Icon from '../../components/Icon.jsx'
 import ProductImage from '../../components/ProductImage.jsx'
 
-const SCOPES = [['fav', 'المفضلة'], ['critical', 'الجرد اليومي'], ['stock', 'اللي لها رصيد'], ['cat', 'تصنيف'], ['all', 'كل الأصناف']]
+const SCOPES = [['fav', 'المفضلة'], ['critical', 'الجرد اليومي'], ['stock', 'الأصناف الموجودة'], ['cat', 'تصنيف'], ['all', 'كل الأصناف']]
+const SCOPE_HINT = {
+  fav: 'الأصناف اللي في القائمة المفضلة لهالمكان',
+  critical: 'الأصناف الغالية واللي تخرب بسرعة، تنجرد كل يوم',
+  stock: 'الأصناف اللي النظام يقول إنها موجودة عندكم (رصيدها مو صفر)',
+  cat: 'اختار تصنيف وعدّ كل أصنافه',
+  all: 'كل الأصناف، للجرد الكامل',
+}
 const draftKey = (b) => `count-draft-${b}`
 const readDraft = (b) => { try { return JSON.parse(localStorage.getItem(draftKey(b)) || '{}') } catch { return {} } }
 const writeDraft = (b, v) => { try { localStorage.setItem(draftKey(b), JSON.stringify(v)) } catch { /* private mode */ } }
@@ -16,6 +24,7 @@ export default function StockCount() {
   const [params] = useSearchParams()
   const bc = useBranchChoice()
   const { tr, lang } = useLang()
+  const { can } = useAccess()
   const { branch, setBranch, lookups } = bc
   const [items, setItems] = useState([])
   const [levels, setLevels] = useState({})
@@ -84,6 +93,8 @@ export default function StockCount() {
       <div className="chips" style={{ marginBottom: 10 }}>
         {SCOPES.map(([k, l]) => <button key={k} className={'chip' + (scope === k ? ' on' : '')} onClick={() => setScope(k)}>{k === 'fav' ? '★ ' : ''}{tr(l)}</button>)}
       </div>
+      <div className="sub" style={{ marginBottom: 10 }}>{tr(SCOPE_HINT[scope])}</div>
+      {can('manage_inventory') && <div className="sub" style={{ marginBottom: 10 }}>{tr('أول مرة تدخل المخزون بالأسعار؟')} <Link to="/inventory/opening">{tr('رصيد أول المدة')}</Link></div>}
       <div className="toolbar">
         {scope === 'cat' && <select className="input" style={{ width: 'auto' }} value={cat} onChange={(e) => setCat(e.target.value)} aria-label={tr('التصنيف')}>
           <option value="">{tr('اختار تصنيف')}</option>{lookups.categories.map((c) => <option key={c.id} value={c.id}>{tr(c.name)}</option>)}</select>}
@@ -91,7 +102,7 @@ export default function StockCount() {
       </div>
 
       <div className="order-list">
-        {shown.length === 0 && <div className="card empty">{scope === 'fav' ? tr('ما فيه مفضلة لهالفرع. اختار "اللي لها رصيد" أو "تصنيف".') : scope === 'cat' && !cat ? tr('اختار التصنيف') : tr('ما فيه أصناف هنا')}</div>}
+        {shown.length === 0 && <div className="card empty">{scope === 'fav' ? tr('ما فيه مفضلة لهالفرع. اختار "الأصناف الموجودة" أو "تصنيف".') : scope === 'cat' && !cat ? tr('اختار التصنيف') : tr('ما فيه أصناف هنا')}</div>}
         {shown.map((i) => {
           const v = counts[i.id] ?? ''
           const exp = levels[i.id] || 0

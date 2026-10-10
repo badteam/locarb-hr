@@ -297,6 +297,7 @@ export default function Inventory() {
         <div><h1>المخزون</h1><div className="sub">المطبخ المركزي والفروع</div></div>
         <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
           {access.is_owner && <button className="btn danger" onClick={() => setResetOpen(true)}><Icon name="trash" /> مسح المخزون</button>}
+          {canEdit && <Link className="btn" to="/inventory/opening"><Icon name="doc" /> رصيد أول المدة</Link>}
           {canEdit && <button className="btn" onClick={() => setCatsOpen(true)}><Icon name="list" /> التصنيفات</button>}
           {canEdit && <button className="btn" onClick={() => setAdding(true)}><Icon name="plus" /> صنف جديد</button>}
           {(can('manage_suppliers') || can('approve_purchases')) && <Link className="btn primary" to="/inventory/invoices?new=1"><Icon name="camera" /> فاتورة مورد</Link>}

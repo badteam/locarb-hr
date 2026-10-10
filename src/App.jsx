@@ -35,6 +35,7 @@ import Settings from './pages/Settings.jsx'
 import BranchStock from './pages/inventory/BranchStock.jsx'
 import StockCount from './pages/inventory/StockCount.jsx'
 import Reports from './pages/inventory/Reports.jsx'
+import OpeningBalance from './pages/inventory/OpeningBalance.jsx'
 import NewOrder from './pages/inventory/NewOrder.jsx'
 import OrderDetail from './pages/inventory/OrderDetail.jsx'
 
@@ -181,6 +182,7 @@ function Shell() {
           {access.is_owner && <Route path="/roles" element={<Roles />} />}
           {access.is_owner && <Route path="/settings" element={<Settings />} />}
           {canInv && <Route path="/inventory" element={<Inventory />} />}
+          {can('manage_inventory') && <Route path="/inventory/opening" element={<OpeningBalance />} />}
           {canInvoices && <Route path="/inventory/invoices" element={<Invoices />} />}
           {canInvoices && <Route path="/inventory/invoices/:id" element={<InvoiceDetail />} />}
           {canInv && <Route path="/inventory/suppliers" element={<Suppliers />} />}
