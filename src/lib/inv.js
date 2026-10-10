@@ -68,7 +68,6 @@ export const invErr = (e) => {
   if (m.includes('not allowed to order')) return 'ما عندك صلاحية تطلب لهالفرع'
   if (m.includes('nothing to send')) return 'كل الكميات صفر. لو ما فيه شي ينرسل، ارفض الطلب'
   if (m.includes('not on the way')) return 'الطلب ما انرسل للحين'
-  if (m.includes('reset_stock')) return 'زرار المسح يحتاج تحديث في قاعدة البيانات لسه ما تطبّق'
   if (m.includes('duplicate key')) return 'موجود من قبل'
   return m
 }

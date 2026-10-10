@@ -16,8 +16,9 @@ export function useBranchChoice() {
   useEffect(() => {
     loadLookups().then((l) => {
       setLookups(l)
+      // owner / stock managers start on the central kitchen; branch staff on their own branch
       const own = l.stockBranches.find((b) => b.id === access.employee.branch_id)
-      setBranch(own?.id || (any ? l.kitchen?.id : '') || '')
+      setBranch((any ? l.kitchen?.id : own?.id) || own?.id || '')
     })
   }, [access.employee.branch_id, any])
   const options = lookups ? (any ? lookups.stockBranches : lookups.stockBranches.filter((b) => b.id === access.employee.branch_id)) : []
