@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase, errMsg } from '../lib/supabase'
 import { readDocument, ext } from '../lib/docs'
 import Icon from './Icon.jsx'
+import AddDocType from './AddDocType.jsx'
 import { useT } from '../lib/i18n.jsx'
 
 function Upload({ label, file, onPick }) {
@@ -96,6 +97,7 @@ export default function DocumentForm({ employeeId, doc, onClose, onSaved, onRead
             {types.map((x) => (
               <button type="button" key={x.id} className={'chip' + (typeId === x.id ? ' on' : '')} onClick={() => setTypeId(typeId === x.id ? '' : x.id)}>{tn(x.name)}</button>
             ))}
+            {admin && <AddDocType scope="employee" onAdded={(x) => { setTypes((l) => [...l, x]); setTypeId(x.id) }} />}
           </div>
         </div>
 

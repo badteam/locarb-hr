@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { supabase, errMsg, fmtDate } from '../lib/supabase'
 import { readDocument, aiMessage, FIELD_LABEL, statusPill } from '../lib/docs'
 import Icon from './Icon.jsx'
+import AddDocType from './AddDocType.jsx'
 
 const CFG = {
   employee: { view: 'employee_documents_status', table: 'employee_documents', bucket: 'employee-docs', files: (d) => [d.front_image_path, d.back_image_path].filter(Boolean), owner: (d) => d.employee_name, ownerKey: 'employee_id' },
@@ -117,6 +118,7 @@ export default function ReviewSheet({ kind, docId, onClose, onSaved, onRenew, re
               <select id="rt" className="input" style={warn('document_type')} value={f.document_type_id} onChange={set('document_type_id')} disabled={readOnly}>
                 <option value="">اختار…</option>{types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
+              {!readOnly && <div><AddDocType scope={kind} label="+ نوع مستند آخر مو موجود في القائمة" onAdded={(t) => { setTypes((x) => [...x, t]); setF((x) => ({ ...x, document_type_id: t.id })) }} /></div>}
               {flagged.has('document_type') && d.ai_data?.document_type && <div className="sub">قراه كـ: {d.ai_data.document_type}</div>}</div>
             <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
               <div className="field"><label htmlFor="rn">رقم المستند</label><input id="rn" className="input ltr" style={warn('document_number')} value={f.document_number} onChange={set('document_number')} disabled={readOnly} /></div>

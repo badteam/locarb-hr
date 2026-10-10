@@ -3,12 +3,13 @@ import { supabase, errMsg, fmtDate } from '../lib/supabase'
 import { useAccess } from '../lib/access.jsx'
 import { readDocument, statusPill, matches, ext } from '../lib/docs'
 import ReviewSheet from '../components/ReviewSheet.jsx'
+import AddDocType from '../components/AddDocType.jsx'
 import Icon from '../components/Icon.jsx'
 
 const FILTERS = [['attention', 'تحتاج انتباه'], ['review', 'بانتظار المراجعة'], ['all', 'الكل']]
 const KEYS = ['document_type_name', 'document_number', 'holder_name', 'extracted_text', 'notes', 'branch_name']
 
-function UploadSheet({ branches, types, branchId: initial, renew, onClose, onRead }) {
+function UploadSheet({ branches, types, branchId: initial, renew, onClose, onRead, onTypeAdded }) {
   const [branchId, setBranchId] = useState(renew?.branch_id || initial || '')
   const [typeId, setTypeId] = useState(renew?.document_type_id || '')
   const [files, setFiles] = useState([])
@@ -50,7 +51,8 @@ function UploadSheet({ branches, types, branchId: initial, renew, onClose, onRea
             <option value="">اختار…</option>{branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select></div>
         <div className="field"><span className="lbl">نوع المستند (اختياري، يقراه النظام)</span>
-          <div className="chips">{types.map((x) => <button type="button" key={x.id} className={'chip' + (typeId === x.id ? ' on' : '')} onClick={() => setTypeId(typeId === x.id ? '' : x.id)}>{x.name}</button>)}</div></div>
+          <div className="chips">{types.map((x) => <button type="button" key={x.id} className={'chip' + (typeId === x.id ? ' on' : '')} onClick={() => setTypeId(typeId === x.id ? '' : x.id)}>{x.name}</button>)}
+            <AddDocType scope="branch" onAdded={(t) => { onTypeAdded(); setTypeId(t.id) }} /></div></div>
         <label className="upload" style={{ height: files.length ? 'auto' : 140, padding: files.length ? 10 : 0 }}>
           <input type="file" accept="image/*,application/pdf" multiple onChange={(e) => setFiles([...files, ...e.target.files])} />
           {files.length === 0 ? <><Icon name="camera" size={28} /><strong>صوّر المستند أو اختار PDF</strong><span>لو أكثر من صفحة، اختارهم كلهم</span></>
@@ -165,7 +167,7 @@ export default function BranchDocs() {
               <button className="btn" style={{ minHeight: 40 }} onClick={addType}>إضافة</button></span>}
         </div>)}
 
-      {upload && <UploadSheet branches={branches} types={types} branchId={upload.branchId} renew={upload.renew || (upload.typeId ? { branch_id: upload.branchId, document_type_id: upload.typeId, id: null, isNew: true } : null)}
+      {upload && <UploadSheet branches={branches} types={types} onTypeAdded={loadTypes} branchId={upload.branchId} renew={upload.renew || (upload.typeId ? { branch_id: upload.branchId, document_type_id: upload.typeId, id: null, isNew: true } : null)}
         onClose={() => setUpload(null)} onRead={(id) => { load(); setOpen(id) }} />}
       {open && <ReviewSheet kind="branch" docId={open} readOnly={!manage} onClose={() => setOpen(null)} onSaved={load}
         onRenew={manage ? (d) => { setOpen(null); setUpload({ renew: d }) } : null} />}
