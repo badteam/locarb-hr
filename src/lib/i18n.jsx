@@ -105,6 +105,8 @@ const D = {
   expired_ago: { ar: 'منتهي من {n} يوم', en: 'expired {n} days ago', ne: '{n} दिन अघि समाप्त', hi: '{n} दिन पहले समाप्त' },
   expires_on: { ar: 'ينتهي {d}', en: 'Expires {d}', ne: '{d} मा समाप्त', hi: '{d} को समाप्त' },
   expired_on: { ar: 'انتهى {d}', en: 'Expired {d}', ne: '{d} मा समाप्त भयो', hi: '{d} को समाप्त हुआ' },
+  medical_report: { ar: 'إرفاق التقرير الطبي (إذا عندك)', en: 'Attach the medical report (if you have one)', ne: 'मेडिकल रिपोर्ट संलग्न गर्नुहोस् (भए)', hi: 'मेडिकल रिपोर्ट लगाएँ (अगर है)' },
+  medical_attached: { ar: 'التقرير مرفق ✓', en: 'Report attached ✓', ne: 'रिपोर्ट संलग्न ✓', hi: 'रिपोर्ट लगा दी ✓' },
   more: { ar: 'المزيد', en: 'More', ne: 'थप', hi: 'और' },
   close: { ar: 'إغلاق', en: 'Close', ne: 'बन्द गर्नुहोस्', hi: 'बंद करें' },
   in_review: { ar: 'بانتظار المراجعة', en: 'Under review', ne: 'समीक्षामा', hi: 'समीक्षा में' },

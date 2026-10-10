@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { supabase, fmtDate, errMsg } from '../lib/supabase'
 import { useAccess } from '../lib/access.jsx'
+import { MedicalPicker, attachMedical, MedicalCheck } from '../components/Medical.jsx'
 import Icon from '../components/Icon.jsx'
 import { useLang } from '../lib/i18n.jsx'
 
@@ -21,15 +22,19 @@ function RequestForm({ date, defaultKind, onClose, onSaved }) {
   const [tin, setTin] = useState('')
   const [tout, setTout] = useState('')
   const [reason, setReason] = useState('')
+  const [medical, setMedical] = useState(null)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
+  const { access: acc } = useAccess()
 
   const save = async (e) => {
     e.preventDefault(); setBusy(true); setErr('')
-    const { error } = await supabase.rpc('request_punch_correction', {
+    const { data: req, error } = await supabase.rpc('request_punch_correction', {
       p_date: d, p_kind: kind, p_in: kind === 'attended' ? tin : null, p_out: ['attended', 'missed_checkout'].includes(kind) ? tout : null, p_reason: reason || null,
     })
-    if (error) setErr(errMsg(error)); else { onSaved(); onClose() }
+    if (error) { setErr(errMsg(error)); setBusy(false); return }
+    try { if (kind === 'sick' && medical) await attachMedical(medical, acc.employee.id, 'correction', req.id) } catch (e2) { setErr(errMsg(e2)); setBusy(false); return }
+    onSaved(); onClose()
     setBusy(false)
   }
 
@@ -49,6 +54,7 @@ function RequestForm({ date, defaultKind, onClose, onSaved }) {
           </div>
         )}
         {kind === 'leave' && <div className="sub">{t('leave_one_day')}</div>}
+        {kind === 'sick' && <MedicalPicker file={medical} onPick={setMedical} />}
         <div className="field"><label htmlFor="cr">{t('reason')}</label><textarea id="cr" className="input" style={{ height: 80, paddingTop: 10 }} value={reason} onChange={(e) => setReason(e.target.value)} required /></div>
         {err && <div className="error">{err}</div>}
         <button className="btn primary block" disabled={busy}>{t('send')}</button>
@@ -99,6 +105,7 @@ export default function Corrections() {
           <div className="sub">{manager ? kindText[r.kind] : t('k_' + r.kind)}{r.check_in_time ? ` · ${manager ? 'حضور' : t('in_time')} ${r.check_in_time.slice(0, 5)}` : ''}{r.check_out_time ? ` · ${manager ? 'انصراف' : t('out_time')} ${r.check_out_time.slice(0, 5)}` : ''}</div>
           {r.reason && <div className="sub">{manager ? 'السبب' : t('reason')}: {r.reason}</div>}
           {r.decision_note && <div className="sub">{manager ? 'ملاحظة الإدارة' : t('mgmt_note')}: {r.decision_note}</div>}
+          {manager && <MedicalCheck path={r.attachment_path} check={r.ai_check} />}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
           <span className={'pill ' + cls}>{txt}</span>

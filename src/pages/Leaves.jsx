@@ -4,6 +4,7 @@ import { useAccess } from '../lib/access.jsx'
 import Icon from '../components/Icon.jsx'
 import SignaturePad, { uploadSignature, SignatureImage } from '../components/SignaturePad.jsx'
 import { useLang } from '../lib/i18n.jsx'
+import { MedicalPicker, attachMedical, MedicalCheck } from '../components/Medical.jsx'
 
 const STATUS = { pending: ['amber', 'بانتظار الموافقة', 'st_pending'], approved: ['ok', 'مقبولة', 'st_approved'], rejected: ['red', 'مرفوضة', 'st_rejected'], cancelled: ['gray', 'ملغية', 'st_cancelled'] }
 
@@ -14,6 +15,7 @@ function RequestForm({ types, balance, empId, onClose, onSaved }) {
   const [end, setEnd] = useState('')
   const [reason, setReason] = useState('')
   const [signed, setSigned] = useState(false)
+  const [medical, setMedical] = useState(null)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const days = start && end ? Math.round((new Date(end) - new Date(start)) / 86400000) + 1 : 0
@@ -25,8 +27,9 @@ function RequestForm({ types, balance, empId, onClose, onSaved }) {
     setBusy(true); setErr('')
     try {
       const sig = await uploadSignature(empId)
-      const { error } = await supabase.rpc('request_leave', { p_type: type, p_start: start, p_end: end, p_reason: reason || null, p_signature_path: sig })
+      const { data: req, error } = await supabase.rpc('request_leave', { p_type: type, p_start: start, p_end: end, p_reason: reason || null, p_signature_path: sig })
       if (error) throw error
+      if (medical && t?.name === 'مرضية') await attachMedical(medical, empId, 'leave', req.id)
       onSaved(); onClose()
     } catch (e2) { setErr(e2.message?.includes('insufficient') ? tr('no_balance') : errMsg(e2)) }
     setBusy(false)
@@ -47,6 +50,7 @@ function RequestForm({ types, balance, empId, onClose, onSaved }) {
         </div>
         {days > 0 && <div className="sub">{tr('days_n', { n: days })} · {t?.deducts_balance ? tr('deducts') : tr('not_deducts')}</div>}
         <div className="field"><label htmlFor="lr">{tr('reason')}</label><textarea id="lr" className="input" style={{ height: 80, paddingTop: 10 }} value={reason} onChange={(e) => setReason(e.target.value)} /></div>
+        {t?.name === 'مرضية' && <MedicalPicker file={medical} onPick={setMedical} />}
         <SignaturePad onChange={(empty) => setSigned(!empty)} />
         {err && <div className="error">{err}</div>}
         <button className="btn primary block" disabled={busy}>{busy ? tr('sending') : tr('send')}</button>
@@ -105,6 +109,7 @@ export default function Leaves() {
           {r.reason && <div className="sub">{manager ? 'السبب' : t('reason')}: {r.reason}</div>}
           {manager && <div className="sub">رصيده: {names[r.employee_id]?.leave_balance} يوم</div>}
           {r.decision_note && <div className="sub">{manager ? 'ملاحظة الإدارة' : t('mgmt_note')}: {r.decision_note}</div>}
+          {manager && <MedicalCheck path={r.attachment_path} check={r.ai_check} />}
           {manager && r.signature_path && <div style={{ marginTop: 6 }}><SignatureImage path={r.signature_path} /></div>}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>

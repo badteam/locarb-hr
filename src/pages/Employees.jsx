@@ -4,6 +4,7 @@ import { useAccess } from '../lib/access.jsx'
 import Icon from '../components/Icon.jsx'
 import DocumentForm from '../components/DocumentForm.jsx'
 import ReviewSheet from '../components/ReviewSheet.jsx'
+import { uploadAttachment, readFile, readError, copyFile, ACCEPT } from '../lib/ai'
 import EmployeesIO from '../components/EmployeesIO.jsx'
 
 const DAYS = [['saturday','السبت'],['sunday','الأحد'],['monday','الاثنين'],['tuesday','الثلاثاء'],['wednesday','الأربعاء'],['thursday','الخميس'],['friday','الجمعة']]
@@ -17,7 +18,28 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
     working_hours: emp?.working_hours ?? '', annual_leave_days: emp?.annual_leave_days ?? 30,
     weekly_holidays: emp?.weekly_holidays || [], leave_balance: emp?.leave_balance ?? 0,
     ot_mode: emp?.ot_mode || '', ot_rate: emp?.ot_rate ?? '', ot_multiplier: emp?.ot_multiplier ?? '',
+    civil_id: emp?.civil_id || '', nationality: emp?.nationality || '',
   })
+  // civil ID photo read by the AI: fills the form, and is saved as the employee's document
+  const [idScan, setIdScan] = useState(null)
+  const [scanning, setScanning] = useState(false)
+  const [scanMsg, setScanMsg] = useState(null)
+  const scanId = async (file) => {
+    if (!file) return
+    setScanning(true); setScanMsg(null)
+    try {
+      const path = await uploadAttachment(file, access.employee.id)
+      const r = await readFile('civil_id', [path])
+      if (!r.ok) { setScanMsg({ ok: false, t: readError(r) }); setScanning(false); return }
+      const d = r.data
+      setIdScan({ path, data: d })
+      setF((x) => ({ ...x, full_name: x.full_name || d.full_name_en || d.full_name_ar || '', civil_id: d.civil_id || x.civil_id, nationality: d.nationality || x.nationality }))
+      const other = r.match?.employee && r.match.employee.id !== emp?.id ? r.match.employee : null
+      setScanMsg(other ? { ok: false, t: `انتبه: هالبطاقة شكلها لموظف موجود (${other.name}).` }
+        : { ok: true, t: `قرا البطاقة: ${[d.full_name_en, d.full_name_ar].filter(Boolean).join(' / ')}${d.expiry_date ? ` · تنتهي ${d.expiry_date}` : ''}. البطاقة بتنحفظ في مستنداته مع تنبيه الانتهاء.` })
+    } catch (e2) { setScanMsg({ ok: false, t: errMsg(e2) }) }
+    setScanning(false)
+  }
   const canPay = can('manage_payroll')
   const [salary, setSalary] = useState('')
   // allowances being edited: existing rows keep their id; new rows have none; removed rows are flagged
@@ -51,7 +73,8 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
     try {
       const row = { ...f, branch_id: f.branch_id || null, shift_id: f.shift_id || null, role_id: f.role_id || null, hire_date: f.hire_date || null, phone: f.phone.replace(/\D/g, '') || null,
         working_hours: f.working_hours === '' ? null : Number(f.working_hours), annual_leave_days: Number(f.annual_leave_days) || 0, leave_balance: Number(f.leave_balance) || 0,
-        ot_mode: f.ot_mode || null, ot_rate: f.ot_mode === 'fixed' && f.ot_rate !== '' ? Number(f.ot_rate) : null, ot_multiplier: f.ot_mode === 'multiplier' && f.ot_multiplier !== '' ? Number(f.ot_multiplier) : null }
+        ot_mode: f.ot_mode || null, ot_rate: f.ot_mode === 'fixed' && f.ot_rate !== '' ? Number(f.ot_rate) : null, ot_multiplier: f.ot_mode === 'multiplier' && f.ot_multiplier !== '' ? Number(f.ot_multiplier) : null,
+        civil_id: f.civil_id.replace(/\D/g, '') || null, nationality: f.nationality || null }
       if (!access.is_owner) delete row.role_id
       if (!canPay) { delete row.leave_balance; delete row.ot_mode; delete row.ot_rate; delete row.ot_multiplier }
       let id = emp?.id
@@ -61,6 +84,19 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
         if (!access.is_owner) row.role_id = roles.find((r) => r.name === 'موظف')?.id || null
         const { data, error } = await supabase.from('employees').insert(row).select('id').single(); if (error) throw error
         id = data.id
+      }
+      if (idScan) {
+        const d = idScan.data
+        const { data: types } = await supabase.from('document_types').select('id,name').eq('scope', 'employee')
+        const want = d.document_type && d.document_type !== 'other' ? d.document_type : 'البطاقة المدنية'
+        const type = (types || []).find((t) => t.name === want)
+        const e2 = idScan.path.endsWith('.pdf') ? 'pdf' : 'jpg'
+        const front = await copyFile('attachments', idScan.path, 'employee-docs', `${id}/${crypto.randomUUID()}-front.${e2}`)
+        const sure = d.expiry_date && type && !(d.uncertain_fields || []).includes('expiry_date')
+        const { error } = await supabase.from('employee_documents').insert({ employee_id: id, document_type_id: type?.id || null, document_number: d.civil_id || null,
+          expiry_date: d.expiry_date || null, front_image_path: front, review_status: sure ? 'approved' : 'pending', ai_status: 'done', ai_data: d,
+          holder_name: d.full_name_en || d.full_name_ar || null, review_fields: sure ? [] : ['expiry_date'] })
+        if (error) throw error
       }
       if (canPay) {
         if (salary !== '') {
@@ -91,7 +127,17 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
           <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose}><Icon name="x" /></button>
         </div>
         <fieldset disabled={!editable || (isOwnerRow && !access.is_owner)} style={{ border: 0, padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {editable && (
+            <label className="upload" style={{ height: 76 }}>
+              <input type="file" accept={ACCEPT} onChange={(e) => { scanId(e.target.files?.[0]); e.target.value = '' }} />
+              {scanning ? <><span className="spinner" /> جاري قراءة البطاقة…</> : <><Icon name="camera" /> {emp ? 'تحديث من صورة البطاقة المدنية' : 'عبّي البيانات من صورة البطاقة المدنية'}</>}
+            </label>)}
+          {scanMsg && <div className={scanMsg.ok ? 'notice' : 'warn'}>{scanMsg.t}</div>}
           <div className="field"><label htmlFor="n">الاسم الكامل</label><input id="n" className="input" value={f.full_name} onChange={set('full_name')} required /></div>
+          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <div className="field"><label htmlFor="cid">الرقم المدني</label><input id="cid" className="input ltr" style={{ textAlign: 'right' }} inputMode="numeric" value={f.civil_id} onChange={set('civil_id')} /></div>
+            <div className="field"><label htmlFor="nat">الجنسية</label><input id="nat" className="input" value={f.nationality} onChange={set('nationality')} /></div>
+          </div>
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
             <div className="field"><label htmlFor="p">رقم الهاتف</label><input id="p" className="input ltr" style={{ textAlign: 'right' }} inputMode="tel" value={f.phone} onChange={set('phone')} /></div>
             <div className="field"><label htmlFor="j">الوظيفة</label><input id="j" className="input" placeholder="شيف، كاشير، سايق…" value={f.job_title} onChange={set('job_title')} /></div>

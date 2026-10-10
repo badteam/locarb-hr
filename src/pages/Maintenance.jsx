@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { supabase, errMsg, fmtDate, todayKuwait } from '../lib/supabase'
 import { useAccess } from '../lib/access.jsx'
 import { statusPill, ext, compressImage } from '../lib/docs'
+import { readFile, readError } from '../lib/ai'
 import Icon from '../components/Icon.jsx'
 
 const money = (n) => Number(n || 0).toFixed(3)
@@ -12,44 +13,65 @@ function DoneSheet({ item, onClose, onSaved }) {
   const [vendor, setVendor] = useState('')
   const [cost, setCost] = useState('')
   const [notes, setNotes] = useState('')
-  const [files, setFiles] = useState([])
-  const [busy, setBusy] = useState(false)
+  const [paths, setPaths] = useState([])
+  const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
-  const save = async (e) => {
-    e.preventDefault(); setBusy(true); setErr('')
+  const [info, setInfo] = useState(null)
+
+  // upload right away and let the AI read the invoice / report
+  const onPick = async (list) => {
+    setErr(''); setInfo(null); setBusy('read')
     try {
-      const paths = []
-      for (const raw of files) {
+      const added = []
+      for (const raw of list) {
         const f = await compressImage(raw)
         const path = `${item.branch_id}/maintenance/${crypto.randomUUID()}.${ext(f)}`
         const { error } = await supabase.storage.from('branch-docs').upload(path, f, { contentType: f.type })
         if (error) throw error
-        paths.push(path)
+        added.push(path)
       }
-      const { error } = await supabase.from('maintenance_logs').insert({ item_id: item.id, done_date: date, vendor: vendor || null, cost: cost === '' ? null : Number(cost), notes: notes || null, invoice_paths: paths })
-      if (error) throw error
-      onSaved(); onClose()
-    } catch (e2) { setErr(errMsg(e2)) }
-    setBusy(false)
+      const all = [...paths, ...added]
+      setPaths(all)
+      const r = await readFile('maintenance', all, { bucket: 'branch-docs' })
+      if (r.ok) {
+        const d = r.data
+        if (d.date) setDate(d.date)
+        if (d.vendor) setVendor((v) => v || d.vendor)
+        if (d.cost != null && Number(d.cost) > 0) setCost(String(d.cost))
+        if (d.work_done_ar) setNotes((n) => n || d.work_done_ar)
+        setInfo({ ok: true, t: 'قرا الفاتورة وعبّى البيانات. تأكد منها واحفظ.' + (d.uncertain_fields?.length ? ' (مو متأكد من بعض الخانات)' : '') })
+      } else setInfo({ ok: false, t: readError(r) })
+    } catch (e) { setErr(errMsg(e)) }
+    setBusy('')
+  }
+
+  const save = async (e) => {
+    e.preventDefault(); setBusy('save'); setErr('')
+    const { error } = await supabase.from('maintenance_logs').insert({ item_id: item.id, done_date: date, vendor: vendor || null, cost: cost === '' ? null : Number(cost), notes: notes || null, invoice_paths: paths })
+    setBusy('')
+    if (error) setErr(errMsg(error)); else { onSaved(); onClose() }
   }
   return (
     <div className="overlay" onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
       <form className="sheet form" onSubmit={save}>
         <div className="sheet-head"><div><h2 style={{ fontSize: 20 }}>تمت الصيانة</h2><div className="sub">{item.name} · {item.branch_name}</div></div>
           <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose}><Icon name="x" /></button></div>
+        <label className="upload" style={{ height: 96 }}>
+          <input type="file" accept="image/*,application/pdf" multiple onChange={(e) => { onPick([...e.target.files]); e.target.value = '' }} />
+          {busy === 'read' ? <><span className="spinner" /> جاري قراءة الفاتورة…</>
+            : paths.length ? <span>{paths.length} ملف ✓ · <u>إضافة صفحة</u></span>
+            : <><Icon name="camera" /> ارفع الفاتورة أو التقرير أول، والنظام يعبّي الباقي</>}
+        </label>
+        {info && <div className={info.ok ? 'notice' : 'warn'}>{info.t}</div>}
         <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
           <div className="field"><label htmlFor="dd">التاريخ</label><input id="dd" type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} required /></div>
           <div className="field"><label htmlFor="dc">التكلفة (د.ك)</label><input id="dc" type="number" step="0.001" min="0" className="input" value={cost} onChange={(e) => setCost(e.target.value)} /></div>
         </div>
         <div className="field"><label htmlFor="dv">الشركة / الفني</label><input id="dv" className="input" value={vendor} onChange={(e) => setVendor(e.target.value)} /></div>
-        <div className="field"><label htmlFor="dn">ملاحظات</label><input id="dn" className="input" value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
-        <label className="upload" style={{ height: 90 }}>
-          <input type="file" accept="image/*,application/pdf" multiple onChange={(e) => setFiles([...files, ...e.target.files])} />
-          {files.length ? <span>{files.length} ملف ✓</span> : <><Icon name="camera" /> الفاتورة أو التقرير (اختياري)</>}
-        </label>
+        <div className="field"><label htmlFor="dn">وش انعمل / ملاحظات</label><input id="dn" className="input" value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
         <div className="sub">الموعد الجاي ينحسب بروحه: {every(item.interval_months)} من هالتاريخ.</div>
         {err && <div className="error">{err}</div>}
-        <button className="btn primary block" disabled={busy}>{busy ? <span className="spinner" /> : null} حفظ</button>
+        <button className="btn primary block" disabled={!!busy}>{busy === 'save' ? <span className="spinner" /> : null} حفظ</button>
       </form>
     </div>
   )
