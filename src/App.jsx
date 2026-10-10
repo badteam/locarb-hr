@@ -63,6 +63,7 @@ function Shell() {
   const { t, tr, dir } = useLang()
   const location = useLocation()
   const unread = useUnread(!!access)
+  const [more, setMore] = useState(false)
   const adminPage = ADMIN_PATHS.some((p) => location.pathname.startsWith(p)) && !BRANCH_PATHS.some((p) => location.pathname.startsWith(p))
 
   if (session === undefined || loading) return <div className="center sub">{t('loading')}</div>
@@ -122,11 +123,12 @@ function Shell() {
   const nav = (section === 'inv' ? invNav : hrNav).filter((x) => x.show)
 
   const INV_MOBILE = ['/inventory', '/inventory/orders', '/inventory/stock', '/inventory/invoices', '/inventory/reports']
+  const pick = (paths) => paths.map((p) => nav.find((x) => x.to === p)).filter(Boolean)
   const mobileNav = section === 'inv'
-    ? [...INV_MOBILE.map((p) => nav.find((x) => x.to === p)).filter(Boolean).slice(0, 4), nav.find((x) => x.to === '/notifications')].filter(Boolean)
+    ? [...pick(INV_MOBILE).slice(0, 3), ...pick(['/notifications'])]
     : isManager
-      ? nav.filter((x) => ['/', '/dashboard', '/employees', '/documents', '/notifications'].includes(x.to))
-      : nav.filter((x) => ['/', '/leaves', '/my-documents', '/payslips', '/notifications'].includes(x.to))
+      ? pick(['/', '/dashboard', '/documents', '/notifications'])
+      : pick(['/', '/leaves', '/my-documents', '/notifications'])
 
   const switcher = (canInv || canOrders || canCount) && (
     <div className="seg no-print" role="tablist" aria-label={tr('القسم')}>
@@ -199,7 +201,30 @@ function Shell() {
             {x.label}
           </NavLink>
         ))}
+        <a href="#more" onClick={(e) => { e.preventDefault(); setMore(true) }} className={more ? 'active' : ''}>
+          <Icon name="list" size={22} />
+          {t('more')}
+        </a>
       </nav>
+
+      {more && (
+        <div className="overlay no-print" onClick={(e) => e.target === e.currentTarget && setMore(false)}>
+          <div className="sheet" dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <div className="sheet-head">
+              <div><strong>{access.employee.full_name}</strong><div className="sub">{tr(access.role_name || '')}</div></div>
+              <button type="button" className="icon-btn" aria-label={t('close')} onClick={() => setMore(false)}><Icon name="x" /></button>
+            </div>
+            {nav.map((x) => (
+              <NavLink key={x.to} to={x.to} end={!['/inventory/invoices', '/inventory/orders'].includes(x.to)} onClick={() => setMore(false)} className={({ isActive }) => 'navlink' + (isActive ? ' active' : '')}>
+                <Icon name={x.icon} /> {x.label} {x.badge ? <span className="badge">{x.badge}</span> : null}
+              </NavLink>
+            ))}
+            <button className="navlink" style={{ border: 0, background: 'none', cursor: 'pointer', marginTop: 8 }} onClick={() => supabase.auth.signOut()}>
+              <Icon name="logout" /> {t('logout')}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

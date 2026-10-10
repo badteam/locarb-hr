@@ -105,6 +105,7 @@ const D = {
   expired_ago: { ar: 'منتهي من {n} يوم', en: 'expired {n} days ago', ne: '{n} दिन अघि समाप्त', hi: '{n} दिन पहले समाप्त' },
   expires_on: { ar: 'ينتهي {d}', en: 'Expires {d}', ne: '{d} मा समाप्त', hi: '{d} को समाप्त' },
   expired_on: { ar: 'انتهى {d}', en: 'Expired {d}', ne: '{d} मा समाप्त भयो', hi: '{d} को समाप्त हुआ' },
+  more: { ar: 'المزيد', en: 'More', ne: 'थप', hi: 'और' },
   close: { ar: 'إغلاق', en: 'Close', ne: 'बन्द गर्नुहोस्', hi: 'बंद करें' },
   in_review: { ar: 'بانتظار المراجعة', en: 'Under review', ne: 'समीक्षामा', hi: 'समीक्षा में' },
   rejected_doc: { ar: 'مرفوض', en: 'Rejected', ne: 'अस्वीकृत', hi: 'अस्वीकृत' },
