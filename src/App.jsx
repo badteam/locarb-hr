@@ -21,6 +21,9 @@ import Payroll from './pages/Payroll.jsx'
 import Payslips from './pages/Payslips.jsx'
 import ChangePassword from './pages/ChangePassword.jsx'
 import Overtime from './pages/Overtime.jsx'
+import BranchDocs from './pages/BranchDocs.jsx'
+import Maintenance from './pages/Maintenance.jsx'
+import Transactions from './pages/Transactions.jsx'
 import Inventory from './pages/inventory/Inventory.jsx'
 import Invoices from './pages/inventory/Invoices.jsx'
 import InvoiceDetail from './pages/inventory/InvoiceDetail.jsx'
@@ -48,7 +51,7 @@ function useUnread(enabled) {
 }
 
 const BRANCH_PATHS = ['/inventory/orders', '/inventory/stock', '/inventory/count']
-const ADMIN_PATHS = ['/settings', '/inventory', '/overtime', '/dashboard', '/payroll', '/attendance', '/documents', '/employees', '/branches', '/roles']
+const ADMIN_PATHS = ['/branch-docs', '/maintenance', '/transactions', '/settings', '/inventory', '/overtime', '/dashboard', '/payroll', '/attendance', '/documents', '/employees', '/branches', '/roles']
 
 export default function App() {
   const { access } = useAccess()
@@ -73,7 +76,9 @@ function Shell() {
 
   if (access.employee.must_change_password) return <ChangePassword />
 
-  const isManager = can('view_attendance') || can('manage_documents') || can('manage_employees')
+  const isManager = can('view_attendance') || can('manage_documents') || can('manage_employees') || can('manage_branch_docs')
+  const canBranchDocs = can('manage_branch_docs') || can('branch_maintenance')
+  const canTx = can('manage_branch_docs') || can('manage_documents')
   const canInv = can('manage_inventory') || can('manage_suppliers') || can('approve_purchases') || can('approve_branch_requests') || can('view_reports')
   const canOrders = can('branch_orders') || can('approve_branch_requests') || can('manage_inventory') || can('view_reports')
   const canCount = can('branch_count') || can('manage_inventory')
@@ -93,7 +98,10 @@ function Shell() {
     { to: '/payroll', icon: 'box', label: tr('الرواتب'), show: can('manage_payroll') },
     { to: '/overtime', icon: 'calendar', label: tr('الإضافي'), show: can('approve_overtime') },
     { to: '/attendance', icon: 'calendar', label: tr('سجل الحضور'), show: can('view_attendance') },
-    { to: '/documents', icon: 'warn', label: tr('كل المستندات'), show: can('manage_documents') },
+    { to: '/documents', icon: 'warn', label: tr('مستندات الموظفين'), show: can('manage_documents') },
+    { to: '/branch-docs', icon: 'doc', label: tr('تراخيص الفروع'), show: canBranchDocs },
+    { to: '/maintenance', icon: 'gear', label: tr('الصيانة'), show: canBranchDocs },
+    { to: '/transactions', icon: 'list', label: tr('المعاملات الحكومية'), show: canTx },
     { to: '/employees', icon: 'users', label: tr('الموظفين'), show: can('view_employees') || can('manage_employees') },
     { to: '/branches', icon: 'branch', label: tr('الفروع'), show: can('manage_branches') },
     { to: '/roles', icon: 'shield', label: tr('الأدوار والصلاحيات'), show: access.is_owner },
@@ -159,6 +167,9 @@ function Shell() {
           {isManager && <Route path="/dashboard" element={<Dashboard />} />}
           {can('view_attendance') && <Route path="/attendance" element={<Attendance />} />}
           {can('manage_documents') && <Route path="/documents" element={<AllDocuments />} />}
+          {canBranchDocs && <Route path="/branch-docs" element={<BranchDocs />} />}
+          {canBranchDocs && <Route path="/maintenance" element={<Maintenance />} />}
+          {canTx && <Route path="/transactions" element={<Transactions />} />}
           {(can('view_employees') || can('manage_employees')) && <Route path="/employees" element={<Employees />} />}
           {can('manage_branches') && <Route path="/branches" element={<Branches />} />}
           {access.is_owner && <Route path="/roles" element={<Roles />} />}

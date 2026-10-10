@@ -32,7 +32,7 @@ export default function Home() {
   const load = useCallback(async () => {
     const { data } = await supabase.from('attendance').select('*').eq('employee_id', emp.id).eq('work_date', todayKuwait()).order('check_in_at', { ascending: false }).limit(1)
     setToday(data?.[0] || null)
-    const { data: docs } = await supabase.from('employee_documents_status').select('document_type_name,days_left,status').eq('employee_id', emp.id).neq('status', 'valid').order('days_left').limit(1)
+    const { data: docs } = await supabase.from('employee_documents_status').select('document_type_name,days_left,status').eq('employee_id', emp.id).in('status', ['expired', 'expiring']).order('days_left').limit(1)
     setDocAlert(docs?.[0] || null)
     supabase.from('missed_punches').select('id', { count: 'exact', head: true }).eq('employee_id', emp.id).eq('resolved', false).then(({ count }) => setMissed(count || 0))
     supabase.from('overtime_entries').select('status,minutes,approved_minutes').eq('employee_id', emp.id).gte('work_date', todayKuwait().slice(0, 7) + '-01').in('status', ['approved', 'pending'])

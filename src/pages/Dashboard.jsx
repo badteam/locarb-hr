@@ -9,13 +9,13 @@ export default function Dashboard() {
   const [att, setAtt] = useState([])
   const [branches, setBranches] = useState([])
   const [docs, setDocs] = useState([])
-  const [pend, setPend] = useState({ leaves: 0, corrections: 0, missed: 0, notices: 0, ot: 0 })
+  const [pend, setPend] = useState({ leaves: 0, corrections: 0, missed: 0, notices: 0, ot: 0, docReview: 0, branchDocs: 0, maint: 0, tx: 0 })
 
   useEffect(() => {
     supabase.from('employees').select('id,full_name,job_title,branch_id').eq('active', true).then(({ data }) => setEmps(data || []))
     supabase.from('branches').select('id,name').eq('active', true).order('name').then(({ data }) => setBranches(data || []))
     if (can('view_attendance')) supabase.from('attendance').select('*').eq('work_date', todayKuwait()).then(({ data }) => setAtt(data || []))
-    if (can('manage_documents')) supabase.from('employee_documents_status').select('*').neq('status', 'valid').order('days_left').limit(8).then(({ data }) => setDocs(data || []))
+    if (can('manage_documents')) supabase.from('employee_documents_status').select('*').in('status', ['expired', 'expiring']).order('days_left').limit(8).then(({ data }) => setDocs(data || []))
     const cnt = (q) => q.then(({ count }) => count || 0)
     Promise.all([
       can('approve_leaves') ? cnt(supabase.from('leave_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending')) : 0,
@@ -23,7 +23,11 @@ export default function Dashboard() {
       can('view_attendance') ? cnt(supabase.from('missed_punches').select('id', { count: 'exact', head: true }).eq('resolved', false)) : 0,
       can('issue_notices') ? cnt(supabase.from('disciplinary_notices').select('id', { count: 'exact', head: true }).eq('status', 'refused')) : 0,
       can('approve_overtime') ? cnt(supabase.from('overtime_entries').select('id', { count: 'exact', head: true }).eq('status', 'pending')) : 0,
-    ]).then(([leaves, corrections, missed, notices, ot]) => setPend({ leaves, corrections, missed, notices, ot }))
+      can('manage_documents') ? cnt(supabase.from('employee_documents').select('id', { count: 'exact', head: true }).eq('review_status', 'pending').eq('archived', false)) : 0,
+      (can('manage_branch_docs') || can('branch_maintenance')) ? cnt(supabase.from('branch_documents_status').select('id', { count: 'exact', head: true }).eq('archived', false).in('status', ['expired', 'expiring', 'review'])) : 0,
+      (can('manage_branch_docs') || can('branch_maintenance')) ? cnt(supabase.from('maintenance_status').select('id', { count: 'exact', head: true }).eq('active', true).in('status', ['overdue', 'due'])) : 0,
+      (can('manage_branch_docs') || can('manage_documents')) ? cnt(supabase.from('gov_transactions').select('id', { count: 'exact', head: true }).not('status', 'in', '(done,cancelled)')) : 0,
+    ]).then(([leaves, corrections, missed, notices, ot, docReview, branchDocs, maint, tx]) => setPend({ leaves, corrections, missed, notices, ot, docReview, branchDocs, maint, tx }))
   }, [can])
 
   const present = new Set(att.filter((a) => !a.check_out_at).map((a) => a.employee_id))
@@ -49,12 +53,16 @@ export default function Dashboard() {
         </div>
       )}
 
-      {(pend.leaves + pend.corrections + pend.missed + pend.notices + pend.ot) > 0 && (
+      {(pend.leaves + pend.corrections + pend.missed + pend.notices + pend.ot + pend.docReview + pend.branchDocs + pend.maint + pend.tx) > 0 && (
         <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom: 20 }}>
           {pend.leaves > 0 && <Link to="/leaves" className="warn"><strong>{pend.leaves}</strong> طلب إجازة ينتظر موافقتك</Link>}
           {pend.corrections > 0 && <Link to="/corrections" className="warn"><strong>{pend.corrections}</strong> طلب نسيان بصمة</Link>}
           {pend.missed > 0 && <Link to="/corrections" className="warn"><strong>{pend.missed}</strong> بصمة ناقصة</Link>}
           {pend.ot > 0 && <Link to="/overtime" className="warn"><strong>{pend.ot}</strong> إضافي ينتظر موافقتك</Link>}
+          {pend.docReview > 0 && <Link to="/documents?tab=review" className="warn"><strong>{pend.docReview}</strong> مستند موظف بانتظار المراجعة</Link>}
+          {pend.branchDocs > 0 && <Link to="/branch-docs" className="warn"><strong>{pend.branchDocs}</strong> رخصة فرع تحتاج انتباه</Link>}
+          {pend.maint > 0 && <Link to="/maintenance" className="warn"><strong>{pend.maint}</strong> صيانة متأخرة أو قريبة</Link>}
+          {pend.tx > 0 && <Link to="/transactions" className="warn" style={{ background: '#EEF1EC', color: 'var(--ink)' }}><strong>{pend.tx}</strong> معاملة حكومية مفتوحة</Link>}
           {pend.notices > 0 && <Link to="/notices" className="warn" style={{ background: 'var(--red-bg)', color: 'var(--red)' }}><strong>{pend.notices}</strong> رفض توقيع</Link>}
         </div>
       )}

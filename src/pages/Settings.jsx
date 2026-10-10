@@ -20,7 +20,7 @@ export default function Settings() {
   const test = async () => {
     const { data, error } = await supabase.functions.invoke('read-invoice', { body: { test: true } })
     if (error) return { ok: false, t: 'ما قدرنا نتأكد من المفتاح. جرّب بعد شوي.' }
-    return data.ok ? { ok: true, t: 'المفتاح شغال ✓ قراءة الفواتير مفعّلة.' } : { ok: false, t: TEST_MSG[data.error] || `فيه مشكلة في المفتاح (${data.error})` }
+    return data.ok ? { ok: true, t: 'المفتاح شغال ✓ قراءة الفواتير والمستندات مفعّلة.' } : { ok: false, t: TEST_MSG[data.error] || `فيه مشكلة في المفتاح (${data.error})` }
   }
 
   const save = async (e) => {
@@ -35,7 +35,7 @@ export default function Settings() {
   }
   const runTest = async () => { setBusy('test'); setMsg(await test()); setBusy('') }
   const remove = async () => {
-    if (!window.confirm('تمسح المفتاح؟ قراءة الفواتير بتوقف لين تحط مفتاح جديد.')) return
+    if (!window.confirm('تمسح المفتاح؟ قراءة الفواتير والمستندات بتوقف لين تحط مفتاح جديد.')) return
     setBusy('del')
     const { data } = await supabase.rpc('set_app_secret', { p_key: 'anthropic_api_key', p_value: '' })
     setStatus(data); setMsg(null); setBusy('')
@@ -50,8 +50,8 @@ export default function Settings() {
 
       <div className="card form">
         <div className="row"><span className="avatar"><Icon name="camera" /></span>
-          <div className="grow"><h2 style={{ fontSize: 18 }}>قراءة صور الفواتير</h2>
-            <div className="sub">مفتاح Anthropic اللي يخلي النظام يقرا الفاتورة من الصورة</div></div>
+          <div className="grow"><h2 style={{ fontSize: 18 }}>القراءة بالذكاء الاصطناعي</h2>
+            <div className="sub">مفتاح واحد لكل شي: فواتير الموردين، ومستندات الموظفين، وتراخيص الفروع</div></div>
           {ai ? <span className="pill ok">مفعّل</span> : <span className="pill gray">مو مفعّل</span>}</div>
 
         {ai && <div className="row" style={{ background: '#F7F9F5', borderRadius: 12, padding: '10px 12px', flexWrap: 'wrap' }}>

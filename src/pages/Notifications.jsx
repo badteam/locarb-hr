@@ -18,7 +18,7 @@ export default function Notifications() {
     if (!n.kind) return [n.title, n.body]
     const p = { ...n.params, doc: tn(n.params?.doc), type: tn(n.params?.type) }
     const title = t('nk_' + n.kind)
-    const bodyKey = { doc_expiring: 'nk_doc_expiring_b', doc_expired: 'nk_doc_expired_b', missed_no_punch: 'nk_missed_no_punch_b', missed_no_checkout: 'nk_missed_no_checkout_b', leave_approved: 'nk_leave_b', leave_rejected: 'nk_leave_b', notice_issued: 'nk_notice_issued_b', payslip_ready: 'nk_payslip_ready_b' }[n.kind]
+    const bodyKey = { doc_expiring: 'nk_doc_expiring_b', doc_expired: 'nk_doc_expired_b', missed_no_punch: 'nk_missed_no_punch_b', missed_no_checkout: 'nk_missed_no_checkout_b', leave_approved: 'nk_leave_b', leave_rejected: 'nk_leave_b', notice_issued: 'nk_notice_issued_b', payslip_ready: 'nk_payslip_ready_b', doc_approved: 'nk_doc_review_b', doc_rejected: 'nk_doc_review_b' }[n.kind]
     let body = bodyKey ? t(bodyKey, p) : (n.params?.text || n.body)
     if (n.params?.note) body += ' — ' + n.params.note
     return [title, body]

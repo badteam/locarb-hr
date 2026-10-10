@@ -3,6 +3,7 @@ import { supabase, errMsg } from '../lib/supabase'
 import { useAccess } from '../lib/access.jsx'
 import Icon from '../components/Icon.jsx'
 import DocumentForm from '../components/DocumentForm.jsx'
+import ReviewSheet from '../components/ReviewSheet.jsx'
 import EmployeesIO from '../components/EmployeesIO.jsx'
 
 const DAYS = [['saturday','السبت'],['sunday','الأحد'],['monday','الاثنين'],['tuesday','الثلاثاء'],['wednesday','الأربعاء'],['thursday','الخميس'],['friday','الجمعة']]
@@ -178,6 +179,7 @@ export default function Employees() {
   const [showInactive, setShowInactive] = useState(false)
   const [editing, setEditing] = useState(undefined)
   const [docFor, setDocFor] = useState(null)
+  const [reviewId, setReviewId] = useState(null)
 
   const load = useCallback(() => {
     supabase.from('employees').select('*').order('full_name').then(({ data }) => setEmps(data || []))
@@ -224,7 +226,8 @@ export default function Employees() {
         ))}
       </div>
       {editing !== undefined && <EmployeeForm emp={editing} branches={branches} shifts={shifts} roles={roles} onClose={() => setEditing(undefined)} onSaved={load} />}
-      {docFor && <DocumentForm employeeId={docFor.id} doc={null} onClose={() => setDocFor(null)} admin />}
+      {docFor && <DocumentForm employeeId={docFor.id} doc={null} onClose={() => setDocFor(null)} onRead={setReviewId} admin />}
+      {reviewId && <ReviewSheet kind="employee" docId={reviewId} onClose={() => setReviewId(null)} />}
     </div>
   )
 }
