@@ -5,6 +5,7 @@ import { useAccess } from '../../lib/access.jsx'
 import { useLang } from '../../lib/i18n.jsx'
 import { qtyFmt, kwd, ORDER_STATUS, invErr, itemNames } from '../../lib/inv'
 import Icon from '../../components/Icon.jsx'
+import ProductImage from '../../components/ProductImage.jsx'
 
 export default function OrderDetail() {
   const { id } = useParams()
@@ -95,6 +96,7 @@ export default function OrderDetail() {
           return (
             <div key={l.id} className="order-row" style={diff ? { borderColor: '#F3DDA8' } : undefined}>
               <div className="row" style={{ alignItems: 'flex-start' }}>
+                <ProductImage itemId={l.item_id} size={48} />
                 <div className="grow"><div style={{ fontWeight: 600 }}>{n1}</div>{n2 && <div className="cell-sub">{n2}</div>}
                   <div className="cell-sub">
                     {l.on_hand != null ? `${tr('عندهم {n}', { n: qtyFmt(l.on_hand) })} · ` : ''}{tr('طلبوا {n}', { n: qtyFmt(l.requested_qty) })} {unit}

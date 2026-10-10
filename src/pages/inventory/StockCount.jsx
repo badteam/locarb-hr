@@ -5,6 +5,7 @@ import { qtyFmt, kwd, invErr, itemNames } from '../../lib/inv'
 import { useLang } from '../../lib/i18n.jsx'
 import { useBranchChoice, BranchPicker } from './BranchStock.jsx'
 import Icon from '../../components/Icon.jsx'
+import ProductImage from '../../components/ProductImage.jsx'
 
 const SCOPES = [['fav', 'المفضلة'], ['critical', 'الجرد اليومي'], ['stock', 'اللي لها رصيد'], ['cat', 'تصنيف'], ['all', 'كل الأصناف']]
 const draftKey = (b) => `count-draft-${b}`
@@ -36,7 +37,7 @@ export default function StockCount() {
     supabase.from('stock_levels').select('item_id,qty').eq('branch_id', branch).then(({ data }) => setLevels(Object.fromEntries((data || []).map((x) => [x.item_id, Number(x.qty)]))))
     supabase.from('branch_favorites').select('item_id').eq('branch_id', branch).then(({ data }) => {
       const s = new Set((data || []).map((x) => x.item_id)); setFavs(s)
-      const isKitchen = lookups?.branches.find((b) => b.id === branch)?.is_central_kitchen
+      const isKitchen = lookups?.stockBranches.find((b) => b.id === branch)?.is_central_kitchen
       setScope(s.size ? 'fav' : isKitchen ? 'critical' : 'stock')
     })
   }, [branch, lookups])
@@ -97,6 +98,7 @@ export default function StockCount() {
           const d = v === '' ? null : Number(v) - exp
           return (
             <div key={i.id} className="order-row" style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <ProductImage itemId={i.id} size={48} />
               <div className="grow"><div style={{ fontWeight: 600 }}>{itemNames(i, lang)[0]}</div>
                 <div className="cell-sub">{tr(i.unit || '')}{d != null ? <> · {tr('المتوقع {n}', { n: qtyFmt(exp) })} · {d === 0 ? <span style={{ color: 'var(--ok)' }}>{tr('مطابق ✓')}</span>
                   : <span style={{ color: d < 0 ? 'var(--red)' : 'var(--amber)', fontWeight: 600 }}>{d < 0 ? tr('ناقص') : tr('زايد')} {qtyFmt(Math.abs(d))}</span>}</> : null}</div></div>

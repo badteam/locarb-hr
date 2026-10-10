@@ -247,7 +247,7 @@ export default function InvoiceDetail() {
               <div className="field"><label htmlFor="dt">التاريخ</label><input id="dt" type="date" className="input" value={head.invoice_date} onChange={setH('invoice_date')} disabled={!editable} /></div>
               <div className="field"><label htmlFor="br">استلمها</label>
                 <select id="br" className="input" value={head.branch_id} onChange={setH('branch_id')} disabled={!editable}>
-                  {lookups.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  {lookups.stockBranches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
                 </select></div>
             </div>
           </div>

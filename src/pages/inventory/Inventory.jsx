@@ -5,6 +5,8 @@ import { useAccess } from '../../lib/access.jsx'
 import { kwd, qtyFmt, loadLookups, clearLookups, invErr, MOVE_KIND } from '../../lib/inv'
 import { fmtDate } from '../../lib/supabase'
 import Icon from '../../components/Icon.jsx'
+import ProductImage, { ProductPhotoLarge, refreshProductImages } from '../../components/ProductImage.jsx'
+import { loginEmail } from '../../lib/supabase'
 
 const PAGE = 100
 
@@ -92,7 +94,7 @@ function AdjustForm({ item, lookups, onClose, onSaved }) {
         </div>
         <div className="field"><label htmlFor="br">المكان</label>
           <select id="br" className="input" value={branch} onChange={(e) => setBranch(e.target.value)}>
-            {lookups.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            {lookups.stockBranches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select></div>
         <div className="field"><label htmlFor="q">الكمية {item.unit ? `(${item.unit})` : ''}</label>
           <input id="q" type="number" step="any" className="input" value={qty} onChange={(e) => setQty(e.target.value)} required autoFocus />
@@ -121,8 +123,10 @@ function ItemSheet({ item, lookups, canEdit, onClose, onChanged }) {
   return (
     <div className="overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="sheet form">
-        <div className="sheet-head"><div><h2 style={{ fontSize: 20 }}>{item.name_ar}</h2><div className="sub ltr">{item.name_en}</div></div>
+        <div className="sheet-head"><div className="row" style={{ gap: 12 }}><ProductImage itemId={item.id} size={56} />
+          <div><h2 style={{ fontSize: 20 }}>{item.name_ar}</h2><div className="sub ltr">{item.name_en}{item.brand ? ` · ${item.brand}` : ''}</div></div></div>
           <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose}><Icon name="x" /></button></div>
+        <ProductPhotoLarge itemId={item.id} />
         <div className="grid stats">
           <div className="card stat"><div className="label">في المطبخ</div><div className="value num">{qtyFmt(item.kitchen_qty)}</div><div className="sub">{item.unit}</div></div>
           <div className="card stat"><div className="label">آخر سعر</div><div className="value num" style={{ fontSize: 22 }}>{kwd(item.last_price)}</div><div className="sub">د.ك</div></div>
@@ -208,9 +212,54 @@ function CategoriesSheet({ items, onClose, onChanged }) {
   )
 }
 
+function ResetStock({ lookups, onClose, onDone }) {
+  const { access } = useAccess()
+  const [place, setPlace] = useState('')
+  const [pw, setPw] = useState('')
+  const [sure, setSure] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const placeName = place ? lookups.branches.find((b) => b.id === place)?.name : 'كل الأماكن (المطبخ وكل الفروع)'
+  const run = async (e) => {
+    e.preventDefault(); setErr('')
+    if (!sure) { setErr('علّم على التأكيد أول'); return }
+    setBusy(true)
+    // check the owner's own password again before wiping
+    const { error: authErr } = await supabase.auth.signInWithPassword({ email: loginEmail(access.employee.phone), password: pw })
+    if (authErr) { setBusy(false); setErr('كلمة السر غلط'); return }
+    const { data, error } = await supabase.rpc('reset_stock', { p_branch: place || null, p_confirm: 'RESET' })
+    setBusy(false)
+    if (error) { setErr(invErr(error)); return }
+    onDone(`تم تصفير ${data.lines} رصيد في ${placeName}. الحركات القديمة محفوظة في سجل الحركة.`)
+    onClose()
+  }
+  return (
+    <div className="overlay" onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
+      <form className="sheet form" onSubmit={run} autoComplete="off">
+        <div className="sheet-head"><h2 style={{ fontSize: 20, color: 'var(--red)' }}>مسح المخزون</h2>
+          <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose}><Icon name="x" /></button></div>
+        <div className="error">كل الكميات بترجع صفر. الأصناف والأسعار والفواتير ما تنمسح، وسجل الحركات يفضل محفوظ. استخدمه قبل جرد جديد من الصفر.</div>
+        <div className="field"><label htmlFor="rp">المكان</label>
+          <select id="rp" className="input" value={place} onChange={(e) => setPlace(e.target.value)}>
+            <option value="">كل الأماكن (المطبخ وكل الفروع)</option>
+            {lookups.stockBranches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select></div>
+        <label className="check"><input type="checkbox" checked={sure} onChange={(e) => setSure(e.target.checked)} /> متأكد إني أبي أمسح مخزون: {placeName}</label>
+        <div className="field"><label htmlFor="rpw">كلمة السر حقتك</label>
+          <input id="rpw" className="input" type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} required /></div>
+        {err && <div className="error">{err}</div>}
+        <button className="btn block" style={{ background: 'var(--red)', borderColor: 'var(--red)', color: '#fff', fontWeight: 600 }} disabled={busy || !pw || !sure}>
+          {busy ? <span className="spinner" /> : <Icon name="trash" />} تأكيد المسح</button>
+      </form>
+    </div>
+  )
+}
+
 export default function Inventory() {
-  const { can } = useAccess()
+  const { can, access } = useAccess()
   const [items, setItems] = useState([])
+  const [resetOpen, setResetOpen] = useState(false)
+  const [notice, setNotice] = useState('')
   const [lookups, setLookups] = useState(null)
   const [q, setQ] = useState('')
   const [cat, setCat] = useState('')
@@ -225,7 +274,7 @@ export default function Inventory() {
     supabase.from('inv_stock').select('*').order('name_ar').then(({ data }) => setItems(data || []))
     supabase.from('purchase_invoices').select('id', { count: 'exact', head: true }).eq('status', 'review').then(({ count }) => setPending(count || 0))
   }, [])
-  useEffect(() => { load(); loadLookups(true).then(setLookups) }, [load])
+  useEffect(() => { load(); loadLookups(true).then(setLookups); refreshProductImages() }, [load])
 
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase()
@@ -247,12 +296,14 @@ export default function Inventory() {
       <div className="page-head">
         <div><h1>المخزون</h1><div className="sub">المطبخ المركزي والفروع</div></div>
         <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+          {access.is_owner && <button className="btn danger" onClick={() => setResetOpen(true)}><Icon name="trash" /> مسح المخزون</button>}
           {canEdit && <button className="btn" onClick={() => setCatsOpen(true)}><Icon name="list" /> التصنيفات</button>}
           {canEdit && <button className="btn" onClick={() => setAdding(true)}><Icon name="plus" /> صنف جديد</button>}
           {(can('manage_suppliers') || can('approve_purchases')) && <Link className="btn primary" to="/inventory/invoices?new=1"><Icon name="camera" /> فاتورة مورد</Link>}
         </div>
       </div>
 
+      {notice && <div className="notice" style={{ marginBottom: 14 }}>{notice}</div>}
       <div className="grid stats" style={{ marginBottom: 16 }}>
         <div className="card stat"><div className="label">الأصناف</div><div className="value num">{active.length}</div></div>
         <button className="card stat" style={{ textAlign: 'right', cursor: 'pointer', borderColor: low ? '#F3DDA8' : undefined }} onClick={() => setFilter('low')}>
@@ -282,7 +333,8 @@ export default function Inventory() {
               const isLow = Number(i.min_qty) > 0 && Number(i.kitchen_qty) < Number(i.min_qty)
               return (
                 <tr key={i.id} className="row-btn" onClick={() => setOpen(i)} tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && setOpen(i)}>
-                  <td><div style={{ fontWeight: 500 }}>{i.name_ar}</div><div className="cell-sub ltr">{i.name_en}</div></td>
+                  <td><div className="row" style={{ gap: 10 }}><ProductImage itemId={i.id} size={42} />
+                    <div><div style={{ fontWeight: 500 }}>{i.name_ar}</div><div className="cell-sub ltr">{i.name_en}</div></div></div></td>
                   <td className="sub">{i.category}</td>
                   <td><span className="num" style={{ fontWeight: 600 }}>{qtyFmt(i.kitchen_qty)}</span> <span className="sub">{i.unit}</span></td>
                   <td className="num sub">{Number(i.min_qty) ? qtyFmt(i.min_qty) : '—'}</td>
@@ -299,6 +351,7 @@ export default function Inventory() {
 
       {open && lookups && <ItemSheet item={open} lookups={lookups} canEdit={canEdit} onClose={() => setOpen(null)} onChanged={load} />}
       {adding && lookups && <ItemForm lookups={lookups} onClose={() => setAdding(false)} onSaved={load} />}
+      {resetOpen && lookups && <ResetStock lookups={lookups} onClose={() => setResetOpen(false)} onDone={(m) => { setNotice(m); load() }} />}
       {catsOpen && <CategoriesSheet items={items} onClose={() => setCatsOpen(false)} onChanged={() => { load(); loadLookups(true).then(setLookups) }} />}
     </div>
   )

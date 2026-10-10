@@ -5,6 +5,7 @@ import { useAccess } from '../../lib/access.jsx'
 import { useLang } from '../../lib/i18n.jsx'
 import { qtyFmt, kwd, loadLookups, invErr, MOVE_KIND, itemNames } from '../../lib/inv'
 import Icon from '../../components/Icon.jsx'
+import ProductImage from '../../components/ProductImage.jsx'
 
 // which branches this person may count / see
 export function useBranchChoice() {
@@ -15,11 +16,11 @@ export function useBranchChoice() {
   useEffect(() => {
     loadLookups().then((l) => {
       setLookups(l)
-      const own = l.branches.find((b) => b.id === access.employee.branch_id)
+      const own = l.stockBranches.find((b) => b.id === access.employee.branch_id)
       setBranch(own?.id || (any ? l.kitchen?.id : '') || '')
     })
   }, [access.employee.branch_id, any])
-  const options = lookups ? (any ? lookups.branches : lookups.branches.filter((b) => b.id === access.employee.branch_id)) : []
+  const options = lookups ? (any ? lookups.stockBranches : lookups.stockBranches.filter((b) => b.id === access.employee.branch_id)) : []
   return { lookups, branch, setBranch, any, options }
 }
 
@@ -142,7 +143,7 @@ export default function BranchStock() {
           <thead><tr><th style={{ textAlign: 'start' }}>{tr('الصنف')}</th><th style={{ textAlign: 'start' }}>{tr('الكمية')}</th><th style={{ textAlign: 'start' }}>{tr('آخر تحديث')}</th></tr></thead>
           <tbody>{shown.slice(0, 200).map((i) => {
             const l = levels[i.id]
-            return <tr key={i.id}><td>{itemNames(i, lang)[0]}<div className="cell-sub">{tr(i.category || '')}</div></td>
+            return <tr key={i.id}><td><div className="row" style={{ gap: 10 }}><ProductImage itemId={i.id} size={38} /><div>{itemNames(i, lang)[0]}<div className="cell-sub">{tr(i.category || '')}</div></div></div></td>
               <td><span className="num" style={{ fontWeight: 600, color: l && Number(l.qty) < 0 ? 'var(--red)' : undefined }}>{l ? qtyFmt(l.qty) : '—'}</span> <span className="sub">{tr(i.unit || '')}</span></td>
               <td className="sub">{l ? fmtDate(l.updated_at) : ''}</td></tr>
           })}</tbody>

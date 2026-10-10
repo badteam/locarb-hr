@@ -5,6 +5,7 @@ import { useAccess } from '../../lib/access.jsx'
 import { useLang } from '../../lib/i18n.jsx'
 import { qtyFmt, loadLookups, invErr, itemNames } from '../../lib/inv'
 import Icon from '../../components/Icon.jsx'
+import ProductImage from '../../components/ProductImage.jsx'
 
 const num = (v) => (v === '' || v == null ? null : Number(v))
 
@@ -117,6 +118,7 @@ export default function NewOrder() {
       <div className="order-row" key={i.id}>
         <div className="row" style={{ gap: 8, alignItems: 'flex-start' }}>
           <button type="button" className={'star' + (isFav ? ' on' : '')} onClick={() => toggleFav(i.id)} aria-label={isFav ? tr('شيل من المفضلة') : tr('أضف للمفضلة')} aria-pressed={isFav}>★</button>
+          <ProductImage itemId={i.id} size={48} />
           <div className="grow">
             <div style={{ fontWeight: 600 }}>{itemNames(i, lang)[0]}</div>
             {itemNames(i, lang)[1] && <div className="cell-sub">{itemNames(i, lang)[1]}</div>}

@@ -81,7 +81,7 @@ function NewInvoice({ onClose }) {
           </select></div>
         <div className="field"><label htmlFor="br">البضاعة استلمها</label>
           <select id="br" className="input" value={branch} onChange={(e) => setBranch(e.target.value)}>
-            {lookups?.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            {lookups?.stockBranches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select></div>
         {err && <div className="error">{err}</div>}
         <button className="btn primary block" disabled={!!busy || !files.length} onClick={() => create(false)}>
