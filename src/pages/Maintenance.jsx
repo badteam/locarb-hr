@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { supabase, errMsg, fmtDate, todayKuwait } from '../lib/supabase'
 import { useAccess } from '../lib/access.jsx'
-import { statusPill, ext } from '../lib/docs'
+import { statusPill, ext, compressImage } from '../lib/docs'
 import Icon from '../components/Icon.jsx'
 
 const money = (n) => Number(n || 0).toFixed(3)
@@ -19,7 +19,8 @@ function DoneSheet({ item, onClose, onSaved }) {
     e.preventDefault(); setBusy(true); setErr('')
     try {
       const paths = []
-      for (const f of files) {
+      for (const raw of files) {
+        const f = await compressImage(raw)
         const path = `${item.branch_id}/maintenance/${crypto.randomUUID()}.${ext(f)}`
         const { error } = await supabase.storage.from('branch-docs').upload(path, f, { contentType: f.type })
         if (error) throw error

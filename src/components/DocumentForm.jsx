@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase, errMsg } from '../lib/supabase'
-import { readDocument, ext } from '../lib/docs'
+import { readDocument, ext, compressImage } from '../lib/docs'
 import Icon from './Icon.jsx'
 import AddDocType from './AddDocType.jsx'
 import { useT } from '../lib/i18n.jsx'
@@ -13,7 +13,7 @@ function Upload({ label, file, onPick }) {
       {!file && <Icon name="camera" size={26} stroke={1.6} />}
       {!file && label}
       {file?.type === 'application/pdf' && <span>PDF ✓</span>}
-      <input type="file" accept="image/*,application/pdf" capture="environment" onChange={(e) => onPick(e.target.files?.[0] || null)} />
+      <input type="file" accept="image/*,application/pdf" onChange={(e) => onPick(e.target.files?.[0] || null)} />
     </label>
   )
 }
@@ -34,8 +34,9 @@ export default function DocumentForm({ employeeId, doc, onClose, onSaved, onRead
     supabase.from('document_types').select('*').eq('scope', 'employee').order('sort_order').then(({ data }) => setTypes(data || []))
   }, [])
 
-  const upload = async (file, side) => {
-    if (!file) return null
+  const upload = async (raw, side) => {
+    if (!raw) return null
+    const file = await compressImage(raw)
     const path = `${employeeId}/${crypto.randomUUID()}-${side}.${ext(file)}`
     const { error } = await supabase.storage.from('employee-docs').upload(path, file, { contentType: file.type })
     if (error) throw error

@@ -45,3 +45,17 @@ export const matches = (row, q, keys) => {
   if (!n) return true
   return keys.some((k) => fold(row[k]).includes(n))
 }
+
+// shrink big photos (from the camera or the photo library) before upload; PDFs and small files pass through
+export async function compressImage(file) {
+  if (!file?.type?.startsWith('image/') || file.size < 1.5e6) return file
+  try {
+    const bmp = await createImageBitmap(file)
+    const scale = Math.min(1, 2400 / Math.max(bmp.width, bmp.height))
+    const c = document.createElement('canvas')
+    c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale)
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height)
+    const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.88))
+    return blob ? new File([blob], 'document.jpg', { type: 'image/jpeg' }) : file
+  } catch { return file }
+}

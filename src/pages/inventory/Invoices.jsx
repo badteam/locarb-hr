@@ -66,7 +66,7 @@ function NewInvoice({ onClose }) {
         <div className="sheet-head"><h2 style={{ fontSize: 20 }}>فاتورة مورد جديدة</h2>
           <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose} disabled={!!busy}><Icon name="x" /></button></div>
         <label className="upload" style={{ height: files.length ? 'auto' : 150, padding: files.length ? 8 : 0 }}>
-          <input type="file" accept="image/*,application/pdf" capture="environment" multiple onChange={(e) => setFiles([...files, ...e.target.files])} />
+          <input type="file" accept="image/*,application/pdf" multiple onChange={(e) => setFiles([...files, ...e.target.files])} />
           {files.length === 0 ? <><Icon name="camera" size={30} /><strong style={{ fontSize: 15, color: 'var(--ink)' }}>صوّر الفاتورة</strong><span>أو اختار صورة أو ملف PDF. لو الفاتورة أكثر من صفحة صوّر كل صفحة.</span></> :
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', position: 'relative', zIndex: 1 }}>
               {files.map((f, i) => previews[i] ? <img key={i} src={previews[i]} alt="" style={{ position: 'static', width: 90, height: 120, objectFit: 'cover', borderRadius: 8 }} /> :

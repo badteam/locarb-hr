@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { supabase, errMsg, fmtDate } from '../lib/supabase'
 import { useAccess } from '../lib/access.jsx'
-import { readDocument, statusPill, matches, ext } from '../lib/docs'
+import { readDocument, statusPill, matches, ext, compressImage } from '../lib/docs'
 import ReviewSheet from '../components/ReviewSheet.jsx'
 import AddDocType from '../components/AddDocType.jsx'
 import Icon from '../components/Icon.jsx'
@@ -22,7 +22,8 @@ function UploadSheet({ branches, types, branchId: initial, renew, onClose, onRea
     setErr(''); setStep('saving')
     try {
       const paths = []
-      for (const f of files) {
+      for (const raw of files) {
+        const f = await compressImage(raw)
         const path = `${branchId}/${crypto.randomUUID()}.${ext(f)}`
         const { error } = await supabase.storage.from('branch-docs').upload(path, f, { contentType: f.type })
         if (error) throw error
