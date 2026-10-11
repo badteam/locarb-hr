@@ -104,7 +104,7 @@ Deno.serve(async (req) => {
   const sn = q.get("SN") ?? q.get("sn") ?? "";
   if (!/^[A-Za-z0-9_-]{4,40}$/.test(sn)) return text("OK");
   const body = req.method === "POST" ? await req.text() : "";
-  if (Deno.env.get("ADMS_DEBUG") || sn === "BOCK201461472") console.log("adms req", sn, req.method, path, q.get("table") ?? "", body.length);
+  if (Deno.env.get("ADMS_DEBUG") || sn === "BOCK201461472") console.log("adms req", sn, req.method, path, q.get("table") ?? "", body.length, q.get("Stamp") ?? "", JSON.stringify(body.slice(0, 260)));
 
   try {
     if (path.endsWith("/cdata")) {
