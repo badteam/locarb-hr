@@ -7,6 +7,7 @@ import { fmtDate } from '../../lib/supabase'
 import Icon from '../../components/Icon.jsx'
 import ProductImage, { ProductPhotoLarge, refreshProductImages } from '../../components/ProductImage.jsx'
 import { loginEmail } from '../../lib/supabase'
+import { compress } from './Invoices.jsx'
 
 const PAGE = 100
 
@@ -15,6 +16,7 @@ export function ItemForm({ item, lookups, onClose, onSaved, presetName }) {
     name_ar: item?.name_ar || presetName || '', name_en: item?.name_en || '',
     category_id: item?.category_id || lookups.categories[0]?.id || '', unit_id: item?.unit_id || '',
     min_qty: item?.min_qty ?? 0, is_critical: item?.is_critical || false, active: item?.active ?? true, notes: item?.notes || '',
+    kcal_100: item?.kcal_100 ?? '', protein_100: item?.protein_100 ?? '', carbs_100: item?.carbs_100 ?? '', fat_100: item?.fat_100 ?? '',
   })
   const [newCat, setNewCat] = useState('')
   const [err, setErr] = useState('')
@@ -29,7 +31,11 @@ export function ItemForm({ item, lookups, onClose, onSaved, presetName }) {
       if (r.error) { setErr(invErr(r.error)); setBusy(false); return }
       category_id = r.data.id; clearLookups()
     }
-    const row = { ...f, category_id, unit_id: f.unit_id || null, min_qty: Number(f.min_qty) || 0, name_en: f.name_en || null, notes: f.notes || null }
+    const nv = (v) => (v === '' || v == null ? null : Number(v))
+    const nut = { kcal_100: nv(f.kcal_100), protein_100: nv(f.protein_100), carbs_100: nv(f.carbs_100), fat_100: nv(f.fat_100) }
+    const nutChanged = ['kcal_100', 'protein_100', 'carbs_100', 'fat_100'].some((k) => nut[k] !== (item?.[k] == null ? null : Number(item[k])))
+    const row = { ...f, ...nut, category_id, unit_id: f.unit_id || null, min_qty: Number(f.min_qty) || 0, name_en: f.name_en || null, notes: f.notes || null,
+      ...(nutChanged ? { nutrition_source: 'إدخال يدوي', nutrition_updated_at: new Date().toISOString() } : {}) }
     const r = item ? await supabase.from('inv_items').update(row).eq('id', item.id).select().single() : await supabase.from('inv_items').insert(row).select().single()
     setBusy(false)
     if (r.error) setErr(invErr(r.error)); else { onSaved?.(r.data); onClose() }
@@ -58,6 +64,13 @@ export function ItemForm({ item, lookups, onClose, onSaved, presetName }) {
         <div className="field"><label htmlFor="mq">الحد الأدنى في المطبخ</label>
           <input id="mq" type="number" step="any" min="0" className="input" value={f.min_qty} onChange={set('min_qty')} />
           <div className="sub">لما الكمية تنزل تحت هالرقم، الصنف يطلع لك باللون الأصفر.</div></div>
+        <div className="field"><span className="lbl">القيمة الغذائية لكل ١٠٠ جرام</span>
+          <div className="grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+            {[['kcal_100', 'سعرات'], ['protein_100', 'بروتين'], ['carbs_100', 'كارب'], ['fat_100', 'دهون']].map(([k, l]) => (
+              <div key={k}><div className="sub" style={{ fontSize: 12 }}>{l}</div>
+                <input type="number" step="any" min="0" className="input num" value={f[k]} onChange={set(k)} aria-label={l} /></div>))}
+          </div>
+          <div className="sub">تقدر تخليها فاضية وتعبيها من كرت الصنف: من الملصق أو قيم تقديرية.</div></div>
         <label className="check"><input type="checkbox" checked={f.is_critical} onChange={set('is_critical')} /> صنف غالي أو يخرب بسرعة (يدخل في الجرد اليومي)</label>
         <label className="check"><input type="checkbox" checked={f.active} onChange={set('active')} /> الصنف مستخدم</label>
         {err && <div className="error">{err}</div>}
@@ -107,6 +120,82 @@ function AdjustForm({ item, lookups, onClose, onSaved }) {
   )
 }
 
+const ALLERGEN_AR = { gluten: 'جلوتين', dairy: 'ألبان', egg: 'بيض', tree_nuts: 'مكسرات', peanut: 'فول سوداني', sesame: 'سمسم', soy: 'صويا', fish: 'سمك', shellfish: 'قشريات', mustard: 'خردل', celery: 'كرفس' }
+
+export async function fillNutrition(itemId, mode, paths) {
+  const { data, error } = await supabase.functions.invoke('item-nutrition', { body: { item_id: itemId, mode, paths } })
+  if (error) {
+    let b = {}
+    try { b = await error.context?.json() } catch { /* ignore */ }
+    return { ok: false, error: b?.error || error.message }
+  }
+  return data
+}
+export const nutritionErr = (e) => ({
+  not_configured: 'قراءة الذكاء الاصطناعي ما تفعّلت. المالك يحط المفتاح من صفحة الإعدادات.',
+  invalid_key: 'مفتاح الذكاء الاصطناعي غلط. غيّره من الإعدادات.', no_credit: 'رصيد حساب Anthropic خلص.',
+  no_photo: 'ما فيه صورة ملصق محفوظة. صوّر الملصق.', no_table: 'ما قدرنا نقرا جدول السعرات من الصورة. صوّر الملصق من قريب وفي نور كويس.',
+  not_food: 'هذا مو أكل (تغليف أو تنظيف)، ما له سعرات.', 'not allowed': 'ما عندك صلاحية',
+}[e] || 'صار خطأ: ' + e)
+
+function NutritionCard({ itemId, canEdit, onChanged }) {
+  const [n, setN] = useState(null)
+  const [busy, setBusy] = useState('')
+  const [err, setErr] = useState('')
+  const [showIngr, setShowIngr] = useState(false)
+  const load = useCallback(() => {
+    supabase.from('inv_items').select('kcal_100,protein_100,carbs_100,fat_100,nutrition_source,nutrition_label_path,image_path,allergens,ingredients_text,nutrition_updated_at').eq('id', itemId).single().then(({ data }) => setN(data))
+  }, [itemId])
+  useEffect(() => { load() }, [load])
+  const run = async (mode, files) => {
+    setBusy(mode); setErr('')
+    let paths
+    if (files?.length) {
+      paths = []
+      for (const f of files) {
+        const x = await compress(f)
+        const path = `labels/${itemId}/${Date.now()}-${paths.length}.jpg`
+        const up = await supabase.storage.from('product-photos').upload(path, x, { contentType: x.type || 'image/jpeg' })
+        if (up.error) { setErr('ما قدرنا نرفع الصورة: ' + up.error.message); setBusy(''); return }
+        paths.push(path)
+      }
+    }
+    const r = await fillNutrition(itemId, mode, paths)
+    setBusy('')
+    if (!r?.ok) setErr(nutritionErr(r?.error)); else { load(); onChanged?.() }
+  }
+  if (!n) return null
+  const has = n.kcal_100 != null
+  const est = (n.nutrition_source || '').startsWith('تقدير')
+  return (
+    <div className="card form" style={{ gap: 10 }}>
+      <div className="row" style={{ justifyContent: 'space-between' }}><strong style={{ fontSize: 14 }}>القيمة الغذائية لكل ١٠٠ جرام</strong>
+        {has && <span className={'pill ' + (est ? 'amber' : 'ok')}>{est ? 'تقدير' : n.nutrition_source === 'إدخال يدوي' ? 'يدوي' : 'من الملصق'}</span>}</div>
+      {has ? (
+        <div className="grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, textAlign: 'center' }}>
+          {[['kcal_100', 'سعرة'], ['protein_100', 'بروتين'], ['carbs_100', 'كارب'], ['fat_100', 'دهون']].map(([k, l]) => (
+            <div key={k} style={{ background: '#F7F9F5', borderRadius: 10, padding: '8px 4px' }}>
+              <div className="num" style={{ fontWeight: 700, fontSize: k === 'kcal_100' ? 20 : 17 }}>{n[k] == null ? '—' : Number(n[k]).toLocaleString('en', { maximumFractionDigits: 1 })}</div>
+              <div className="sub">{l}{k !== 'kcal_100' ? ' (غ)' : ''}</div></div>))}
+        </div>) : <div className="empty" style={{ padding: 8 }}>ما فيه قيم غذائية للحين</div>}
+      {n.nutrition_source && est && <div className="sub">{n.nutrition_source}</div>}
+      {n.allergens?.length > 0 && <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}><span className="sub">يحتوي:</span>{n.allergens.map((a) => <span key={a} className="pill red">{ALLERGEN_AR[a] || a}</span>)}</div>}
+      {n.ingredients_text && <div><button type="button" className="chip" style={{ minHeight: 28 }} onClick={() => setShowIngr(!showIngr)}>المكونات</button>
+        {showIngr && <div className="sub" style={{ marginTop: 6, lineHeight: 1.7 }}>{n.ingredients_text}</div>}</div>}
+      {canEdit && (
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          {(n.nutrition_label_path || n.image_path) && <button className="btn" disabled={!!busy} onClick={() => run('label')}>{busy === 'label' ? <span className="spinner" /> : <Icon name="refresh" />} اقرا الملصق المحفوظ</button>}
+          <label className="btn" style={{ position: 'relative', overflow: 'hidden' }}>
+            <input type="file" accept="image/*" multiple style={{ position: 'absolute', inset: 0, opacity: 0 }} disabled={!!busy}
+              onChange={(e) => { const f = [...e.target.files]; e.target.value = ''; if (f.length) run('label', f) }} />
+            <Icon name="camera" /> صوّر الملصق</label>
+          <button className="btn" disabled={!!busy} onClick={() => run('estimate')}>{busy === 'estimate' ? <span className="spinner" /> : null} قيم تقديرية</button>
+        </div>)}
+      {err && <div className="error">{err}</div>}
+    </div>
+  )
+}
+
 function ItemSheet({ item, lookups, canEdit, onClose, onChanged }) {
   const [levels, setLevels] = useState([])
   const [moves, setMoves] = useState([])
@@ -136,6 +225,7 @@ function ItemSheet({ item, lookups, canEdit, onClose, onChanged }) {
           <button className="btn" onClick={() => setEdit(true)}>تعديل الصنف</button>
           <button className="btn" onClick={() => setAdjust(true)}>تالف أو تعديل كمية</button>
         </div>}
+        <NutritionCard itemId={item.id} canEdit={canEdit} onChanged={onChanged} />
         {levels.length > 0 && <div className="card"><strong style={{ fontSize: 14 }}>الكمية في كل مكان</strong>
           <div className="list">{levels.map((l) => <div key={l.branch_id} className="list-item"><span className="grow">{l.branches?.name}</span><span className="num">{qtyFmt(l.qty)}</span></div>)}</div></div>}
         <div className="card"><strong style={{ fontSize: 14 }}>أسعار الموردين</strong>
@@ -283,6 +373,7 @@ export default function Inventory() {
   const [adding, setAdding] = useState(false)
   const [catsOpen, setCatsOpen] = useState(false)
   const [pending, setPending] = useState(0)
+  const [filling, setFilling] = useState(null)
 
   const load = useCallback(() => {
     supabase.from('inv_stock').select('*').order('name_ar').then(({ data }) => setItems(data || []))
@@ -304,6 +395,26 @@ export default function Inventory() {
   const low = active.filter((i) => Number(i.min_qty) > 0 && Number(i.kitchen_qty) < Number(i.min_qty)).length
   const value = active.reduce((a, i) => a + Math.max(Number(i.kitchen_qty), 0) * Number(i.avg_cost || 0), 0)
   const canEdit = can('manage_inventory')
+  const noNut = active.filter((i) => i.kcal_100 == null)
+  const fillAll = async () => {
+    const { data: rows } = await supabase.from('inv_items').select('id,nutrition_label_path').in('id', noNut.map((i) => i.id))
+    const withLabel = new Set((rows || []).filter((r) => r.nutrition_label_path).map((r) => r.id))
+    let done = 0, fromLabel = 0, est = 0, skipped = 0
+    setFilling({ done, total: noNut.length })
+    for (const i of noNut) {
+      let r = withLabel.has(i.id) ? await fillNutrition(i.id, 'label') : null
+      if (r?.ok) fromLabel++
+      else {
+        if (r && ['not_configured', 'invalid_key', 'no_credit'].includes(r.error)) { setFilling(null); setNotice(nutritionErr(r.error)); return }
+        r = await fillNutrition(i.id, 'estimate')
+        if (r?.ok) est++; else if (['not_configured', 'invalid_key', 'no_credit'].includes(r?.error)) { setFilling(null); setNotice(nutritionErr(r.error)); return } else skipped++
+      }
+      setFilling({ done: ++done, total: noNut.length })
+    }
+    setFilling(null)
+    setNotice(`تعبّت السعرات: ${fromLabel} من الملصق، ${est} تقدير${skipped ? `، و${skipped} مو أكل` : ''}. القيم التقديرية عليها علامة "تقدير" وتقدر تصححها.`)
+    load()
+  }
 
   return (
     <div>
@@ -312,6 +423,7 @@ export default function Inventory() {
         <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
           {access.is_owner && <button className="btn danger" onClick={() => setResetOpen(true)}><Icon name="trash" /> مسح المخزون</button>}
           {canEdit && <Link className="btn" to="/inventory/opening"><Icon name="doc" /> رصيد أول المدة</Link>}
+          {canEdit && noNut.length > 0 && <button className="btn" disabled={!!filling} onClick={fillAll}>{filling ? <><span className="spinner" /> {filling.done}/{filling.total}</> : <>تعبئة السعرات الناقصة ({noNut.length})</>}</button>}
           {canEdit && <button className="btn" onClick={() => setCatsOpen(true)}><Icon name="list" /> التصنيفات</button>}
           {canEdit && <button className="btn" onClick={() => setAdding(true)}><Icon name="plus" /> صنف جديد</button>}
           {(can('manage_suppliers') || can('approve_purchases') || can('receive_goods')) && <Link className="btn primary" to="/inventory/invoices?new=1"><Icon name="camera" /> استلام بضاعة</Link>}
@@ -349,7 +461,9 @@ export default function Inventory() {
               return (
                 <tr key={i.id} className="row-btn" onClick={() => setOpen(i)} tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && setOpen(i)}>
                   <td><div className="row" style={{ gap: 10 }}><ProductImage itemId={i.id} size={42} />
-                    <div><div style={{ fontWeight: 500 }}>{i.name_ar}</div><div className="cell-sub ltr">{i.name_en}</div></div></div></td>
+                    <div><div style={{ fontWeight: 500 }}>{i.name_ar}</div><div className="cell-sub ltr">{i.name_en}</div>
+                      {i.kcal_100 != null ? <div className="cell-sub">{Math.round(i.kcal_100)} سعرة/١٠٠غ · ب {Number(i.protein_100 ?? 0).toFixed(0)} · ك {Number(i.carbs_100 ?? 0).toFixed(0)} · د {Number(i.fat_100 ?? 0).toFixed(0)}{String(i.nutrition_source || '').startsWith('تقدير') ? ' (تقدير)' : ''}</div>
+                        : <div className="cell-sub" style={{ color: 'var(--amber)' }}>بدون سعرات</div>}</div></div></td>
                   <td className="sub">{i.category}</td>
                   <td><span className="num" style={{ fontWeight: 600 }}>{qtyFmt(i.kitchen_qty)}</span> <span className="sub">{i.unit}</span></td>
                   <td className="num sub">{Number(i.min_qty) ? qtyFmt(i.min_qty) : '—'}</td>
