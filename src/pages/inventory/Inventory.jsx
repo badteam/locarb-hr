@@ -214,12 +214,15 @@ function CategoriesSheet({ items, onClose, onChanged }) {
 
 function ResetStock({ lookups, onClose, onDone }) {
   const { access } = useAccess()
+  const [mode, setMode] = useState('qty')        // qty = quantities only, items = quantities + all items
+  const [keepPhoto, setKeepPhoto] = useState(true)
   const [place, setPlace] = useState('')
   const [pw, setPw] = useState('')
   const [sure, setSure] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
-  const placeName = place ? lookups.branches.find((b) => b.id === place)?.name : 'كل الأماكن (المطبخ وكل الفروع)'
+  const all = mode === 'items'
+  const placeName = all || !place ? 'كل الأماكن (المطبخ وكل الفروع)' : lookups.branches.find((b) => b.id === place)?.name
   const run = async (e) => {
     e.preventDefault(); setErr('')
     if (!sure) { setErr('علّم على التأكيد أول'); return }
@@ -227,10 +230,16 @@ function ResetStock({ lookups, onClose, onDone }) {
     // check the owner's own password again before wiping
     const { error: authErr } = await supabase.auth.signInWithPassword({ email: loginEmail(access.employee.phone), password: pw })
     if (authErr) { setBusy(false); setErr('كلمة السر غلط'); return }
-    const { data, error } = await supabase.rpc('reset_stock', { p_branch: place || null, p_confirm: 'RESET' })
+    const r1 = await supabase.rpc('reset_stock', { p_branch: all ? null : place || null, p_confirm: 'RESET' })
+    if (r1.error) { setBusy(false); setErr(invErr(r1.error)); return }
+    let msg = `تم تصفير ${r1.data.lines} رصيد في ${placeName}.`
+    if (all) {
+      const r2 = await supabase.rpc('archive_all_items', { p_confirm: 'ARCHIVE', p_keep_photo: keepPhoto })
+      if (r2.error) { setBusy(false); setErr(invErr(r2.error)); return }
+      msg += ` وانمسح ${r2.data.archived} صنف من القائمة${r2.data.kept ? `، وبقى ${r2.data.kept} صنف من الجرد بالصورة` : ''}. القائمة جاهزة تبدأها من جديد.`
+    }
     setBusy(false)
-    if (error) { setErr(invErr(error)); return }
-    onDone(`تم تصفير ${data.lines} رصيد في ${placeName}. الحركات القديمة محفوظة في سجل الحركة.`)
+    onDone(msg + ' الفواتير والطلبات والحركات القديمة محفوظة.')
     onClose()
   }
   return (
@@ -238,13 +247,18 @@ function ResetStock({ lookups, onClose, onDone }) {
       <form className="sheet form" onSubmit={run} autoComplete="off">
         <div className="sheet-head"><h2 style={{ fontSize: 20, color: 'var(--red)' }}>مسح المخزون</h2>
           <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose}><Icon name="x" /></button></div>
-        <div className="error">كل الكميات بترجع صفر. الأصناف والأسعار والفواتير ما تنمسح، وسجل الحركات يفضل محفوظ. استخدمه قبل جرد جديد من الصفر.</div>
-        <div className="field"><label htmlFor="rp">المكان</label>
-          <select id="rp" className="input" value={place} onChange={(e) => setPlace(e.target.value)}>
-            <option value="">كل الأماكن (المطبخ وكل الفروع)</option>
-            {lookups.stockBranches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-          </select></div>
-        <label className="check"><input type="checkbox" checked={sure} onChange={(e) => setSure(e.target.checked)} /> متأكد إني أبي أمسح مخزون: {placeName}</label>
+        <div className="field"><span className="lbl">إيش تبي تمسح؟</span>
+          <label className="check"><input type="radio" name="m" checked={!all} onChange={() => { setMode('qty'); setSure(false) }} /> الكميات بس (الأصناف تبقى)</label>
+          <label className="check"><input type="radio" name="m" checked={all} onChange={() => { setMode('items'); setSure(false) }} /> الكميات وكل الأصناف (أبدأ القائمة من جديد)</label></div>
+        {all ? <div className="error">كل الأصناف بتختفي من المخزون والطلبات والجرد وقراءة الفواتير، وكل الكميات بترجع صفر. الفواتير والطلبات القديمة تبقى محفوظة بأسماء أصنافها. بعدها تضيف الأصناف من جديد بالجرد بالصورة أو "صنف جديد".</div>
+          : <div className="error">كل الكميات بترجع صفر. الأصناف والأسعار والفواتير ما تنمسح، وسجل الحركات يفضل محفوظ.</div>}
+        {all ? <label className="check"><input type="checkbox" checked={keepPhoto} onChange={(e) => setKeepPhoto(e.target.checked)} /> خلّي الأصناف اللي دخلت بالجرد بالصورة (أسماءها جديدة وصحيحة)</label>
+          : <div className="field"><label htmlFor="rp">المكان</label>
+            <select id="rp" className="input" value={place} onChange={(e) => setPlace(e.target.value)}>
+              <option value="">كل الأماكن (المطبخ وكل الفروع)</option>
+              {lookups.stockBranches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select></div>}
+        <label className="check"><input type="checkbox" checked={sure} onChange={(e) => setSure(e.target.checked)} /> {all ? 'متأكد إني أبي أمسح كل الأصناف وأبدأ من جديد' : `متأكد إني أبي أمسح مخزون: ${placeName}`}</label>
         <div className="field"><label htmlFor="rpw">كلمة السر حقتك</label>
           <input id="rpw" className="input" type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} required /></div>
         {err && <div className="error">{err}</div>}
