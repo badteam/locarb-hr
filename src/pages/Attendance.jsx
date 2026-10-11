@@ -48,6 +48,8 @@ function EditSheet({ row, emps, onClose, onSaved }) {
   )
 }
 
+const METHOD = { app: 'الجوال', device: 'جهاز البصمة', kiosk: 'آيباد الفرع', manual: 'يدوي', correction: 'طلب تعديل' }
+
 const daysAgo = (n) => {
   const d = new Date(todayKuwait()); d.setDate(d.getDate() - n)
   return d.toISOString().slice(0, 10)
@@ -83,8 +85,8 @@ export default function Attendance() {
   const hours = (a) => a.check_out_at ? ((new Date(a.check_out_at) - new Date(a.check_in_at)) / 3600000).toFixed(1) : '—'
 
   const exportCsv = () => {
-    const head = ['الموظف', 'الفرع', 'التاريخ', 'الحضور', 'الانصراف', 'الساعات', 'التأخير (دقيقة)', 'داخل الفرع']
-    const lines = rows.map((a) => [emps[a.employee_id]?.full_name, bName[a.branch_id], a.work_date, fmtTime(a.check_in_at), fmtTime(a.check_out_at), hours(a), a.late_minutes, a.inside_geofence === null ? '' : a.inside_geofence ? 'نعم' : 'لا'])
+    const head = ['الموظف', 'الفرع', 'التاريخ', 'الحضور', 'الانصراف', 'الساعات', 'التأخير (دقيقة)', 'داخل الفرع', 'طريقة البصمة']
+    const lines = rows.map((a) => [emps[a.employee_id]?.full_name, bName[a.branch_id], a.work_date, fmtTime(a.check_in_at), fmtTime(a.check_out_at), hours(a), a.late_minutes, a.inside_geofence === null ? '' : a.inside_geofence ? 'نعم' : 'لا', METHOD[a.method] || a.method || ''])
     const csv = '﻿' + [head, ...lines].map((r) => r.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
     const a = document.createElement('a'); a.href = url; a.download = `attendance_${from}_${to}.csv`; a.click()
@@ -127,6 +129,8 @@ export default function Attendance() {
                     {a.late_minutes > 0 && <span className="pill amber">متأخر {a.late_minutes} د</span>}{' '}
                     {a.inside_geofence === false && <span className="pill red">برا الفرع</span>}{' '}
                     {['correction', 'manual'].includes(a.method) && <span className="pill gray">معدّلة</span>}{' '}
+                    {a.method === 'device' && <span className="pill blue" title={a.note || ''}>جهاز البصمة</span>}{' '}
+                    {a.method === 'kiosk' && <span className="pill blue" title={a.note || ''}>آيباد الفرع</span>}{' '}
                     {!a.check_out_at && a.work_date < todayKuwait() && <span className="pill amber">بدون انصراف</span>}
                   </td>
                   {canEdit && <td><button className="btn" style={{ minHeight: 34 }} onClick={() => setEditing(a)}>تعديل</button></td>}

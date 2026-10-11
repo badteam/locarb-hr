@@ -62,6 +62,8 @@ const D = {
   checked_out_ok: { ar: 'تم تسجيل الانصراف', en: 'Checked out', ne: 'प्रस्थान दर्ता भयो', hi: 'चेक आउट हो गया' },
   late_by: { ar: 'متأخر {n} دقيقة', en: '{n} min late', ne: '{n} मिनेट ढिलो', hi: '{n} मिनट देर' },
   outside_branch: { ar: 'ملاحظة: موقعك خارج الفرع', en: 'Note: you are outside the branch', ne: 'नोट: तपाईं शाखा बाहिर हुनुहुन्छ', hi: 'नोट: आप शाखा से बाहर हैं' },
+  punch_device_only: { ar: 'بصمتك من جهاز البصمة في الفرع', en: 'You punch on the fingerprint device at your branch', ne: 'तपाईंको हाजिरी शाखाको फिंगरप्रिन्ट मेसिनबाट हुन्छ', hi: 'आपकी हाज़िरी शाखा की फिंगरप्रिंट मशीन से होती है' },
+  punch_kiosk_only: { ar: 'بصمتك من آيباد الفرع: رقم جوالك ثم الكود', en: 'You punch on the branch iPad: your phone number, then your code', ne: 'तपाईंको हाजिरी शाखाको आईप्याडबाट: फोन नम्बर र कोड', hi: 'आपकी हाज़िरी शाखा के आईपैड से: फ़ोन नंबर और कोड' },
   already_in: { ar: 'أنت مسجل حضور من قبل', en: 'You are already checked in', ne: 'तपाईंको हाजिरी पहिले नै छ', hi: 'आप पहले से चेक इन हैं' },
   in_time: { ar: 'الحضور', en: 'In', ne: 'आगमन', hi: 'आगमन' },
   out_time: { ar: 'الانصراف', en: 'Out', ne: 'प्रस्थान', hi: 'प्रस्थान' },

@@ -92,7 +92,9 @@ export default function Home() {
       </div>
 
       <div style={{ padding: '18px 0', display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
-        {done ? (
+        {['device', 'kiosk'].includes(emp.punch_mode) ? (
+          <div className="notice" style={{ textAlign: 'center', display: 'flex', alignItems: 'center', gap: 10 }}><Icon name="finger" /> {t(emp.punch_mode === 'device' ? 'punch_device_only' : 'punch_kiosk_only')}</div>
+        ) : done ? (
           <div className="notice" style={{ textAlign: 'center' }}>{t('day_done')}</div>
         ) : (
           <button className={'checkin' + (open ? ' out' : '')} onClick={act} disabled={busy}>

@@ -26,6 +26,10 @@ export const errMsg = (e) => {
   if (m.includes('no open check-in')) return 'ما فيه حضور مفتوح'
   if (m.includes('Invalid login')) return 'رقم الهاتف أو كلمة السر غلط'
   if (m.includes('only the owner')) return 'هذا التعديل للمالك فقط'
+  if (m.includes('employees_bio_pin_key')) return 'هذا الرقم على جهاز البصمة مسجّل لموظف ثاني'
+  if (m.includes('employees_bio_pin_check')) return 'رقم جهاز البصمة لازم يكون أرقام بس'
+  if (m.includes('punch mode device')) return 'هذا الموظف يبصم من جهاز البصمة في الفرع'
+  if (m.includes('punch mode kiosk')) return 'هذا الموظف يبصم من آيباد الفرع'
   if (m.includes('row-level security')) return 'ما عندك صلاحية لهذا الإجراء'
   return m
 }

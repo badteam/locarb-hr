@@ -40,6 +40,10 @@ import Reports from './pages/inventory/Reports.jsx'
 import OpeningBalance from './pages/inventory/OpeningBalance.jsx'
 import NewOrder from './pages/inventory/NewOrder.jsx'
 import OrderDetail from './pages/inventory/OrderDetail.jsx'
+import Devices from './pages/devices/Devices.jsx'
+import DeviceNames from './pages/devices/DeviceNames.jsx'
+import DeviceLog from './pages/devices/DeviceLog.jsx'
+import Kiosk from './pages/Kiosk.jsx'
 
 function useUnread(enabled) {
   const [n, setN] = useState(0)
@@ -55,10 +59,13 @@ function useUnread(enabled) {
 }
 
 const BRANCH_PATHS = ['/inventory/orders', '/inventory/stock', '/inventory/count']
-const ADMIN_PATHS = ['/smart-upload', '/branch-docs', '/maintenance', '/transactions', '/settings', '/inventory', '/overtime', '/dashboard', '/payroll', '/attendance', '/documents', '/employees', '/branches', '/roles']
+const ADMIN_PATHS = ['/devices', '/smart-upload', '/branch-docs', '/maintenance', '/transactions', '/settings', '/inventory', '/overtime', '/dashboard', '/payroll', '/attendance', '/documents', '/employees', '/branches', '/roles']
 
 export default function App() {
   const { access } = useAccess()
+  const location = useLocation()
+  // the branch iPad punch screen works without anyone being logged in
+  if (location.pathname.startsWith('/kiosk')) return <Kiosk />
   return <LangProvider employee={access?.employee}><Shell /></LangProvider>
 }
 
@@ -94,7 +101,9 @@ function Shell() {
   const canMonitor = can('monitor_alerts')
   const canSales = can('view_reports') || can('manage_inventory')
   const invHome = canInv ? '/inventory' : canOrders ? '/inventory/orders' : canCount ? '/inventory/stock' : '/inventory/invoices'
-  const section = location.pathname.startsWith('/inventory') ? 'inv' : 'hr'
+  const canDev = can('view_devices') || can('open_doors') || can('manage_devices')
+  const canInvSection = canInv || canOrders || canCount || canInvoices || canMonitor
+  const section = location.pathname.startsWith('/inventory') ? 'inv' : location.pathname.startsWith('/devices') ? 'dev' : 'hr'
 
   const hrNav = [
     { to: '/', icon: 'home', label: t('nav_home'), show: true },
@@ -131,20 +140,27 @@ function Shell() {
     { to: '/settings', icon: 'gear', label: tr('الإعدادات'), show: access.is_owner },
     { to: '/notifications', icon: 'bell', label: t('nav_notifications'), show: true, badge: unread },
   ]
-  const nav = (section === 'inv' ? invNav : hrNav).filter((x) => x.show)
+  const devNav = [
+    { to: '/devices', icon: 'door', label: tr('الأجهزة والأبواب'), show: canDev },
+    { to: '/devices/log', icon: 'list', label: tr('السجل'), show: canDev },
+    { to: '/notifications', icon: 'bell', label: t('nav_notifications'), show: true, badge: unread },
+  ]
+  const nav = (section === 'inv' ? invNav : section === 'dev' ? devNav : hrNav).filter((x) => x.show)
 
   const INV_MOBILE = ['/inventory', '/inventory/orders', '/inventory/stock', '/inventory/invoices', '/inventory/reports']
   const pick = (paths) => paths.map((p) => nav.find((x) => x.to === p)).filter(Boolean)
   const mobileNav = section === 'inv'
     ? [...pick(INV_MOBILE).slice(0, 3), ...pick(['/notifications'])]
+    : section === 'dev' ? pick(['/devices', '/devices/log', '/notifications'])
     : isManager
       ? pick(['/', '/dashboard', '/documents', '/notifications'])
       : pick(['/', '/leaves', '/my-documents', '/notifications'])
 
-  const switcher = (canInv || canOrders || canCount || canInvoices || canMonitor) && (
+  const switcher = (canInvSection || canDev) && (
     <div className="seg no-print" role="tablist" aria-label={tr('القسم')}>
       <NavLink to="/" className={section === 'hr' ? 'on' : ''} role="tab" aria-selected={section === 'hr'}><Icon name="users" size={18} /> {tr('الموارد البشرية')}</NavLink>
-      <NavLink to={invHome} className={section === 'inv' ? 'on' : ''} role="tab" aria-selected={section === 'inv'}><Icon name="box" size={18} /> {tr('المخزون والتوريد')}</NavLink>
+      {canInvSection && <NavLink to={invHome} className={section === 'inv' ? 'on' : ''} role="tab" aria-selected={section === 'inv'}><Icon name="box" size={18} /> {tr('المخزون والتوريد')}</NavLink>}
+      {canDev && <NavLink to="/devices" className={section === 'dev' ? 'on' : ''} role="tab" aria-selected={section === 'dev'}><Icon name="door" size={18} /> {tr('الأجهزة والأبواب')}</NavLink>}
     </div>
   )
 
@@ -202,6 +218,9 @@ function Shell() {
           {canReports && <Route path="/inventory/reports" element={<Reports />} />}
           {canOrders && <Route path="/inventory/orders/new" element={<NewOrder />} />}
           {canOrders && <Route path="/inventory/orders/:id" element={<OrderDetail />} />}
+          {canDev && <Route path="/devices" element={<Devices />} />}
+          {canDev && <Route path="/devices/log" element={<DeviceLog />} />}
+          {can('manage_devices') && <Route path="/devices/:id/names" element={<DeviceNames />} />}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

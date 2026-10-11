@@ -7,6 +7,7 @@ import ReviewSheet from '../components/ReviewSheet.jsx'
 import { uploadAttachment, readFile, readError, copyFile, ACCEPT } from '../lib/ai'
 import EmployeesIO from '../components/EmployeesIO.jsx'
 
+export const PUNCH_MODES = [['any', 'أي طريقة'], ['mobile', 'جواله الشخصي'], ['kiosk', 'آيباد الفرع'], ['device', 'جهاز البصمة']]
 const DAYS = [['saturday','السبت'],['sunday','الأحد'],['monday','الاثنين'],['tuesday','الثلاثاء'],['wednesday','الأربعاء'],['thursday','الخميس'],['friday','الجمعة']]
 
 function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
@@ -19,7 +20,18 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
     weekly_holidays: emp?.weekly_holidays || [], leave_balance: emp?.leave_balance ?? 0,
     ot_mode: emp?.ot_mode || '', ot_rate: emp?.ot_rate ?? '', ot_multiplier: emp?.ot_multiplier ?? '',
     civil_id: emp?.civil_id || '', nationality: emp?.nationality || '',
+    punch_mode: emp?.punch_mode || 'any', bio_pin: emp?.bio_pin || '',
   })
+  // personal 4-digit code for the branch iPad
+  const [kcode, setKcode] = useState(undefined)
+  useEffect(() => {
+    if (!emp || !can('manage_employees')) return
+    supabase.from('kiosk_codes').select('code').eq('employee_id', emp.id).maybeSingle().then(({ data }) => setKcode(data?.code || null))
+  }, [emp, can])
+  const newCode = async () => {
+    const { data, error } = await supabase.rpc('set_kiosk_code', { p_employee: emp.id })
+    if (error) setErr(errMsg(error)); else setKcode(data)
+  }
   // civil ID photo read by the AI: fills the form, and is saved as the employee's document
   const [idScan, setIdScan] = useState(null)
   const [scanning, setScanning] = useState(false)
@@ -74,7 +86,8 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
       const row = { ...f, branch_id: f.branch_id || null, shift_id: f.shift_id || null, role_id: f.role_id || null, hire_date: f.hire_date || null, phone: f.phone.replace(/\D/g, '') || null,
         working_hours: f.working_hours === '' ? null : Number(f.working_hours), annual_leave_days: Number(f.annual_leave_days) || 0, leave_balance: Number(f.leave_balance) || 0,
         ot_mode: f.ot_mode || null, ot_rate: f.ot_mode === 'fixed' && f.ot_rate !== '' ? Number(f.ot_rate) : null, ot_multiplier: f.ot_mode === 'multiplier' && f.ot_multiplier !== '' ? Number(f.ot_multiplier) : null,
-        civil_id: f.civil_id.replace(/\D/g, '') || null, nationality: f.nationality || null }
+        civil_id: f.civil_id.replace(/\D/g, '') || null, nationality: f.nationality || null,
+        bio_pin: String(f.bio_pin).replace(/\D/g, '') || null }
       if (!access.is_owner) delete row.role_id
       if (!canPay) { delete row.leave_balance; delete row.ot_mode; delete row.ot_rate; delete row.ot_multiplier }
       let id = emp?.id
@@ -196,6 +209,23 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
               </div>
             </div>
           )}
+          <div className="card form" style={{ gap: 10 }}>
+            <strong style={{ fontSize: 14 }}>طريقة البصمة</strong>
+            <div className="chips">
+              {PUNCH_MODES.map(([k, t]) => <button type="button" key={k} className={'chip' + (f.punch_mode === k ? ' on' : '')} onClick={() => setF({ ...f, punch_mode: k })}>{t}</button>)}
+            </div>
+            <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', alignItems: 'end' }}>
+              <div className="field"><label htmlFor="bp">رقمه على جهاز البصمة</label>
+                <input id="bp" className="input ltr" style={{ textAlign: 'right' }} inputMode="numeric" placeholder="مثلاً 12" value={f.bio_pin} onChange={set('bio_pin')} /></div>
+              {emp && can('manage_employees') && (
+                <div className="field"><span className="lbl">كود آيباد الفرع</span>
+                  <div className="row">
+                    <span className="num" style={{ fontSize: 20, fontWeight: 700, letterSpacing: 4 }}>{kcode === undefined ? '…' : kcode || '—'}</span>
+                    <button type="button" className="btn" style={{ minHeight: 38 }} onClick={newCode}>{kcode ? 'كود جديد' : 'إنشاء كود'}</button>
+                  </div></div>)}
+            </div>
+            <div className="sub">على الآيباد يكتب رقم جواله ثم هذا الكود. وإذا اخترت "جهاز البصمة" أو "آيباد الفرع" ما يقدر يبصم من جواله.</div>
+          </div>
           <div className="field"><label htmlFor="em">الإيميل (اختياري، للتنبيهات)</label><input id="em" type="email" className="input ltr" style={{ textAlign: 'right' }} value={f.email} onChange={set('email')} /></div>
           <label className="check"><input type="checkbox" checked={f.active} onChange={set('active')} /> الموظف على رأس عمله</label>
 
