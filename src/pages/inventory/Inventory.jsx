@@ -18,6 +18,11 @@ export function ItemForm({ item, lookups, onClose, onSaved, presetName }) {
     min_qty: item?.min_qty ?? 0, is_critical: item?.is_critical || false, active: item?.active ?? true, notes: item?.notes || '',
     kcal_100: item?.kcal_100 ?? '', protein_100: item?.protein_100 ?? '', carbs_100: item?.carbs_100 ?? '', fat_100: item?.fat_100 ?? '',
   })
+  const [prot, setProt] = useState({ groups: [], value: '', grams: '' })
+  useEffect(() => {
+    supabase.from('protein_groups').select('key,name_ar').order('sort_order').then(({ data }) => setProt((p) => ({ ...p, groups: data || [] })))
+    if (item?.id) supabase.from('inv_items').select('protein_group,unit_grams').eq('id', item.id).single().then(({ data }) => setProt((p) => ({ ...p, value: data?.protein_group || '', grams: data?.unit_grams ?? '' })))
+  }, [item?.id])
   const [newCat, setNewCat] = useState('')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
@@ -34,7 +39,8 @@ export function ItemForm({ item, lookups, onClose, onSaved, presetName }) {
     const nv = (v) => (v === '' || v == null ? null : Number(v))
     const nut = { kcal_100: nv(f.kcal_100), protein_100: nv(f.protein_100), carbs_100: nv(f.carbs_100), fat_100: nv(f.fat_100) }
     const nutChanged = ['kcal_100', 'protein_100', 'carbs_100', 'fat_100'].some((k) => nut[k] !== (item?.[k] == null ? null : Number(item[k])))
-    const row = { ...f, ...nut, category_id, unit_id: f.unit_id || null, min_qty: Number(f.min_qty) || 0, name_en: f.name_en || null, notes: f.notes || null,
+    const protRow = prot.value || item?.id ? { protein_group: prot.value || null, unit_grams: prot.grams === '' ? null : Number(prot.grams) } : {}
+    const row = { ...f, ...nut, ...protRow, category_id, unit_id: f.unit_id || null, min_qty: Number(f.min_qty) || 0, name_en: f.name_en || null, notes: f.notes || null,
       ...(nutChanged ? { nutrition_source: 'إدخال يدوي', nutrition_updated_at: new Date().toISOString() } : {}) }
     const r = item ? await supabase.from('inv_items').update(row).eq('id', item.id).select().single() : await supabase.from('inv_items').insert(row).select().single()
     setBusy(false)
@@ -64,6 +70,15 @@ export function ItemForm({ item, lookups, onClose, onSaved, presetName }) {
         <div className="field"><label htmlFor="mq">الحد الأدنى في المطبخ</label>
           <input id="mq" type="number" step="any" min="0" className="input" value={f.min_qty} onChange={set('min_qty')} />
           <div className="sub">لما الكمية تنزل تحت هالرقم، الصنف يطلع لك باللون الأصفر.</div></div>
+        <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+          <div className="field"><label htmlFor="pg">بروتين يراقبه النظام</label>
+            <select id="pg" className="input" value={prot.value} onChange={(e) => setProt({ ...prot, value: e.target.value })}>
+              <option value="">{item?.id ? 'لا' : 'يتحدد تلقائي من الاسم'}</option>
+              {prot.groups.map((g) => <option key={g.key} value={g.key}>{g.name_ar}</option>)}
+            </select></div>
+          <div className="field"><label htmlFor="ug">وزن الوحدة بالجرام</label>
+            <input id="ug" type="number" min="0" step="any" className="input num" value={prot.grams} onChange={(e) => setProt({ ...prot, grams: e.target.value })} placeholder="مثلاً الكيس ١٠٠٠" /></div>
+        </div>
         <div className="field"><span className="lbl">القيمة الغذائية لكل ١٠٠ جرام</span>
           <div className="grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
             {[['kcal_100', 'سعرات'], ['protein_100', 'بروتين'], ['carbs_100', 'كارب'], ['fat_100', 'دهون']].map(([k, l]) => (
