@@ -431,9 +431,9 @@ export default function InvoiceDetail() {
             <div className="card form" style={{ gap: 10 }}>
               <strong>الدفع</strong>
               <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
-                <div><div className="sub">المستحق</div><div className="num" style={{ fontWeight: 600 }}>{kwd(due)}</div></div>
-                <div><div className="sub">المدفوع</div><div className="num" style={{ fontWeight: 600 }}>{kwd(inv.paid_amount)}</div></div>
-                <div><div className="sub">الباقي</div><div className="num" style={{ fontWeight: 700, color: remaining > 0 ? 'var(--red)' : 'var(--ok)' }}>{kwd(remaining)}</div></div>
+                <div><div className="sub">المستحق</div><div><span className="num" style={{ fontWeight: 600 }}>{kwd(due)}</span></div></div>
+                <div><div className="sub">المدفوع</div><div><span className="num" style={{ fontWeight: 600 }}>{kwd(inv.paid_amount)}</span></div></div>
+                <div><div className="sub">الباقي</div><div><span className="num" style={{ fontWeight: 700, color: remaining > 0 ? 'var(--red)' : 'var(--ok)' }}>{kwd(remaining)}</span></div></div>
                 <div><div className="sub">موعد الدفع</div><div style={{ fontWeight: 600, color: late ? 'var(--red)' : undefined }}>{inv.due_date ? fmtDate(inv.due_date) : '—'}</div></div>
               </div>
               {payments.length > 0 && <div className="list">{payments.map((p) => (

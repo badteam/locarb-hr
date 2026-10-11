@@ -114,11 +114,11 @@ function SupplierSheet({ supplier, canEdit, onClose, onChanged }) {
 
         {stmt && (
           <div className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10 }}>
-            <div><div className="sub">الرصيد علينا</div><div className="num" style={{ fontWeight: 700, fontSize: 18, color: balance > 0.0005 ? 'var(--red)' : 'var(--ok)' }}>{kwd(balance)}</div></div>
-            <div><div className="sub">متأخر الدفع</div><div className="num" style={{ fontWeight: 600, color: Number(stmt.overdue) > 0 ? 'var(--red)' : undefined }}>{kwd(stmt.overdue)}</div></div>
-            <div><div className="sub">إجمالي الفواتير</div><div className="num" style={{ fontWeight: 600 }}>{kwd(stmt.invoiced)}</div></div>
-            <div><div className="sub">إجمالي المدفوع</div><div className="num" style={{ fontWeight: 600 }}>{kwd(stmt.paid)}</div></div>
-            {Number(stmt.free_value) > 0 && <div><div className="sub">بضاعة مجانية منه</div><div className="num" style={{ fontWeight: 600 }}>{kwd(stmt.free_value)}</div></div>}
+            <div><div className="sub">الرصيد علينا</div><div><span className="num" style={{ fontWeight: 700, fontSize: 18, color: balance > 0.0005 ? 'var(--red)' : 'var(--ok)' }}>{kwd(balance)}</span></div></div>
+            <div><div className="sub">متأخر الدفع</div><div><span className="num" style={{ fontWeight: 600, color: Number(stmt.overdue) > 0 ? 'var(--red)' : undefined }}>{kwd(stmt.overdue)}</span></div></div>
+            <div><div className="sub">إجمالي الفواتير</div><div><span className="num" style={{ fontWeight: 600 }}>{kwd(stmt.invoiced)}</span></div></div>
+            <div><div className="sub">إجمالي المدفوع</div><div><span className="num" style={{ fontWeight: 600 }}>{kwd(stmt.paid)}</span></div></div>
+            {Number(stmt.free_value) > 0 && <div><div className="sub">بضاعة مجانية منه</div><div><span className="num" style={{ fontWeight: 600 }}>{kwd(stmt.free_value)}</span></div></div>}
           </div>)}
         {can('supplier_payments') && <button className="btn primary" onClick={() => setPaying(true)}><Icon name="check" /> تسجيل دفعة</button>}
 
@@ -136,12 +136,13 @@ function SupplierSheet({ supplier, canEdit, onClose, onChanged }) {
               return (
                 <div key={r.kind + r.id} className="list-item">
                   <span className="grow">{r.kind === 'invoice'
-                    ? <Link to={`/inventory/invoices/${r.id}`}>فاتورة {r.ref || ''}</Link>
+                    ? <Link to={`/inventory/invoices/${r.id}`} style={{ whiteSpace: 'nowrap' }}>فاتورة <span className="ltr">{r.ref || ''}</span></Link>
                     : <span>دفعة {PAY_METHOD[r.payment_status] || ''}{r.ref ? ` · ${r.ref}` : ''}</span>}
                     <div className="sub">{fmtDate(r.d)}{r.kind === 'invoice' && r.due_date ? ` · الاستحقاق ${fmtDate(r.due_date)}` : ''}</div></span>
                   {r.kind === 'invoice' && <span className={'pill ' + (late ? 'red' : PAY_STATUS[r.payment_status]?.[0])}>{late ? 'متأخرة' : PAY_STATUS[r.payment_status]?.[1]}</span>}
-                  <span className="num" style={{ minWidth: 80, textAlign: 'left', color: r.kind === 'payment' ? 'var(--ok)' : undefined }}>{r.kind === 'payment' ? '− ' : '+ '}{kwd(r.kind === 'payment' ? r.credit : r.debit)}</span>
-                  <span className="num sub" style={{ minWidth: 80, textAlign: 'left' }}>{kwd(run)}</span>
+                  <span style={{ textAlign: 'left', flexShrink: 0 }}>
+                    <span className="num" style={{ fontWeight: 600, color: r.kind === 'payment' ? 'var(--ok)' : undefined }}>{r.kind === 'payment' ? '− ' : '+ '}{kwd(r.kind === 'payment' ? r.credit : r.debit)}</span>
+                    <div className="sub">الرصيد <span className="num">{kwd(run)}</span></div></span>
                 </div>)
             })}
           </div>)}

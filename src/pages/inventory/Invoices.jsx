@@ -163,7 +163,7 @@ export default function Invoices() {
         {canCreate && <button className="btn primary" onClick={() => setCreating(true)}><Icon name="camera" /> استلام بضاعة</button>}</div>
       {(counts.owed > 0 || counts.overdue > 0) && (can('supplier_payments') || can('approve_purchases')) && (
         <div className={counts.overdue ? 'warn' : 'notice'} style={{ marginBottom: 12 }}>
-          {counts.overdue ? <Icon name="warn" /> : null} علينا للموردين <strong className="num">{kwd(counts.owed)}</strong> د.ك{counts.overdue ? ` · ${counts.overdue} فاتورة فات موعد دفعها` : ''}</div>)}
+          {counts.overdue ? <Icon name="warn" /> : null}<span>علينا للموردين <strong className="num">{kwd(counts.owed)}</strong> د.ك</span>{counts.overdue ? <span>· {counts.overdue} فاتورة فات موعد دفعها</span> : null}</div>)}
       <div className="chips" style={{ marginBottom: 8 }}>
         {TABS.map(([k, l]) => <button key={k} className={'chip' + (tab === k ? ' on' : '')} onClick={() => setTab(k)}>
           {l}{counts[k] ? <span className="badge" style={{ marginInlineStart: 6 }}>{counts[k]}</span> : null}</button>)}
