@@ -20,11 +20,39 @@ export const MOVE_KIND = {
 export const INVOICE_STATUS = {
   draft: ['gray', 'مسودة'],
   reading: ['amber', 'جاري القراءة'],
-  review: ['amber', 'تنتظر الموافقة'],
-  approved: ['ok', 'معتمدة'],
+  review: ['amber', 'تنتظر المراجعة'],
+  approved: ['ok', 'تمت المراجعة'],
   rejected: ['red', 'مرفوضة'],
   failed: ['red', 'ما انقرت'],
 }
+
+// where an invoice is in the receive -> review -> pay flow
+export const invoiceStage = (v) => {
+  if (v.status === 'approved') return 'approved'
+  if (v.status === 'rejected') return 'rejected'
+  if (v.status === 'reading') return 'reading'
+  return v.received_at ? 'review' : 'receive'
+}
+export const STAGE = {
+  receive: ['amber', 'تنتظر الاستلام'],
+  reading: ['amber', 'جاري القراءة'],
+  review: ['blue', 'تنتظر مراجعة المحاسب'],
+  approved: ['ok', 'تمت المراجعة'],
+  rejected: ['red', 'مرفوضة'],
+}
+export const PAY_STATUS = { unpaid: ['red', 'غير مدفوعة'], partial: ['amber', 'مدفوعة جزئياً'], paid: ['ok', 'مدفوعة'] }
+export const PAY_METHOD = { cash: 'كاش', transfer: 'تحويل بنكي', cheque: 'شيك', knet: 'كي نت', other: 'أخرى' }
+export const ISSUES = {
+  none: ['تمام', ''],
+  short: ['ناقص', 'وصل أقل من المكتوب، وندفع بس على اللي وصل'],
+  return: ['مرتجع', 'رجعناه للمورد. اكتب كم خلّيت عندك (غالباً صفر)'],
+  free: ['مجاني', 'فيه مشكلة بس المورد قال خلّوه. يدخل المخزون بتكلفة صفر'],
+  discount: ['خصم', 'فيه مشكلة والمورد نزّل السعر. اكتب السعر الجديد'],
+}
+// what we owe for one line, and the qty that goes to stock
+export const lineRecv = (l) => (l.received_qty === '' || l.received_qty == null ? Number(l.qty) || 0 : Number(l.received_qty) || 0)
+export const lineCharge = (l) => (l.issue === 'free' ? 0 : l.charge_price === '' || l.charge_price == null ? Number(l.unit_price) || 0 : Number(l.charge_price) || 0)
+export const linePayable = (l) => lineRecv(l) * lineCharge(l)
 
 export const ORDER_STATUS = {
   submitted: ['amber', 'تنتظر المطبخ'],
@@ -68,6 +96,12 @@ export const invErr = (e) => {
   if (m.includes('not allowed to order')) return 'ما عندك صلاحية تطلب لهالفرع'
   if (m.includes('nothing to send')) return 'كل الكميات صفر. لو ما فيه شي ينرسل، ارفض الطلب'
   if (m.includes('not on the way')) return 'الطلب ما انرسل للحين'
+  if (m.includes('duplicate invoice')) return 'الفاتورة هذي مدخلة من قبل لنفس المورد بنفس الرقم: ' + (m.split('duplicate invoice')[1] || '').trim()
+  if (m.includes('already received')) return 'البضاعة هذي انستلمت من قبل'
+  if (m.includes('not allowed to receive')) return 'ما عندك صلاحية استلام البضاعة'
+  if (m.includes('choose where the goods')) return 'اختار وين استلمت البضاعة'
+  if (m.includes('received invoice cannot be deleted')) return 'الفاتورة انستلمت ودخلت المخزون، ما تنمسح. ارفضها بدال الحذف عشان تطلع كمياتها'
+  if (m.includes('line already in stock')) return 'السطر هذا دخل المخزون. خلّ الكمية المستلمة صفر بدال ما تمسحه'
   if (m.includes('duplicate key')) return 'موجود من قبل'
   return m
 }

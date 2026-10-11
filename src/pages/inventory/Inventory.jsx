@@ -286,7 +286,7 @@ export default function Inventory() {
 
   const load = useCallback(() => {
     supabase.from('inv_stock').select('*').order('name_ar').then(({ data }) => setItems(data || []))
-    supabase.from('purchase_invoices').select('id', { count: 'exact', head: true }).eq('status', 'review').then(({ count }) => setPending(count || 0))
+    supabase.from('purchase_invoices').select('id', { count: 'exact', head: true }).in('status', ['draft', 'reading', 'review', 'failed']).then(({ count }) => setPending(count || 0))
   }, [])
   useEffect(() => { load(); loadLookups(true).then(setLookups); refreshProductImages() }, [load])
 
@@ -314,7 +314,7 @@ export default function Inventory() {
           {canEdit && <Link className="btn" to="/inventory/opening"><Icon name="doc" /> رصيد أول المدة</Link>}
           {canEdit && <button className="btn" onClick={() => setCatsOpen(true)}><Icon name="list" /> التصنيفات</button>}
           {canEdit && <button className="btn" onClick={() => setAdding(true)}><Icon name="plus" /> صنف جديد</button>}
-          {(can('manage_suppliers') || can('approve_purchases')) && <Link className="btn primary" to="/inventory/invoices?new=1"><Icon name="camera" /> فاتورة مورد</Link>}
+          {(can('manage_suppliers') || can('approve_purchases') || can('receive_goods')) && <Link className="btn primary" to="/inventory/invoices?new=1"><Icon name="camera" /> استلام بضاعة</Link>}
         </div>
       </div>
 
@@ -324,7 +324,7 @@ export default function Inventory() {
         <button className="card stat" style={{ textAlign: 'right', cursor: 'pointer', borderColor: low ? '#F3DDA8' : undefined }} onClick={() => setFilter('low')}>
           <div className="label">تحت الحد الأدنى</div><div className="value num" style={{ color: low ? 'var(--amber)' : undefined }}>{low}</div></button>
         <Link className="card stat" to="/inventory/invoices" style={{ textDecoration: 'none', color: 'inherit' }}>
-          <div className="label">فواتير تنتظر الموافقة</div><div className="value num">{pending}</div></Link>
+          <div className="label">فواتير مفتوحة (استلام أو مراجعة)</div><div className="value num">{pending}</div></Link>
         <div className="card stat"><div className="label">قيمة مخزون المطبخ</div><div className="value num" style={{ fontSize: 24 }}>{kwd(value)}</div><div className="sub">د.ك</div></div>
       </div>
 

@@ -87,8 +87,9 @@ function Shell() {
   const canOrders = can('branch_orders') || can('approve_branch_requests') || can('manage_inventory') || can('view_reports')
   const canCount = can('branch_count') || can('manage_inventory')
   const canReports = can('view_reports') || can('manage_inventory') || can('approve_branch_requests')
-  const invHome = canInv ? '/inventory' : canOrders ? '/inventory/orders' : '/inventory/stock'
-  const canInvoices = can('manage_suppliers') || can('approve_purchases') || can('view_reports')
+  const canInvoices = can('manage_suppliers') || can('approve_purchases') || can('view_reports') || can('receive_goods') || can('supplier_payments')
+  const canSuppliers = canInv || can('supplier_payments')
+  const invHome = canInv ? '/inventory' : canOrders ? '/inventory/orders' : canCount ? '/inventory/stock' : '/inventory/invoices'
   const section = location.pathname.startsWith('/inventory') ? 'inv' : 'hr'
 
   const hrNav = [
@@ -119,7 +120,7 @@ function Shell() {
     { to: '/inventory/stock', icon: 'check', label: tr('رصيد الفرع والجرد'), show: canCount },
     { to: '/inventory/reports', icon: 'dash', label: tr('التقارير'), show: canReports },
     { to: '/inventory/invoices', icon: 'receipt', label: tr('فواتير الموردين'), show: canInvoices },
-    { to: '/inventory/suppliers', icon: 'truck', label: tr('الموردين'), show: canInv },
+    { to: '/inventory/suppliers', icon: 'truck', label: tr('الموردين'), show: canSuppliers },
     { to: '/inventory/movements', icon: 'arrows', label: tr('حركة المخزون'), show: canInv },
     { to: '/settings', icon: 'gear', label: tr('الإعدادات'), show: access.is_owner },
     { to: '/notifications', icon: 'bell', label: t('nav_notifications'), show: true, badge: unread },
@@ -134,7 +135,7 @@ function Shell() {
       ? pick(['/', '/dashboard', '/documents', '/notifications'])
       : pick(['/', '/leaves', '/my-documents', '/notifications'])
 
-  const switcher = (canInv || canOrders || canCount) && (
+  const switcher = (canInv || canOrders || canCount || canInvoices) && (
     <div className="seg no-print" role="tablist" aria-label={tr('القسم')}>
       <NavLink to="/" className={section === 'hr' ? 'on' : ''} role="tab" aria-selected={section === 'hr'}><Icon name="users" size={18} /> {tr('الموارد البشرية')}</NavLink>
       <NavLink to={invHome} className={section === 'inv' ? 'on' : ''} role="tab" aria-selected={section === 'inv'}><Icon name="box" size={18} /> {tr('المخزون والتوريد')}</NavLink>
@@ -185,7 +186,7 @@ function Shell() {
           {can('manage_inventory') && <Route path="/inventory/opening" element={<OpeningBalance />} />}
           {canInvoices && <Route path="/inventory/invoices" element={<Invoices />} />}
           {canInvoices && <Route path="/inventory/invoices/:id" element={<InvoiceDetail />} />}
-          {canInv && <Route path="/inventory/suppliers" element={<Suppliers />} />}
+          {canSuppliers && <Route path="/inventory/suppliers" element={<Suppliers />} />}
           {canInv && <Route path="/inventory/movements" element={<Movements />} />}
           {canOrders && <Route path="/inventory/orders" element={<Orders />} />}
           {canCount && <Route path="/inventory/stock" element={<BranchStock />} />}

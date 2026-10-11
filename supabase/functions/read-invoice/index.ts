@@ -21,6 +21,7 @@ const TOOL = {
       invoice_date: { type: "string", description: "YYYY-MM-DD" },
       currency: { type: "string" },
       discount: { type: "number", description: "Invoice-level discount amount, 0 if none" },
+      delivery_charge: { type: "number", description: "Delivery / transport / service charge added on the invoice, 0 if none" },
       total: { type: "number", description: "Grand total payable as printed" },
       lines: {
         type: "array",
@@ -47,7 +48,7 @@ Read every product line. Rules:
 - Keep item names exactly as printed. Do not translate.
 - qty is the delivered quantity; unit_price is the price per that unit after any line discount.
 - If only a line total is shown, compute unit_price = line_total / qty.
-- Skip subtotal, VAT, delivery and payment lines.
+- Skip subtotal, VAT and payment lines. Put any delivery/transport charge in delivery_charge, not in lines.
 - Numbers: use "." for decimals; convert Arabic-Indic digits.
 Answer only by calling the save_invoice tool once.`;
 
@@ -110,6 +111,7 @@ Deno.serve(async (req) => {
   const { data: inv, error: invErr } = await db.from("purchase_invoices").select("*").eq("id", invoice_id).maybeSingle();
   if (invErr || !inv) return json({ error: "not found" }, 404);
   if (!["draft", "failed", "review"].includes(inv.status)) return json({ error: "invoice is not open" }, 409);
+  if (inv.received_at) return json({ error: "already received" }, 409);
   if (!inv.image_paths?.length) return json({ error: "no image" }, 400);
 
   if (!key) {
@@ -180,7 +182,7 @@ Deno.serve(async (req) => {
     await db.from("purchase_invoices").update({
       supplier_id, supplier_name_read: r.supplier_name ?? null,
       invoice_no: inv.invoice_no ?? r.invoice_no ?? null, invoice_date: inv.invoice_date ?? date,
-      discount: Number(r.discount) || 0, total_read: r.total != null ? Number(r.total) : null,
+      discount: Number(r.discount) || 0, extra_charges: Number(r.delivery_charge) || 0, total_read: r.total != null ? Number(r.total) : null,
       read_raw: r,
     }).eq("id", invoice_id);
 

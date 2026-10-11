@@ -63,6 +63,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; }
 .pill.amber { background: var(--amber-bg); color: var(--amber); }
 .pill.ok { background: var(--ok-bg); color: var(--ok); }
 .pill.gray { background: #EEF1EC; color: var(--muted); }
+.pill.blue { background: #E8F0FB; color: #2B5C9E; }
 .badge { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: #C2410C; color: #fff; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
 
 .btn { min-height: 44px; padding: 0 18px; border-radius: 12px; border: 1px solid var(--line-strong); background: var(--card); cursor: pointer; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; color: var(--ink); }
