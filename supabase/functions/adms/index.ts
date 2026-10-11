@@ -97,12 +97,14 @@ Deno.serve(async (req) => {
   const t = await token();
   if (!t || req.headers.get("x-relay-token") !== t) return text("forbidden", 403);
 
-  const path = (req.headers.get("x-orig-path") ?? "").toLowerCase();
+  // some firmwares use /iclock/cdata.aspx, /iclock/getrequest.aspx ...
+  const path = (req.headers.get("x-orig-path") ?? "").toLowerCase().replace(/\.aspx$/, "").replace(/\/+$/, "");
   const q = new URLSearchParams(req.headers.get("x-orig-query") ?? "");
   const ip = (req.headers.get("x-device-ip") ?? "").slice(0, 60);
   const sn = q.get("SN") ?? q.get("sn") ?? "";
   if (!/^[A-Za-z0-9_-]{4,40}$/.test(sn)) return text("OK");
   const body = req.method === "POST" ? await req.text() : "";
+  if (Deno.env.get("ADMS_DEBUG") || sn === "BOCK201461472") console.log("adms req", sn, req.method, path, q.get("table") ?? "", body.length);
 
   try {
     if (path.endsWith("/cdata")) {
@@ -147,6 +149,7 @@ Deno.serve(async (req) => {
       return text("OK");
     }
 
+    console.log("adms unknown path", sn, req.method, path);
     await ingest(sn, ip, "hello");
     return text("OK");
   } catch (e) {
