@@ -217,6 +217,20 @@ function ItemSheet({ item, lookups, canEdit, onClose, onChanged }) {
   const [prices, setPrices] = useState([])
   const [edit, setEdit] = useState(false)
   const [adjust, setAdjust] = useState(false)
+  const [removing, setRemoving] = useState(false)
+  const [rmErr, setRmErr] = useState('')
+  // never-used items are deleted; items with history (movements, invoices, orders, counts) are stopped so the history stays
+  const remove = async () => {
+    setRmErr('')
+    const del = await supabase.from('inv_items').delete().eq('id', item.id)
+    if (!del.error) { onChanged(); onClose(); return }
+    if (del.error.code === '23503' || /foreign key/i.test(del.error.message)) {
+      const up = await supabase.from('inv_items').update({ active: false, is_critical: false }).eq('id', item.id)
+      if (up.error) { setRmErr(invErr(up.error)); return }
+      onChanged(); onClose(); return
+    }
+    setRmErr(invErr(del.error))
+  }
   const load = useCallback(() => {
     supabase.from('stock_levels').select('qty, branch_id, branches(name)').eq('item_id', item.id).then(({ data }) => setLevels(data || []))
     supabase.from('stock_movements').select('id,qty,kind,note,created_at,unit_cost,branches(name),employees:created_by(full_name)').eq('item_id', item.id).order('created_at', { ascending: false }).limit(20).then(({ data }) => setMoves(data || []))
@@ -238,6 +252,8 @@ function ItemSheet({ item, lookups, canEdit, onClose, onChanged }) {
         </div>
         {canEdit && <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
           <button className="btn" onClick={() => setEdit(true)}>تعديل الصنف</button>
+          {item.active ? <button className="btn danger" onClick={() => setRemoving(true)}><Icon name="trash" /> حذف الصنف</button>
+            : <button className="btn" onClick={async () => { await supabase.from('inv_items').update({ active: true }).eq('id', item.id); onChanged(); onClose() }}>رجّع الصنف</button>}
           <button className="btn" onClick={() => setAdjust(true)}>تالف أو تعديل كمية</button>
         </div>}
         <NutritionCard itemId={item.id} canEdit={canEdit} onChanged={onChanged} />
@@ -255,6 +271,18 @@ function ItemSheet({ item, lookups, canEdit, onClose, onChanged }) {
       </div>
       {edit && <ItemForm item={item} lookups={lookups} onClose={() => setEdit(false)} onSaved={() => { onChanged(); onClose() }} />}
       {adjust && <AdjustForm item={item} lookups={lookups} onClose={() => setAdjust(false)} onSaved={() => { load(); onChanged() }} />}
+      {removing && (
+        <div className="overlay" onClick={(e) => e.target === e.currentTarget && setRemoving(false)}>
+          <div className="sheet form">
+            <div className="sheet-head"><h2 style={{ fontSize: 20 }}>حذف {item.name_ar}؟</h2>
+              <button type="button" className="icon-btn" aria-label="إغلاق" onClick={() => setRemoving(false)}><Icon name="x" /></button></div>
+            {moves.length > 0 || Number(item.total_qty) !== 0
+              ? <div className="warn"><Icon name="warn" /> الصنف هذا له حركات أو فواتير أو طلبات. عشان ما يخرب التاريخ والتقارير، ينشال من القائمة ويروح لـ "موقوفة"، وتقدر ترجعه وقت ما تبي.</div>
+              : <div className="sub">الصنف ما انستخدم في أي حركة، فبينمسح نهائياً.</div>}
+            {rmErr && <div className="error">{rmErr}</div>}
+            <button className="btn danger block" onClick={remove}><Icon name="trash" /> حذف</button>
+          </div>
+        </div>)}
     </div>
   )
 }
