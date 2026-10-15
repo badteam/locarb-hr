@@ -29,6 +29,7 @@ import Inventory from './pages/inventory/Inventory.jsx'
 import Invoices from './pages/inventory/Invoices.jsx'
 import InvoiceDetail from './pages/inventory/InvoiceDetail.jsx'
 import Suppliers from './pages/inventory/Suppliers.jsx'
+import SupplierProfile from './pages/inventory/SupplierProfile.jsx'
 import Sales from './pages/inventory/Sales.jsx'
 import Monitor from './pages/inventory/Monitor.jsx'
 import Movements from './pages/inventory/Movements.jsx'
@@ -170,7 +171,7 @@ function Shell() {
         <div className="brand">LoCarb</div>
         {switcher}
         {nav.map((x) => (
-          <NavLink key={x.to} to={x.to} end={!['/inventory/invoices', '/inventory/orders'].includes(x.to)} className={({ isActive }) => 'navlink' + (isActive ? ' active' : '')}>
+          <NavLink key={x.to} to={x.to} end={!['/inventory/invoices', '/inventory/orders', '/inventory/suppliers'].includes(x.to)} className={({ isActive }) => 'navlink' + (isActive ? ' active' : '')}>
             <Icon name={x.icon} /> {x.label} {x.badge ? <span className="badge">{x.badge}</span> : null}
           </NavLink>
         ))}
@@ -211,6 +212,7 @@ function Shell() {
           {canMonitor && <Route path="/inventory/monitor" element={<Monitor />} />}
           {canSales && <Route path="/inventory/sales" element={<Sales />} />}
           {canSuppliers && <Route path="/inventory/suppliers" element={<Suppliers />} />}
+          {canSuppliers && <Route path="/inventory/suppliers/:id" element={<SupplierProfile />} />}
           {canInv && <Route path="/inventory/movements" element={<Movements />} />}
           {canOrders && <Route path="/inventory/orders" element={<Orders />} />}
           {canCount && <Route path="/inventory/stock" element={<BranchStock />} />}
@@ -227,7 +229,7 @@ function Shell() {
 
       <nav className="bottomnav no-print">
         {mobileNav.map((x) => (
-          <NavLink key={x.to} to={x.to} end={!['/inventory/invoices', '/inventory/orders'].includes(x.to)} className={({ isActive }) => (isActive ? 'active' : '')}>
+          <NavLink key={x.to} to={x.to} end={!['/inventory/invoices', '/inventory/orders', '/inventory/suppliers'].includes(x.to)} className={({ isActive }) => (isActive ? 'active' : '')}>
             <span style={{ position: 'relative' }}>
               <Icon name={x.icon} size={22} />
               {x.badge ? <span className="badge" style={{ position: 'absolute', top: -6, left: -10 }}>{x.badge}</span> : null}
@@ -249,7 +251,7 @@ function Shell() {
               <button type="button" className="icon-btn" aria-label={t('close')} onClick={() => setMore(false)}><Icon name="x" /></button>
             </div>
             {nav.map((x) => (
-              <NavLink key={x.to} to={x.to} end={!['/inventory/invoices', '/inventory/orders'].includes(x.to)} onClick={() => setMore(false)} className={({ isActive }) => 'navlink' + (isActive ? ' active' : '')}>
+              <NavLink key={x.to} to={x.to} end={!['/inventory/invoices', '/inventory/orders', '/inventory/suppliers'].includes(x.to)} onClick={() => setMore(false)} className={({ isActive }) => 'navlink' + (isActive ? ' active' : '')}>
                 <Icon name={x.icon} /> {x.label} {x.badge ? <span className="badge">{x.badge}</span> : null}
               </NavLink>
             ))}

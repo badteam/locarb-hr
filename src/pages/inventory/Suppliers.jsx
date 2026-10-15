@@ -1,25 +1,47 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { supabase, fmtDate } from '../../lib/supabase'
 import { useAccess } from '../../lib/access.jsx'
-import { kwd, invErr, clearLookups, invoiceStage, STAGE, PAY_STATUS, PAY_METHOD } from '../../lib/inv'
-import { PaymentForm } from './Payments.jsx'
+import { kwd, invErr, clearLookups } from '../../lib/inv'
+import { CONTACT_ROLE, SUP_STATUS, WEEKDAYS, PAY_PREF, telLink, waLink } from '../../lib/supplier'
 import Icon from '../../components/Icon.jsx'
 import { uploadAttachment, readFile, readError, openFile, ACCEPT } from '../../lib/ai'
 
+const Section = ({ title, children }) => <div className="card form" style={{ gap: 10, padding: 14 }}><strong style={{ fontSize: 15 }}>{title}</strong>{children}</div>
+const blankContact = () => ({ tmp: Math.random(), role: 'sales', name: '', phone: '', whatsapp: true })
+
 export function SupplierForm({ supplier, presetName, onClose, onSaved }) {
-  const { access } = useAccess()
+  const { access, can } = useAccess()
+  const canBank = access.is_owner || can('supplier_payments') || can('manage_suppliers')
+  const s = supplier || {}
   const [f, setF] = useState({
-    name: supplier?.name || presetName || '', phone: supplier?.phone || '', contact_name: supplier?.contact_name || '',
-    payment_terms: supplier?.payment_terms || '', credit_days: supplier?.credit_days ?? 0, notes: supplier?.notes || '', active: supplier?.active ?? true,
-    licence_no: supplier?.licence_no || '', licence_expiry: supplier?.licence_expiry || '', contract_expiry: supplier?.contract_expiry || '',
-    doc_paths: supplier?.doc_paths || [],
+    name: s.name || presetName || '', status: s.status || (s.active === false ? 'paused' : 'active'), status_reason: s.status_reason || '',
+    categories: (s.categories || []).join('، '), phone: s.phone || '', email: s.email || '',
+    area: s.area || '', address: s.address || '', map_url: s.map_url || '',
+    payment_terms: s.payment_terms || '', credit_days: s.credit_days ?? 0, preferred_payment: s.preferred_payment || '',
+    min_order: s.min_order ?? '', delivery_days: s.delivery_days || [], order_cutoff: s.order_cutoff || '', agreements: s.agreements || '',
+    cr_no: s.cr_no || '', licence_no: s.licence_no || '', licence_expiry: s.licence_expiry || '', contract_expiry: s.contract_expiry || '',
+    doc_paths: s.doc_paths || [], notes: s.notes || '',
   })
+  const [contacts, setContacts] = useState([])
+  const [removed, setRemoved] = useState([])
+  const [bank, setBank] = useState({ bank_name: '', account_name: '', account_no: '', iban: '', swift: '', notes: '' })
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [scan, setScan] = useState(null)
+  useEffect(() => {
+    if (!s.id) { setContacts(s.contact_name || s.phone ? [] : [blankContact()]); return }
+    supabase.from('supplier_contacts').select('*').eq('supplier_id', s.id).order('sort_order').order('created_at').then(({ data }) => {
+      const list = data || []
+      // older suppliers kept one contact on the supplier itself
+      if (!list.length && (s.contact_name || s.phone)) list.push({ ...blankContact(), name: s.contact_name || '', phone: s.phone || '' })
+      setContacts(list.length ? list : [blankContact()])
+    })
+    if (canBank) supabase.from('supplier_bank').select('*').eq('supplier_id', s.id).maybeSingle().then(({ data }) => data && setBank(data))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s.id])
   const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
-  // licence / contract / business card read by the AI fills the form and is kept with the supplier
+  const setC = (i, patch) => setContacts(contacts.map((c, j) => (j === i ? { ...c, ...patch } : c)))
   const read = async (file) => {
     if (!file) return
     setBusy(true); setScan(null)
@@ -29,155 +51,190 @@ export function SupplierForm({ supplier, presetName, onClose, onSaved }) {
       setF((x) => ({ ...x, doc_paths: [...x.doc_paths, path] }))
       if (!r.ok) { setScan({ ok: false, t: readError(r) }); setBusy(false); return }
       const d = r.data
-      setF((x) => ({ ...x, name: x.name || d.company_name || '', phone: x.phone || d.phone || '', contact_name: x.contact_name || d.contact_name || '',
-        payment_terms: x.payment_terms || d.payment_terms || '', licence_no: d.licence_no || x.licence_no,
-        licence_expiry: d.licence_expiry || x.licence_expiry, contract_expiry: d.contract_expiry || x.contract_expiry }))
+      setF((x) => ({ ...x, name: x.name || d.company_name || '', phone: x.phone || d.phone || '', payment_terms: x.payment_terms || d.payment_terms || '',
+        licence_no: d.licence_no || x.licence_no, licence_expiry: d.licence_expiry || x.licence_expiry, contract_expiry: d.contract_expiry || x.contract_expiry }))
+      if (d.contact_name || d.phone) setContacts((cs) => (cs.some((c) => c.phone === d.phone) ? cs : [...cs.filter((c) => c.name || c.phone), { ...blankContact(), name: d.contact_name || '', phone: d.phone || '' }]))
       const dup = !supplier && r.match?.supplier ? r.match.supplier : null
-      setScan(dup ? { ok: false, t: `انتبه: هالمورد شكله موجود عندك باسم "${dup.name}".` }
-        : { ok: true, t: `قرا الورقة: ${d.summary_ar || d.company_name || ''}` })
+      setScan(dup ? { ok: false, t: `انتبه: هالمورد شكله موجود عندك باسم "${dup.name}".` } : { ok: true, t: `قرا الورقة: ${d.summary_ar || d.company_name || ''}` })
     } catch (e2) { setScan({ ok: false, t: invErr(e2) }) }
     setBusy(false)
   }
   const save = async (e) => {
     e.preventDefault(); setBusy(true); setErr('')
-    const row = { ...f, credit_days: Math.max(0, parseInt(f.credit_days, 10) || 0), phone: f.phone || null, contact_name: f.contact_name || null, payment_terms: f.payment_terms || null, notes: f.notes || null,
-      licence_no: f.licence_no || null, licence_expiry: f.licence_expiry || null, contract_expiry: f.contract_expiry || null,
-      ...((f.licence_expiry !== (supplier?.licence_expiry || '') || f.contract_expiry !== (supplier?.contract_expiry || '')) ? { last_alert_stage: null } : {}) }
-    const r = supplier ? await supabase.from('suppliers').update(row).eq('id', supplier.id).select().single() : await supabase.from('suppliers').insert(row).select().single()
-    setBusy(false)
-    if (r.error) setErr(invErr(r.error)); else { clearLookups(); onSaved?.(r.data); onClose() }
+    const n = (v) => (v === '' || v == null ? null : v)
+    const first = contacts.find((c) => c.phone || c.name)
+    const row = {
+      name: f.name.trim(), status: f.status, active: f.status !== 'paused' && f.status !== 'blocked', status_reason: n(f.status_reason),
+      categories: f.categories.split(/[،,]/).map((x) => x.trim()).filter(Boolean),
+      phone: n(f.phone) || first?.phone || null, contact_name: first?.name || null, email: n(f.email),
+      area: n(f.area), address: n(f.address), map_url: n(f.map_url),
+      payment_terms: n(f.payment_terms), credit_days: Math.max(0, parseInt(f.credit_days, 10) || 0), preferred_payment: n(f.preferred_payment),
+      min_order: f.min_order === '' ? null : Number(f.min_order), delivery_days: f.delivery_days, order_cutoff: n(f.order_cutoff), agreements: n(f.agreements),
+      cr_no: n(f.cr_no), licence_no: n(f.licence_no), licence_expiry: n(f.licence_expiry), contract_expiry: n(f.contract_expiry), doc_paths: f.doc_paths, notes: n(f.notes),
+      ...((f.licence_expiry !== (s.licence_expiry || '') || f.contract_expiry !== (s.contract_expiry || '')) ? { last_alert_stage: null } : {}),
+    }
+    const r = s.id ? await supabase.from('suppliers').update(row).eq('id', s.id).select().single() : await supabase.from('suppliers').insert(row).select().single()
+    if (r.error) { setErr(invErr(r.error)); setBusy(false); return }
+    const sid = r.data.id
+    const keep = contacts.filter((c) => c.name || c.phone)
+    if (removed.length) await supabase.from('supplier_contacts').delete().in('id', removed)
+    for (let i = 0; i < keep.length; i++) {
+      const c = keep[i]
+      const rowC = { supplier_id: sid, role: c.role, name: n(c.name), phone: n(c.phone), whatsapp: !!c.whatsapp, email: n(c.email), notes: n(c.notes), sort_order: i }
+      const rr = c.id ? await supabase.from('supplier_contacts').update(rowC).eq('id', c.id) : await supabase.from('supplier_contacts').insert(rowC)
+      if (rr.error) { setErr(invErr(rr.error)); setBusy(false); return }
+    }
+    if (canBank && Object.entries(bank).some(([k, v]) => !['supplier_id', 'updated_at', 'updated_by'].includes(k) && v)) {
+      const b = { supplier_id: sid, bank_name: n(bank.bank_name), account_name: n(bank.account_name), account_no: n(bank.account_no),
+        iban: n((bank.iban || '').replace(/\s+/g, '').toUpperCase()), swift: n(bank.swift), notes: n(bank.notes), updated_at: new Date().toISOString() }
+      const rb = await supabase.from('supplier_bank').upsert(b)
+      if (rb.error) { setErr('انحفظ المورد، بس بيانات البنك ما انحفظت: ' + invErr(rb.error)); setBusy(false); return }
+    }
+    setBusy(false); clearLookups(); onSaved?.(r.data); onClose()
   }
   return (
     <div className="overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <form className="sheet form" onSubmit={save}>
-        <div className="sheet-head"><h2 style={{ fontSize: 20 }}>{supplier ? supplier.name : 'مورد جديد'}</h2>
+      <form className="sheet form" onSubmit={save} style={{ maxWidth: 720 }}>
+        <div className="sheet-head"><h2 style={{ fontSize: 20 }}>{s.id ? s.name : 'مورد جديد'}</h2>
           <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose}><Icon name="x" /></button></div>
-        <label className="upload" style={{ height: 76 }}>
+        <label className="upload" style={{ height: 70 }}>
           <input type="file" accept={ACCEPT} onChange={(e) => { read(e.target.files?.[0]); e.target.value = '' }} />
           {busy ? <><span className="spinner" /> جاري القراءة…</> : <><Icon name="camera" /> ارفع رخصة المورد أو العقد أو الكرت، والنظام يعبّي البيانات</>}
         </label>
         {scan && <div className={scan.ok ? 'notice' : 'warn'}>{scan.t}</div>}
-        <div className="field"><label htmlFor="sn">اسم المورد</label><input id="sn" className="input" value={f.name} onChange={set('name')} required /></div>
-        <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-          <div className="field"><label htmlFor="sp">رقم الهاتف</label><input id="sp" className="input ltr" inputMode="tel" value={f.phone} onChange={set('phone')} /></div>
-          <div className="field"><label htmlFor="sc">اسم المندوب</label><input id="sc" className="input" value={f.contact_name} onChange={set('contact_name')} /></div>
-        </div>
-        <div className="grid" style={{ gridTemplateColumns: '2fr 1fr' }}>
-          <div className="field"><label htmlFor="pt">طريقة الدفع</label><input id="pt" className="input" placeholder="مثلاً: كاش، آجل ٣٠ يوم" value={f.payment_terms} onChange={set('payment_terms')} /></div>
-          <div className="field"><label htmlFor="cd">مهلة الدفع (يوم)</label><input id="cd" className="input num" type="number" min="0" value={f.credit_days} onChange={set('credit_days')} /></div>
-        </div>
-        <div className="grid" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
-          <div className="field"><label htmlFor="ln">رقم الرخصة التجارية</label><input id="ln" className="input ltr" value={f.licence_no} onChange={set('licence_no')} /></div>
-          <div className="field"><label htmlFor="le">انتهاء الرخصة</label><input id="le" type="date" className="input" value={f.licence_expiry} onChange={set('licence_expiry')} /></div>
-          <div className="field"><label htmlFor="ce">انتهاء العقد</label><input id="ce" type="date" className="input" value={f.contract_expiry} onChange={set('contract_expiry')} /></div>
-        </div>
-        {f.doc_paths.length > 0 && <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}><span className="sub">الأوراق:</span>
-          {f.doc_paths.map((p, i) => <button type="button" key={p} className="chip" style={{ minHeight: 30 }} onClick={() => openFile('attachments', p)}>ورقة {i + 1}</button>)}</div>}
-        <div className="field"><label htmlFor="no">ملاحظات</label><input id="no" className="input" value={f.notes} onChange={set('notes')} /></div>
-        <label className="check"><input type="checkbox" checked={f.active} onChange={set('active')} /> المورد شغال معانا</label>
+
+        <Section title="الأساسي">
+          <div className="field"><label htmlFor="sn">اسم المورد</label><input id="sn" className="input" value={f.name} onChange={set('name')} required /></div>
+          <div className="field"><label htmlFor="sc">إيش يورّد (افصل بفاصلة)</label><input id="sc" className="input" placeholder="مثلاً: دجاج، لحوم، تغليف" value={f.categories} onChange={set('categories')} />
+            <div className="sub">النظام يضيف لحاله التصنيفات من الفواتير.</div></div>
+          <div className="field"><span className="lbl">الحالة</span>
+            <div className="chips">{Object.entries(SUP_STATUS).map(([k, [, l]]) => <button type="button" key={k} className={'chip' + (f.status === k ? ' on' : '')} onClick={() => setF({ ...f, status: k })}>{l}</button>)}</div></div>
+          {f.status !== 'active' && <div className="field"><label htmlFor="sr">السبب</label><input id="sr" className="input" value={f.status_reason} onChange={set('status_reason')} /></div>}
+        </Section>
+
+        <Section title="أرقام التواصل">
+          {contacts.map((c, i) => (
+            <div key={c.id || c.tmp} className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 6, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid var(--line)' }}>
+              <select className="input" value={c.role} onChange={(e) => setC(i, { role: e.target.value })} aria-label="الصفة">
+                {Object.entries(CONTACT_ROLE).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+              <input className="input" placeholder="الاسم" value={c.name || ''} onChange={(e) => setC(i, { name: e.target.value })} aria-label="الاسم" />
+              <input className="input ltr" inputMode="tel" placeholder="الرقم" value={c.phone || ''} onChange={(e) => setC(i, { phone: e.target.value })} aria-label="الرقم" />
+              <div className="row" style={{ gap: 4 }}>
+                <label className="check" style={{ fontSize: 12 }}><input type="checkbox" checked={!!c.whatsapp} onChange={(e) => setC(i, { whatsapp: e.target.checked })} /> واتساب</label>
+                <button type="button" className="icon-btn" style={{ width: 34, height: 34 }} aria-label="حذف" onClick={() => { if (c.id) setRemoved([...removed, c.id]); setContacts(contacts.filter((_, j) => j !== i)) }}><Icon name="trash" size={15} /></button>
+              </div>
+            </div>))}
+          <button type="button" className="btn" onClick={() => setContacts([...contacts, blankContact()])}><Icon name="plus" /> رقم ثاني</button>
+          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <div className="field"><label htmlFor="ph">هاتف الشركة</label><input id="ph" className="input ltr" inputMode="tel" value={f.phone} onChange={set('phone')} /></div>
+            <div className="field"><label htmlFor="em">الإيميل</label><input id="em" className="input ltr" type="email" value={f.email} onChange={set('email')} /></div>
+          </div>
+        </Section>
+
+        <Section title="العنوان">
+          <div className="grid" style={{ gridTemplateColumns: '1fr 2fr' }}>
+            <div className="field"><label htmlFor="ar">المنطقة</label><input id="ar" className="input" value={f.area} onChange={set('area')} placeholder="مثلاً: الري" /></div>
+            <div className="field"><label htmlFor="ad">العنوان</label><input id="ad" className="input" value={f.address} onChange={set('address')} placeholder="قطعة، شارع، مبنى" /></div>
+          </div>
+          <div className="field"><label htmlFor="mp">رابط اللوكيشن (خرائط جوجل)</label><input id="mp" className="input ltr" value={f.map_url} onChange={set('map_url')} /></div>
+        </Section>
+
+        <Section title="الدفع والتوريد">
+          <div className="grid" style={{ gridTemplateColumns: '2fr 1fr 1fr' }}>
+            <div className="field"><label htmlFor="pt">شروط الدفع</label><input id="pt" className="input" placeholder="مثلاً: آجل ٣٠ يوم" value={f.payment_terms} onChange={set('payment_terms')} /></div>
+            <div className="field"><label htmlFor="cd">مهلة الدفع (يوم)</label><input id="cd" className="input num" type="number" min="0" value={f.credit_days} onChange={set('credit_days')} /></div>
+            <div className="field"><label htmlFor="pp">طريقة الدفع</label>
+              <select id="pp" className="input" value={f.preferred_payment} onChange={set('preferred_payment')}><option value="">—</option>
+                {Object.entries(PAY_PREF).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></div>
+          </div>
+          <div className="field"><span className="lbl">أيام التوصيل</span>
+            <div className="chips">{WEEKDAYS.map((d, i) => <button type="button" key={i} className={'chip' + (f.delivery_days.includes(i) ? ' on' : '')}
+              onClick={() => setF({ ...f, delivery_days: f.delivery_days.includes(i) ? f.delivery_days.filter((x) => x !== i) : [...f.delivery_days, i].sort() })}>{d}</button>)}</div></div>
+          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <div className="field"><label htmlFor="oc">آخر وقت للطلب</label><input id="oc" className="input" placeholder="مثلاً: قبل ٢ الظهر لليوم اللي بعده" value={f.order_cutoff} onChange={set('order_cutoff')} /></div>
+            <div className="field"><label htmlFor="mo">أقل طلبية (د.ك)</label><input id="mo" className="input num" type="number" min="0" step="any" value={f.min_order} onChange={set('min_order')} /></div>
+          </div>
+          <div className="field"><label htmlFor="ag">اتفاقيات خاصة</label><textarea id="ag" className="input" rows={2} placeholder="مثلاً: سعر ثابت للدجاج لين نهاية السنة، خصم ٣٪ فوق ٥٠٠ د.ك" value={f.agreements} onChange={set('agreements')} /></div>
+        </Section>
+
+        {canBank && <Section title="بيانات البنك (تبين للمالك والمحاسب بس)">
+          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <div className="field"><label htmlFor="bn">البنك</label><input id="bn" className="input" value={bank.bank_name || ''} onChange={(e) => setBank({ ...bank, bank_name: e.target.value })} /></div>
+            <div className="field"><label htmlFor="ba">اسم صاحب الحساب</label><input id="ba" className="input" value={bank.account_name || ''} onChange={(e) => setBank({ ...bank, account_name: e.target.value })} /></div>
+            <div className="field"><label htmlFor="bc">رقم الحساب</label><input id="bc" className="input ltr" value={bank.account_no || ''} onChange={(e) => setBank({ ...bank, account_no: e.target.value })} /></div>
+            <div className="field"><label htmlFor="bs">SWIFT</label><input id="bs" className="input ltr" value={bank.swift || ''} onChange={(e) => setBank({ ...bank, swift: e.target.value })} /></div>
+          </div>
+          <div className="field"><label htmlFor="bi">الآيبان IBAN</label><input id="bi" className="input ltr" placeholder="KW.." value={bank.iban || ''} onChange={(e) => setBank({ ...bank, iban: e.target.value })} /></div>
+        </Section>}
+
+        <Section title="الأوراق الرسمية">
+          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
+            <div className="field"><label htmlFor="cr">السجل التجاري</label><input id="cr" className="input ltr" value={f.cr_no} onChange={set('cr_no')} /></div>
+            <div className="field"><label htmlFor="ln">رقم الرخصة</label><input id="ln" className="input ltr" value={f.licence_no} onChange={set('licence_no')} /></div>
+            <div className="field"><label htmlFor="le">انتهاء الرخصة</label><input id="le" type="date" className="input" value={f.licence_expiry} onChange={set('licence_expiry')} /></div>
+            <div className="field"><label htmlFor="ce">انتهاء العقد</label><input id="ce" type="date" className="input" value={f.contract_expiry} onChange={set('contract_expiry')} /></div>
+          </div>
+          {f.doc_paths.length > 0 && <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}><span className="sub">الأوراق:</span>
+            {f.doc_paths.map((p, i) => <button type="button" key={p} className="chip" style={{ minHeight: 30 }} onClick={() => openFile('attachments', p)}>ورقة {i + 1}</button>)}</div>}
+        </Section>
+        <div className="field"><label htmlFor="no">ملاحظات عامة</label><input id="no" className="input" value={f.notes} onChange={set('notes')} /></div>
         {err && <div className="error">{err}</div>}
-        <button className="btn primary block" disabled={busy}>حفظ</button>
+        <button className="btn primary block" disabled={busy}>{busy ? <span className="spinner" /> : null} حفظ</button>
       </form>
     </div>
   )
 }
 
-function SupplierSheet({ supplier, canEdit, onClose, onChanged }) {
-  const { can } = useAccess()
-  const [items, setItems] = useState([])
-  const [invoices, setInvoices] = useState([])
-  const [stmt, setStmt] = useState(null)
-  const [edit, setEdit] = useState(false)
-  const [paying, setPaying] = useState(false)
-  const [tab, setTab] = useState('statement')
-  const canStmt = can('supplier_payments') || can('approve_purchases') || can('view_reports')
-  const load = useCallback(() => {
-    supabase.from('supplier_items').select('last_price,last_date,pack_factor,pack_unit,inv_items(name_ar,name_en,inv_units(name))').eq('supplier_id', supplier.id).order('last_date', { ascending: false }).then(({ data }) => setItems(data || []))
-    supabase.from('purchase_invoices').select('id,invoice_no,invoice_date,status,received_at,created_at,total_due,paid_amount,payment_status,due_date,discount,purchase_invoice_lines(qty,unit_price)').eq('supplier_id', supplier.id).order('created_at', { ascending: false }).limit(60).then(({ data }) => setInvoices(data || []))
-    if (canStmt) supabase.rpc('supplier_statement', { p_supplier: supplier.id }).then(({ data }) => setStmt(data || null))
-  }, [supplier.id, canStmt])
-  useEffect(() => { load() }, [load])
-  const total = (v) => v.total_due != null ? Number(v.total_due) : (v.purchase_invoice_lines || []).reduce((a, l) => a + l.qty * l.unit_price, 0) - Number(v.discount || 0)
-  const openInv = invoices.filter((v) => v.status === 'approved' && v.payment_status !== 'paid')
-  const balance = stmt ? Number(stmt.invoiced) - Number(stmt.paid) : null
-  let run = 0
-  const today = new Date().toISOString().slice(0, 10)
+function Directory() {
+  const [rows, setRows] = useState(null)
+  const [q, setQ] = useState('')
+  useEffect(() => { supabase.rpc('supplier_directory').then(({ data }) => setRows(data || [])) }, [])
+  const shown = useMemo(() => {
+    const t = q.trim().toLowerCase()
+    return (rows || []).filter((s) => !t || [s.name, s.area, ...(s.categories || []), ...(s.categories_auto || []), ...(s.items || []), ...(s.contacts || []).map((c) => `${c.name} ${c.phone}`), s.phone]
+      .some((x) => String(x || '').toLowerCase().includes(t)))
+  }, [rows, q])
+  const nav = useNavigate()
   return (
-    <div className="overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="sheet form">
-        <div className="sheet-head"><div><h2 style={{ fontSize: 20 }}>{supplier.name}</h2>
-          <div className="sub">{[supplier.phone, supplier.contact_name, supplier.payment_terms, supplier.credit_days ? `مهلة الدفع ${supplier.credit_days} يوم` : 'الدفع فوري'].filter(Boolean).join(' · ')}</div>
-          {(supplier.licence_expiry || supplier.contract_expiry) && <div className="sub">{[supplier.licence_no && `رخصة ${supplier.licence_no}`, supplier.licence_expiry && `تنتهي ${fmtDate(supplier.licence_expiry)}`, supplier.contract_expiry && `العقد ينتهي ${fmtDate(supplier.contract_expiry)}`].filter(Boolean).join(' · ')}</div>}
-          {supplier.doc_paths?.length > 0 && <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 4 }}>{supplier.doc_paths.map((p, i) => <button type="button" key={p} className="chip" style={{ minHeight: 28 }} onClick={() => openFile('attachments', p)}>ورقة {i + 1}</button>)}</div>}</div>
-          <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose}><Icon name="x" /></button></div>
-        {canEdit && <button className="btn" onClick={() => setEdit(true)}>تعديل بيانات المورد</button>}
-
-        {stmt && (
-          <div className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10 }}>
-            <div><div className="sub">الرصيد علينا</div><div><span className="num" style={{ fontWeight: 700, fontSize: 18, color: balance > 0.0005 ? 'var(--red)' : 'var(--ok)' }}>{kwd(balance)}</span></div></div>
-            <div><div className="sub">متأخر الدفع</div><div><span className="num" style={{ fontWeight: 600, color: Number(stmt.overdue) > 0 ? 'var(--red)' : undefined }}>{kwd(stmt.overdue)}</span></div></div>
-            <div><div className="sub">إجمالي الفواتير</div><div><span className="num" style={{ fontWeight: 600 }}>{kwd(stmt.invoiced)}</span></div></div>
-            <div><div className="sub">إجمالي المدفوع</div><div><span className="num" style={{ fontWeight: 600 }}>{kwd(stmt.paid)}</span></div></div>
-            {Number(stmt.free_value) > 0 && <div><div className="sub">بضاعة مجانية منه</div><div><span className="num" style={{ fontWeight: 600 }}>{kwd(stmt.free_value)}</span></div></div>}
-          </div>)}
-        {can('supplier_payments') && <button className="btn primary" onClick={() => setPaying(true)}><Icon name="check" /> تسجيل دفعة</button>}
-
-        <div className="chips">
-          {canStmt && <button className={'chip' + (tab === 'statement' ? ' on' : '')} onClick={() => setTab('statement')}>كشف الحساب</button>}
-          <button className={'chip' + (tab === 'invoices' || (!canStmt && tab === 'statement') ? ' on' : '')} onClick={() => setTab('invoices')}>الفواتير</button>
-          <button className={'chip' + (tab === 'items' ? ' on' : '')} onClick={() => setTab('items')}>الأصناف والأسعار</button>
-        </div>
-
-        {tab === 'statement' && canStmt && (
-          <div className="card list" style={{ padding: '4px 12px' }}>
-            {!stmt?.rows?.length ? <div className="empty">ما فيه حركات للحين</div> : stmt.rows.map((r) => {
-              run += Number(r.debit) - Number(r.credit)
-              const late = r.kind === 'invoice' && r.payment_status !== 'paid' && r.due_date && r.due_date < today
-              return (
-                <div key={r.kind + r.id} className="list-item">
-                  <span className="grow">{r.kind === 'invoice'
-                    ? <Link to={`/inventory/invoices/${r.id}`} style={{ whiteSpace: 'nowrap' }}>فاتورة <span className="ltr">{r.ref || ''}</span></Link>
-                    : <span>دفعة {PAY_METHOD[r.payment_status] || ''}{r.ref ? ` · ${r.ref}` : ''}</span>}
-                    <div className="sub">{fmtDate(r.d)}{r.kind === 'invoice' && r.due_date ? ` · الاستحقاق ${fmtDate(r.due_date)}` : ''}</div></span>
-                  {r.kind === 'invoice' && <span className={'pill ' + (late ? 'red' : PAY_STATUS[r.payment_status]?.[0])}>{late ? 'متأخرة' : PAY_STATUS[r.payment_status]?.[1]}</span>}
-                  <span style={{ textAlign: 'left', flexShrink: 0 }}>
-                    <span className="num" style={{ fontWeight: 600, color: r.kind === 'payment' ? 'var(--ok)' : undefined }}>{r.kind === 'payment' ? '− ' : '+ '}{kwd(r.kind === 'payment' ? r.credit : r.debit)}</span>
-                    <div className="sub">الرصيد <span className="num">{kwd(run)}</span></div></span>
-                </div>)
-            })}
-          </div>)}
-
-        {(tab === 'invoices' || (!canStmt && tab === 'statement')) && (
-          <div className="card list" style={{ padding: '4px 12px' }}>
-            {invoices.length === 0 ? <div className="empty">ما فيه فواتير</div> :
-              invoices.map((v) => { const st = STAGE[invoiceStage(v)]; return (
-                <Link key={v.id} to={`/inventory/invoices/${v.id}`} className="list-item" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <span className="grow">{v.invoice_no ? `رقم ${v.invoice_no}` : 'بدون رقم'}<div className="sub">{fmtDate(v.invoice_date || v.created_at)}</div></span>
-                  <span className="num">{kwd(total(v))}</span>
-                  {v.status === 'approved' ? <span className={'pill ' + PAY_STATUS[v.payment_status][0]}>{PAY_STATUS[v.payment_status][1]}</span>
-                    : <span className={'pill ' + st[0]}>{st[1]}</span>}</Link>) })}
-          </div>)}
-
-        {tab === 'items' && (
-          <div className="card list" style={{ padding: '4px 12px' }}>
-            {items.length === 0 ? <div className="empty">تبين هنا بعد أول فاتورة تمت مراجعتها</div> :
-              items.map((x, i) => <div key={i} className="list-item">
-                <span className="grow">{x.inv_items?.name_ar}<div className="sub">{fmtDate(x.last_date)}{Number(x.pack_factor) !== 1 ? ` · ${x.pack_unit || 'الوحدة'} = ${x.pack_factor} ${x.inv_items?.inv_units?.name || ''}` : ''}</div></span>
-                <span className="num">{kwd(x.last_price)}</span><span className="sub">/{Number(x.pack_factor) !== 1 ? (x.pack_unit || 'وحدة') : x.inv_items?.inv_units?.name || ''}</span></div>)}
-          </div>)}
-      </div>
-      {edit && <SupplierForm supplier={supplier} onClose={() => setEdit(false)} onSaved={() => { onChanged(); onClose() }} />}
-      {paying && <PaymentForm supplierId={supplier.id} supplierName={supplier.name} openInvoices={openInv} onClose={() => setPaying(false)} onSaved={() => { load(); onChanged() }} />}
+    <div>
+      <div className="toolbar"><div className="search"><Icon name="search" size={18} /><input className="input" placeholder="دوّر باسم المورد أو بالصنف (مثلاً: دجاج) أو بالرقم" value={q} onChange={(e) => setQ(e.target.value)} /></div></div>
+      {!rows ? <div className="center" style={{ minHeight: 120 }}><span className="spinner" /></div> :
+        <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: 12 }}>
+          {shown.map((s) => {
+            const cats = [...new Set([...(s.categories || []), ...(s.categories_auto || [])])]
+            const contacts = s.contacts?.length ? s.contacts : s.phone ? [{ role: 'sales', name: s.contact_name, phone: s.phone, whatsapp: true }] : []
+            const hit = q.trim() && (s.items || []).filter((i) => i.toLowerCase().includes(q.trim().toLowerCase())).slice(0, 4)
+            return (
+              <div key={s.id} className="card form" style={{ gap: 8 }}>
+                <div className="row" style={{ justifyContent: 'space-between' }}>
+                  <button className="btn-link" style={{ fontWeight: 700, fontSize: 16, background: 'none', border: 0, padding: 0, cursor: 'pointer', color: 'var(--ink)' }} onClick={() => nav(`/inventory/suppliers/${s.id}`)}>{s.name}</button>
+                  {s.status !== 'active' && <span className={'pill ' + SUP_STATUS[s.status][0]}>{SUP_STATUS[s.status][1]}</span>}
+                </div>
+                {cats.length > 0 && <div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>{cats.map((c) => <span key={c} className="pill gray">{c}</span>)}</div>}
+                {hit?.length > 0 && <div className="sub">يبيع: {hit.join('، ')}</div>}
+                {s.area && <div className="sub">{s.area}</div>}
+                {contacts.length === 0 && <div className="sub">ما فيه أرقام مسجلة</div>}
+                {contacts.map((c, i) => (
+                  <div key={i} className="row" style={{ gap: 6 }}>
+                    <span className="grow"><span className="sub">{CONTACT_ROLE[c.role] || ''}</span> {c.name || ''} <span className="num ltr">{c.phone}</span></span>
+                    {c.phone && <a className="icon-btn" style={{ width: 36, height: 36 }} href={telLink(c.phone)} aria-label="اتصال"><Icon name="phone" size={16} /></a>}
+                    {c.phone && c.whatsapp && <a className="icon-btn" style={{ width: 36, height: 36, color: '#1F8F4E' }} href={waLink(c.phone)} target="_blank" rel="noreferrer" aria-label="واتساب"><Icon name="chat" size={16} /></a>}
+                  </div>))}
+              </div>)
+          })}
+          {shown.length === 0 && <div className="card empty">ما لقينا شي</div>}
+        </div>}
     </div>
   )
 }
 
 export default function Suppliers() {
   const { can } = useAccess()
+  const nav = useNavigate()
+  const [tab, setTab] = useState('list')
   const [list, setList] = useState([])
   const [stats, setStats] = useState({})
   const [q, setQ] = useState('')
-  const [open, setOpen] = useState(null)
   const [adding, setAdding] = useState(false)
   const canEdit = can('manage_suppliers')
   const [owed, setOwed] = useState({})
@@ -203,33 +260,39 @@ export default function Suppliers() {
     })
   }, [])
   useEffect(() => { load() }, [load])
-  const shown = useMemo(() => list.filter((s) => !q.trim() || s.name.toLowerCase().includes(q.trim().toLowerCase()) || (s.phone || '').includes(q.trim())), [list, q])
+  const shown = useMemo(() => list.filter((s) => !q.trim() || s.name.toLowerCase().includes(q.trim().toLowerCase()) || (s.phone || '').includes(q.trim())
+    || (s.categories || []).some((c) => c.includes(q.trim()))), [list, q])
 
   return (
     <div>
-      <div className="page-head"><div><h1>الموردين</h1><div className="sub">الأرقام لآخر ٩٠ يوم من الفواتير المعتمدة</div></div>
+      <div className="page-head"><div><h1>الموردين</h1><div className="sub">افتح أي مورد تشوف كل شي عنه: فواتيره، بضاعته، أسعاره، حسابه، وتقدر تسأل النظام عنه</div></div>
         {canEdit && <button className="btn primary" onClick={() => setAdding(true)}><Icon name="plus" /> مورد جديد</button>}</div>
-      <div className="toolbar"><div className="search"><Icon name="search" size={18} /><input className="input" placeholder="دوّر بالاسم أو الرقم" value={q} onChange={(e) => setQ(e.target.value)} /></div></div>
-      <div className="card list" style={{ padding: '4px 14px' }}>
-        {shown.length === 0 && <div className="empty">ما فيه موردين. أضف أول مورد، أو صوّر فاتورة والنظام يقترح اسم المورد.</div>}
-        {shown.map((s) => {
-          const st = stats[s.id]
-          return (
-            <button key={s.id} className="list-item" style={{ width: '100%', background: 'none', border: 0, cursor: 'pointer', textAlign: 'right' }} onClick={() => setOpen(s)}>
-              <span className="avatar"><Icon name="truck" /></span>
-              <span className="grow"><div style={{ fontWeight: 600 }}>{s.name}</div>
-                <div className="sub">{st ? `${st.n} فاتورة · آخر وحدة ${fmtDate(st.last)}` : 'ما فيه فواتير معتمدة'}{s.phone ? ` · ${s.phone}` : ''}</div></span>
-              {st && <span className="num" style={{ fontWeight: 600 }}>{kwd(st.total)}</span>}
-              {owed[s.id]?.amt > 0.0005 && <span className={'pill ' + (owed[s.id].late > 0 ? 'red' : 'amber')}>علينا {kwd(owed[s.id].amt)}</span>}
-              {(() => { const d = [s.licence_expiry, s.contract_expiry].filter(Boolean).sort()[0]; if (!d) return null; const left = Math.round((new Date(d) - new Date()) / 864e5)
-                return left < 0 ? <span className="pill red">ورقة منتهية</span> : left <= 30 ? <span className="pill amber">ورقة تنتهي بعد {left} يوم</span> : null })()}
-              {!s.active && <span className="pill gray">موقوف</span>}
-            </button>
-          )
-        })}
+      <div className="chips" style={{ marginBottom: 12 }}>
+        <button className={'chip' + (tab === 'list' ? ' on' : '')} onClick={() => setTab('list')}>الموردين</button>
+        <button className={'chip' + (tab === 'dir' ? ' on' : '')} onClick={() => setTab('dir')}>دليل الأرقام</button>
       </div>
-      {open && <SupplierSheet supplier={open} canEdit={canEdit} onClose={() => setOpen(null)} onChanged={load} />}
-      {adding && <SupplierForm onClose={() => setAdding(false)} onSaved={load} />}
+      {tab === 'dir' ? <Directory /> : <>
+        <div className="toolbar"><div className="search"><Icon name="search" size={18} /><input className="input" placeholder="دوّر بالاسم أو الرقم أو إيش يورّد" value={q} onChange={(e) => setQ(e.target.value)} /></div></div>
+        <div className="card list" style={{ padding: '4px 14px' }}>
+          {shown.length === 0 && <div className="empty">ما فيه موردين. أضف أول مورد، أو صوّر فاتورة والنظام يقترح اسم المورد.</div>}
+          {shown.map((s) => {
+            const st = stats[s.id]
+            return (
+              <button key={s.id} className="list-item" style={{ width: '100%', background: 'none', border: 0, cursor: 'pointer', textAlign: 'right' }} onClick={() => nav(`/inventory/suppliers/${s.id}`)}>
+                <span className="avatar"><Icon name="truck" /></span>
+                <span className="grow"><div style={{ fontWeight: 600 }}>{s.name}</div>
+                  <div className="sub">{(s.categories || []).length ? s.categories.join('، ') + ' · ' : ''}{st ? `${st.n} فاتورة آخر ٩٠ يوم · آخر وحدة ${fmtDate(st.last)}` : 'ما فيه فواتير معتمدة'}</div></span>
+                {st && <span className="num" style={{ fontWeight: 600 }}>{kwd(st.total)}</span>}
+                {owed[s.id]?.amt > 0.0005 && <span className={'pill ' + (owed[s.id].late > 0 ? 'red' : 'amber')}>علينا {kwd(owed[s.id].amt)}</span>}
+                {(() => { const d = [s.licence_expiry, s.contract_expiry].filter(Boolean).sort()[0]; if (!d) return null; const left = Math.round((new Date(d) - new Date()) / 864e5)
+                  return left < 0 ? <span className="pill red">ورقة منتهية</span> : left <= 30 ? <span className="pill amber">ورقة تنتهي بعد {left} يوم</span> : null })()}
+                {s.status && s.status !== 'active' && <span className={'pill ' + SUP_STATUS[s.status][0]}>{SUP_STATUS[s.status][1]}</span>}
+              </button>
+            )
+          })}
+        </div>
+      </>}
+      {adding && <SupplierForm onClose={() => setAdding(false)} onSaved={(s) => nav(`/inventory/suppliers/${s.id}`)} />}
     </div>
   )
 }
