@@ -68,8 +68,8 @@ let lookupsCache = null
 export async function loadLookups(force = false) {
   if (lookupsCache && !force) return lookupsCache
   const [c, u, b, s] = await Promise.all([
-    supabase.from('inv_categories').select('id,name,sort_order').order('sort_order').order('name'),
-    supabase.from('inv_units').select('id,name').order('name'),
+    supabase.from('inv_categories').select('id,name,name_en,sort_order').order('sort_order').order('name'),
+    supabase.from('inv_units').select('id,name,name_en').order('name'),
     supabase.from('branches').select('*').order('is_central_kitchen', { ascending: false }).order('name'),
     supabase.from('suppliers').select('id,name,phone,active').order('name'),
   ])

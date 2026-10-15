@@ -4,7 +4,7 @@ import Icon from '../components/Icon.jsx'
 
 function BranchForm({ branch, onClose, onSaved }) {
   const [f, setF] = useState({
-    name: branch?.name || '', is_central_kitchen: branch?.is_central_kitchen || false,
+    name: branch?.name || '', name_en: branch?.name_en || '', is_central_kitchen: branch?.is_central_kitchen || false,
     latitude: branch?.latitude ?? '', longitude: branch?.longitude ?? '', geofence_radius_m: branch?.geofence_radius_m || 150, active: branch?.active ?? true,
   })
   const [err, setErr] = useState('')
@@ -17,7 +17,7 @@ function BranchForm({ branch, onClose, onSaved }) {
 
   const save = async (e) => {
     e.preventDefault(); setBusy(true); setErr('')
-    const row = { ...f, latitude: f.latitude === '' ? null : Number(f.latitude), longitude: f.longitude === '' ? null : Number(f.longitude), geofence_radius_m: Number(f.geofence_radius_m) || 150 }
+    const row = { ...f, name: f.name.trim(), name_en: f.name_en.trim() || null, latitude: f.latitude === '' ? null : Number(f.latitude), longitude: f.longitude === '' ? null : Number(f.longitude), geofence_radius_m: Number(f.geofence_radius_m) || 150 }
     const { error } = branch ? await supabase.from('branches').update(row).eq('id', branch.id) : await supabase.from('branches').insert(row)
     if (error) setErr(errMsg(error)); else { onSaved(); onClose() }
     setBusy(false)
@@ -28,7 +28,8 @@ function BranchForm({ branch, onClose, onSaved }) {
       <form className="sheet form" onSubmit={save}>
         <div className="sheet-head"><h2 style={{ fontSize: 20 }}>{branch ? branch.name : 'فرع جديد'}</h2>
           <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose}><Icon name="x" /></button></div>
-        <div className="field"><label htmlFor="bn">اسم الفرع</label><input id="bn" className="input" value={f.name} onChange={set('name')} required /></div>
+        <div className="field"><label htmlFor="bn">اسم الفرع بالعربي</label><input id="bn" className="input" value={f.name} onChange={set('name')} required /></div>
+        <div className="field"><label htmlFor="bne">اسم الفرع بالإنجليزي</label><input id="bne" className="input ltr" style={{ textAlign: 'left' }} value={f.name_en} onChange={set('name_en')} /></div>
         <label className="check"><input type="checkbox" checked={f.is_central_kitchen} onChange={set('is_central_kitchen')} /> هذا المطبخ المركزي</label>
         <div className="card form" style={{ gap: 10 }}>
           <strong style={{ fontSize: 14 }}>موقع الفرع (للتأكد إن الموظف داخل الفرع)</strong>
@@ -95,7 +96,7 @@ export default function Branches() {
           {branches.map((b) => (
             <button key={b.id} className="list-item" style={{ width: '100%', background: 'none', border: 0, cursor: 'pointer', textAlign: 'right' }} onClick={() => setEb(b)}>
               <span className="avatar"><Icon name="branch" /></span>
-              <span className="grow"><div style={{ fontWeight: 600 }}>{b.name}</div>
+              <span className="grow"><div style={{ fontWeight: 600 }}>{b.name}{b.name_en && <span className="sub ltr" style={{ fontWeight: 400 }}> · {b.name_en}</span>}</div>
                 <div className="sub">{b.is_central_kitchen ? 'المطبخ المركزي · ' : ''}{b.latitude ? `الموقع محدد · ${b.geofence_radius_m} م` : 'الموقع مو محدد'}</div></span>
               {!b.active && <span className="pill gray">مقفل</span>}
               {!b.latitude && b.active && <span className="pill amber">حدد الموقع</span>}

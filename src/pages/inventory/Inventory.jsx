@@ -23,16 +23,18 @@ export function ItemForm({ item, lookups, onClose, onSaved, presetName }) {
     supabase.from('protein_groups').select('key,name_ar').order('sort_order').then(({ data }) => setProt((p) => ({ ...p, groups: data || [] })))
     if (item?.id) supabase.from('inv_items').select('protein_group,unit_grams').eq('id', item.id).single().then(({ data }) => setProt((p) => ({ ...p, value: data?.protein_group || '', grams: data?.unit_grams ?? '' })))
   }, [item?.id])
-  const [newCat, setNewCat] = useState('')
+  const [newCat, setNewCat] = useState({ name: '', name_en: '' })
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
 
   const save = async (e) => {
-    e.preventDefault(); setBusy(true); setErr('')
+    e.preventDefault(); setErr('')
+    if (!f.name_ar.trim() || !f.name_en.trim()) { setErr('لازم تكتب اسم الصنف بالعربي وبالإنجليزي'); return }
+    setBusy(true)
     let category_id = f.category_id || null
     if (category_id === '__new') {
-      const r = await supabase.from('inv_categories').insert({ name: newCat.trim() }).select('id').single()
+      const r = await supabase.from('inv_categories').insert({ name: newCat.name.trim(), name_en: newCat.name_en.trim() || null }).select('id').single()
       if (r.error) { setErr(invErr(r.error)); setBusy(false); return }
       category_id = r.data.id; clearLookups()
     }
@@ -40,7 +42,7 @@ export function ItemForm({ item, lookups, onClose, onSaved, presetName }) {
     const nut = { kcal_100: nv(f.kcal_100), protein_100: nv(f.protein_100), carbs_100: nv(f.carbs_100), fat_100: nv(f.fat_100) }
     const nutChanged = ['kcal_100', 'protein_100', 'carbs_100', 'fat_100'].some((k) => nut[k] !== (item?.[k] == null ? null : Number(item[k])))
     const protRow = prot.value || item?.id ? { protein_group: prot.value || null, unit_grams: prot.grams === '' ? null : Number(prot.grams) } : {}
-    const row = { ...f, ...nut, ...protRow, category_id, unit_id: f.unit_id || null, min_qty: Number(f.min_qty) || 0, name_en: f.name_en || null, notes: f.notes || null,
+    const row = { ...f, ...nut, ...protRow, category_id, unit_id: f.unit_id || null, min_qty: Number(f.min_qty) || 0, name_ar: f.name_ar.trim(), name_en: f.name_en.trim(), notes: f.notes || null,
       ...(nutChanged ? { nutrition_source: 'إدخال يدوي', nutrition_updated_at: new Date().toISOString() } : {}) }
     const r = item ? await supabase.from('inv_items').update(row).eq('id', item.id).select().single() : await supabase.from('inv_items').insert(row).select().single()
     setBusy(false)
@@ -53,7 +55,7 @@ export function ItemForm({ item, lookups, onClose, onSaved, presetName }) {
         <div className="sheet-head"><h2 style={{ fontSize: 20 }}>{item ? 'تعديل الصنف' : 'صنف جديد'}</h2>
           <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose}><Icon name="x" /></button></div>
         <div className="field"><label htmlFor="na">الاسم بالعربي</label><input id="na" className="input" value={f.name_ar} onChange={set('name_ar')} required /></div>
-        <div className="field"><label htmlFor="ne">الاسم بالإنجليزي</label><input id="ne" className="input ltr" style={{ textAlign: 'left' }} value={f.name_en} onChange={set('name_en')} /></div>
+        <div className="field"><label htmlFor="ne">الاسم بالإنجليزي</label><input id="ne" className="input ltr" style={{ textAlign: 'left' }} value={f.name_en} onChange={set('name_en')} required /></div>
         <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
           <div className="field"><label htmlFor="ca">التصنيف</label>
             <select id="ca" className="input" value={f.category_id} onChange={set('category_id')}>
@@ -66,7 +68,10 @@ export function ItemForm({ item, lookups, onClose, onSaved, presetName }) {
               {lookups.units.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
             </select></div>
         </div>
-        {f.category_id === '__new' && <div className="field"><label htmlFor="nc">اسم التصنيف الجديد</label><input id="nc" className="input" value={newCat} onChange={(e) => setNewCat(e.target.value)} required /></div>}
+        {f.category_id === '__new' && <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+          <div className="field"><label htmlFor="nc">التصنيف الجديد بالعربي</label><input id="nc" className="input" value={newCat.name} onChange={(e) => setNewCat({ ...newCat, name: e.target.value })} required /></div>
+          <div className="field"><label htmlFor="nce">التصنيف الجديد بالإنجليزي</label><input id="nce" className="input ltr" style={{ textAlign: 'left' }} value={newCat.name_en} onChange={(e) => setNewCat({ ...newCat, name_en: e.target.value })} /></div>
+        </div>}
         <div className="field"><label htmlFor="mq">الحد الأدنى في المطبخ</label>
           <input id="mq" type="number" step="any" min="0" className="input" value={f.min_qty} onChange={set('min_qty')} />
           <div className="sub">لما الكمية تنزل تحت هالرقم، الصنف يطلع لك باللون الأصفر.</div></div>
@@ -287,57 +292,74 @@ function ItemSheet({ item, lookups, canEdit, onClose, onChanged }) {
   )
 }
 
-function CategoriesSheet({ items, onClose, onChanged }) {
-  const [cats, setCats] = useState([])
+// shared add / edit sheet for lookup tables that have an Arabic name (name) and an English name (name_en)
+function NamesSheet({ table, refCol, title, singular, onClose, onChanged }) {
+  const [rows, setRows] = useState([])
+  const [used, setUsed] = useState({})
   const [edit, setEdit] = useState({})
-  const [newName, setNewName] = useState('')
+  const [nw, setNw] = useState({ name: '', name_en: '' })
   const [err, setErr] = useState('')
   const load = useCallback(() => {
-    supabase.from('inv_categories').select('id,name,sort_order').order('sort_order').order('name').then(({ data }) => setCats(data || []))
-  }, [])
+    supabase.from(table).select('*').order(table === 'inv_categories' ? 'sort_order' : 'name').order('name').then(({ data }) => setRows(data || []))
+    supabase.from('inv_items').select(refCol).then(({ data }) => {
+      const m = {}; (data || []).forEach((r) => { if (r[refCol]) m[r[refCol]] = (m[r[refCol]] || 0) + 1 }); setUsed(m)
+    })
+  }, [table, refCol])
   useEffect(() => { load() }, [load])
-  const count = (id) => items.filter((i) => i.category_id === id).length
   const done = () => { clearLookups(); load(); onChanged() }
-  const rename = async (c) => {
-    const name = (edit[c.id] ?? c.name).trim()
-    if (!name || name === c.name) return
-    const { error } = await supabase.from('inv_categories').update({ name }).eq('id', c.id)
-    if (error) setErr(invErr(error)); else done()
+  const val = (r, k) => (edit[r.id]?.[k] ?? r[k] ?? '')
+  const change = (r, k) => (e) => setEdit({ ...edit, [r.id]: { ...edit[r.id], [k]: e.target.value } })
+  const save = async (r) => {
+    const name = val(r, 'name').trim()
+    const name_en = val(r, 'name_en').trim()
+    if (!name) { setErr('الاسم بالعربي مطلوب'); return }
+    if (name === r.name && name_en === (r.name_en || '')) return
+    setErr('')
+    const { error } = await supabase.from(table).update({ name, name_en: name_en || null }).eq('id', r.id)
+    if (error) setErr(invErr(error)); else { setEdit((x) => { const y = { ...x }; delete y[r.id]; return y }); done() }
   }
-  const remove = async (c) => {
-    if (!window.confirm(`تمسح تصنيف "${c.name}"؟`)) return
-    const { error } = await supabase.from('inv_categories').delete().eq('id', c.id)
+  const remove = async (r) => {
+    if (!window.confirm(`تمسح ${singular} "${r.name}"؟`)) return
+    const { error } = await supabase.from(table).delete().eq('id', r.id)
     if (error) setErr(invErr(error)); else done()
   }
   const add = async (e) => {
     e.preventDefault(); setErr('')
-    if (!newName.trim()) return
-    const { error } = await supabase.from('inv_categories').insert({ name: newName.trim(), sort_order: 50 })
-    if (error) setErr(invErr(error)); else { setNewName(''); done() }
+    if (!nw.name.trim()) return
+    const row = { name: nw.name.trim(), name_en: nw.name_en.trim() || null, ...(table === 'inv_categories' ? { sort_order: 50 } : {}) }
+    const { error } = await supabase.from(table).insert(row)
+    if (error) setErr(invErr(error)); else { setNw({ name: '', name_en: '' }); done() }
   }
   return (
     <div className="overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="sheet form">
-        <div className="sheet-head"><h2 style={{ fontSize: 20 }}>التصنيفات</h2>
+        <div className="sheet-head"><h2 style={{ fontSize: 20 }}>{title}</h2>
           <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose}><Icon name="x" /></button></div>
-        <div className="sub">غيّر الاسم واضغط برا الخانة عشان ينحفظ. التصنيف الفاضي بس اللي ينمسح.</div>
+        <div className="sub">غيّر الاسم بالعربي أو بالإنجليزي واضغط برا الخانة عشان ينحفظ. {singular === 'تصنيف' ? 'التصنيف' : 'الوحدة'} اللي ما عليها أصناف بس اللي تنمسح.</div>
         <div className="card list" style={{ padding: '2px 12px' }}>
-          {cats.map((c) => {
-            const n = count(c.id)
+          {rows.map((r) => {
+            const n = used[r.id] || 0
             return (
-              <div key={c.id} className="list-item">
-                <input className="input grow" style={{ height: 40 }} value={edit[c.id] ?? c.name} aria-label="اسم التصنيف"
-                  onChange={(e) => setEdit({ ...edit, [c.id]: e.target.value })} onBlur={() => rename(c)} />
+              <div key={r.id} className="list-item" style={{ gap: 8 }}>
+                <div className="grid grow" style={{ gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                  <input className="input" style={{ height: 40 }} value={val(r, 'name')} placeholder="بالعربي" aria-label="الاسم بالعربي"
+                    onChange={change(r, 'name')} onBlur={() => save(r)} />
+                  <input className="input ltr" style={{ height: 40, textAlign: 'left' }} value={val(r, 'name_en')} placeholder="English" aria-label="الاسم بالإنجليزي"
+                    onChange={change(r, 'name_en')} onBlur={() => save(r)} />
+                </div>
                 <span className="pill gray num">{n}</span>
                 <button className="icon-btn" style={{ width: 38, height: 38 }} disabled={n > 0} title={n > 0 ? 'فيه أصناف، انقلها أول' : 'مسح'}
-                  aria-label={`مسح ${c.name}`} onClick={() => remove(c)}><Icon name="trash" size={16} /></button>
+                  aria-label={`مسح ${r.name}`} onClick={() => remove(r)}><Icon name="trash" size={16} /></button>
               </div>
             )
           })}
         </div>
-        <form className="row" style={{ gap: 8 }} onSubmit={add}>
-          <input className="input grow" placeholder="تصنيف جديد" value={newName} onChange={(e) => setNewName(e.target.value)} />
-          <button className="btn" disabled={!newName.trim()}><Icon name="plus" /> إضافة</button>
+        <form className="form" style={{ gap: 8 }} onSubmit={add}>
+          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <input className="input" placeholder={`${singular} جديد بالعربي`} aria-label="الاسم بالعربي" value={nw.name} onChange={(e) => setNw({ ...nw, name: e.target.value })} />
+            <input className="input ltr" style={{ textAlign: 'left' }} placeholder="Name in English" aria-label="الاسم بالإنجليزي" value={nw.name_en} onChange={(e) => setNw({ ...nw, name_en: e.target.value })} />
+          </div>
+          <button className="btn" disabled={!nw.name.trim()}><Icon name="plus" /> إضافة</button>
         </form>
         {err && <div className="error">{err}</div>}
       </div>
@@ -415,6 +437,7 @@ export default function Inventory() {
   const [open, setOpen] = useState(null)
   const [adding, setAdding] = useState(false)
   const [catsOpen, setCatsOpen] = useState(false)
+  const [unitsOpen, setUnitsOpen] = useState(false)
   const [pending, setPending] = useState(0)
   const [filling, setFilling] = useState(null)
 
@@ -468,6 +491,7 @@ export default function Inventory() {
           {canEdit && <Link className="btn" to="/inventory/opening"><Icon name="doc" /> رصيد أول المدة</Link>}
           {canEdit && noNut.length > 0 && <button className="btn" disabled={!!filling} onClick={fillAll}>{filling ? <><span className="spinner" /> {filling.done}/{filling.total}</> : <>تعبئة السعرات الناقصة ({noNut.length})</>}</button>}
           {canEdit && <button className="btn" onClick={() => setCatsOpen(true)}><Icon name="list" /> التصنيفات</button>}
+          {canEdit && <button className="btn" onClick={() => setUnitsOpen(true)}><Icon name="list" /> الوحدات</button>}
           {canEdit && <button className="btn" onClick={() => setAdding(true)}><Icon name="plus" /> صنف جديد</button>}
           {(can('manage_suppliers') || can('approve_purchases') || can('receive_goods')) && <Link className="btn primary" to="/inventory/invoices?new=1"><Icon name="camera" /> استلام بضاعة</Link>}
         </div>
@@ -524,7 +548,8 @@ export default function Inventory() {
       {open && lookups && <ItemSheet item={open} lookups={lookups} canEdit={canEdit} onClose={() => setOpen(null)} onChanged={load} />}
       {adding && lookups && <ItemForm lookups={lookups} onClose={() => setAdding(false)} onSaved={load} />}
       {resetOpen && lookups && <ResetStock lookups={lookups} onClose={() => setResetOpen(false)} onDone={(m) => { setNotice(m); load() }} />}
-      {catsOpen && <CategoriesSheet items={items} onClose={() => setCatsOpen(false)} onChanged={() => { load(); loadLookups(true).then(setLookups) }} />}
+      {catsOpen && <NamesSheet table="inv_categories" refCol="category_id" title="التصنيفات" singular="تصنيف" onClose={() => setCatsOpen(false)} onChanged={() => { load(); loadLookups(true).then(setLookups) }} />}
+      {unitsOpen && <NamesSheet table="inv_units" refCol="unit_id" title="الوحدات" singular="وحدة" onClose={() => setUnitsOpen(false)} onChanged={() => { load(); loadLookups(true).then(setLookups) }} />}
     </div>
   )
 }
