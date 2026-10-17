@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAccess } from '../../lib/access.jsx'
 import { useLang } from '../../lib/i18n.jsx'
-import { qtyFmt, kwd, ORDER_STATUS, invErr, itemNames } from '../../lib/inv'
+import { qtyFmt, kwd, ORDER_STATUS, invErr, itemNames, loadLookups } from '../../lib/inv'
 import Icon from '../../components/Icon.jsx'
 import ProductImage from '../../components/ProductImage.jsx'
 
@@ -23,7 +23,7 @@ export default function OrderDetail() {
 
   const load = useCallback(async () => {
     const { data } = await supabase.from('branch_requests')
-      .select('*, branches:branch_id(name), creator:created_by(full_name), sender:dispatched_by(full_name), receiver:received_by(full_name), branch_request_lines(*, inv_items(name_ar,name_en,inv_units(name)))')
+      .select('*, branches:branch_id(name,name_en), creator:created_by(full_name), sender:dispatched_by(full_name), receiver:received_by(full_name), branch_request_lines(*, inv_items(name_ar,name_en,inv_units(name,name_en)))')
       .eq('id', id).maybeSingle()
     if (!data) { setR(false); return }
     setR(data)
@@ -35,7 +35,7 @@ export default function OrderDetail() {
       supabase.from('inv_stock').select('id,kitchen_qty').in('id', ids).then(({ data: s }) => setKitchenQty(Object.fromEntries((s || []).map((x) => [x.id, x.kitchen_qty]))))
     }
   }, [id])
-  useEffect(() => { load() }, [load])
+  useEffect(() => { loadLookups().catch(() => {}).finally(load) }, [load])
 
   if (r === false) return <div className="card empty">{tr('الطلب مو موجود')}</div>
   if (!r) return <div className="center sub" style={{ minHeight: 300 }}><span className="spinner" /></div>

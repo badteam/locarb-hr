@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { registerNames } from './i18n.jsx'
 
 export const kwd = (n) => (n == null || n === '' ? '—' : Number(n).toFixed(3))
 export const qtyFmt = (n) => {
@@ -74,6 +75,7 @@ export async function loadLookups(force = false) {
     supabase.from('suppliers').select('id,name,phone,active').order('name'),
   ])
   lookupsCache = { categories: c.data || [], units: u.data || [], branches: (b.data || []).filter((x) => x.active !== false), suppliers: s.data || [] }
+  registerNames([...lookupsCache.categories, ...lookupsCache.units, ...lookupsCache.branches])
   lookupsCache.kitchen = lookupsCache.branches.find((x) => x.is_central_kitchen) || lookupsCache.branches[0]
   // places that actually keep stock (the main office does not)
   lookupsCache.stockBranches = lookupsCache.branches.filter((x) => x.holds_stock !== false)

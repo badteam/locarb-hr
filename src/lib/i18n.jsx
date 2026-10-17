@@ -260,6 +260,13 @@ const D = {
 }
 
 // names stored in Arabic in the database
+// names that come from the database (categories, units, branches): Arabic -> English,
+// shown for every language other than Arabic
+const DB_NAMES = {}
+export function registerNames(rows) {
+  for (const r of rows || []) if (r?.name && r?.name_en) DB_NAMES[r.name] = r.name_en
+}
+
 const NAMES = {
   'سنوية': { en: 'Annual', ne: 'वार्षिक', hi: 'वार्षिक' },
   'مرضية': { en: 'Sick', ne: 'बिरामी', hi: 'बीमारी' },
@@ -320,10 +327,10 @@ export function LangProvider({ employee, children }) {
   }, [lang])
   // translate an Arabic phrase used directly in a page (see phrases.js)
   const tr = useCallback((ar, p = {}) => {
-    const s = lang === 'ar' ? ar : PHRASES[ar]?.[lang] ?? ar
+    const s = lang === 'ar' ? ar : PHRASES[ar]?.[lang] ?? DB_NAMES[ar] ?? ar
     return String(s).replace(/\{(\w+)\}/g, (_, k) => (p[k] ?? ''))
   }, [lang])
-  const tn = useCallback((name) => (name && lang !== 'ar' ? NAMES[name]?.[lang] ?? name : name), [lang])
+  const tn = useCallback((name) => (name && lang !== 'ar' ? NAMES[name]?.[lang] ?? DB_NAMES[name] ?? name : name), [lang])
   const fmtDate = useCallback((d) => d ? new Intl.DateTimeFormat(info.locale, { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Kuwait', numberingSystem: 'latn' }).format(new Date(d)) : '—', [info.locale])
   const fmtTime = useCallback((d) => d ? new Intl.DateTimeFormat(info.locale, { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kuwait', numberingSystem: 'latn' }).format(new Date(d)) : '—', [info.locale])
 
