@@ -4,6 +4,7 @@ import { supabase, todayKuwait, errMsg } from '../lib/supabase'
 import { useAccess } from '../lib/access.jsx'
 import { useLang, LangPicker } from '../lib/i18n.jsx'
 import Icon from '../components/Icon.jsx'
+import PunchCode from '../components/PunchCode.jsx'
 
 const getPosition = () => new Promise((resolve) => {
   if (!navigator.geolocation) return resolve(null)
@@ -121,6 +122,7 @@ export default function Home() {
       )}
       {missed > 0 && <Link to="/corrections" className="warn"><Icon name="finger" /><span className="grow">{t('missed_count', { n: missed })}</span><strong>{t('send_request')}</strong></Link>}
       {notices > 0 && <Link to="/notices" className="warn" style={{ background: 'var(--red-bg)', color: 'var(--red)' }}><Icon name="warn" /><span className="grow">{t('notice_needs_sign')}</span><strong>{t('read')}</strong></Link>}
+      {emp.punch_mode !== 'mobile' && <PunchCode />}
       <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
         <Link to="/leaves" className="btn">{t('request_leave_balance', { n: emp.leave_balance })}</Link>
         <Link to="/corrections" className="btn">{t('forgot_punch')}</Link>

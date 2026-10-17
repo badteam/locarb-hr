@@ -257,6 +257,47 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
   )
 }
 
+
+// Employees who said on the punch screen that they moved branch / changed shift; HR approves.
+function ChangeRequests({ branches, shifts, onDone }) {
+  const [reqs, setReqs] = useState([])
+  const [pick, setPick] = useState({})
+  const [msg, setMsg] = useState(null)
+  const load = useCallback(() => {
+    supabase.from('employee_change_requests').select('*, employees:employee_id(full_name, job_title)').eq('status', 'pending').order('created_at', { ascending: false }).then(({ data }) => setReqs(data || []))
+  }, [])
+  useEffect(() => { load() }, [load])
+  if (!reqs.length) return msg ? <div className={msg.ok ? 'notice' : 'error'} style={{ marginBottom: 12 }}>{msg.t}</div> : null
+  const bn = Object.fromEntries(branches.map((b) => [b.id, b.name]))
+  const sn = Object.fromEntries(shifts.map((x) => [x.id, `${x.name} (${x.start_time.slice(0, 5)}–${x.end_time.slice(0, 5)})`]))
+  const decide = async (r, ok) => {
+    setMsg(null)
+    const { error } = await supabase.rpc('decide_change_request', { p_id: r.id, p_approve: ok, p_shift: pick[r.id] || null, p_note: null })
+    if (error) { setMsg({ ok: false, t: error.message.includes('choose') ? 'اختار الشفت الجديد' : errMsg(error) }); return }
+    setMsg({ ok: true, t: ok ? 'تم التحديث في ملف الموظف' : 'تم الرفض' }); load(); onDone()
+  }
+  return (
+    <section style={{ marginBottom: 16 }}>
+      <h2 style={{ fontSize: 18, marginBottom: 8 }}>نقل فرع وتغيير شفت <span className="badge">{reqs.length}</span></h2>
+      <div className="sub" style={{ marginBottom: 8 }}>الموظف بصم في فرع أو وقت غير المسجل له، وأكّد إنه انتقل. وافق عشان يتحدث ملفه.</div>
+      {msg && <div className={msg.ok ? 'notice' : 'error'} style={{ marginBottom: 8 }}>{msg.t}</div>}
+      <div className="card list" style={{ padding: '4px 14px' }}>
+        {reqs.map((r) => (
+          <div key={r.id} className="list-item" style={{ flexWrap: 'wrap' }}>
+            <span className="grow" style={{ minWidth: 220 }}>
+              <div style={{ fontWeight: 600 }}>{r.employees?.full_name}</div>
+              <div className="sub">{r.kind === 'branch' ? `من ${bn[r.from_branch_id] || '—'} إلى ${bn[r.to_branch_id] || '—'}` : `شفته ${sn[r.from_shift_id] || 'مو محدد'} · بصم الساعة ${new Date(r.punched_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kuwait' })}`}</div>
+            </span>
+            {r.kind === 'shift' && <select className="input" style={{ maxWidth: 220, height: 40 }} value={pick[r.id] ?? r.suggested_shift_id ?? ''} onChange={(e) => setPick({ ...pick, [r.id]: e.target.value })} aria-label="الشفت الجديد">
+              <option value="">الشفت الجديد…</option>{shifts.map((x) => <option key={x.id} value={x.id}>{sn[x.id]}</option>)}</select>}
+            <button className="btn primary" style={{ minHeight: 38 }} onClick={() => decide(r, true)}>موافقة</button>
+            <button className="btn danger" style={{ minHeight: 38 }} onClick={() => decide(r, false)}>رفض</button>
+          </div>))}
+      </div>
+    </section>
+  )
+}
+
 export default function Employees() {
   const { can } = useAccess()
   const [emps, setEmps] = useState([])
@@ -292,6 +333,7 @@ export default function Employees() {
         <div><h1>الموظفين</h1><div className="sub">{emps.filter((e) => e.active).length} موظف فعّال</div></div>
         {can('manage_employees') && <button className="btn primary" onClick={() => setEditing(null)}><Icon name="plus" /> موظف جديد</button>}
       </div>
+      {can('manage_employees') && <ChangeRequests branches={branches} shifts={shifts} onDone={load} />}
       <EmployeesIO branches={branches} shifts={shifts} roles={roles} onDone={load} />
       <div className="row" style={{ flexWrap: 'wrap', marginBottom: 12 }}>
         <input className="input" style={{ maxWidth: 280, height: 42 }} placeholder="بحث بالاسم أو الرقم أو الوظيفة…" value={search} onChange={(e) => setSearch(e.target.value)} />

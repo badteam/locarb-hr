@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import Icon from '../components/Icon.jsx'
 import { KIOSK_KEY } from './devices/Devices.jsx'
+import KioskSetup from './KioskSetup.jsx'
 
 // Shared punch screen for a branch iPad/iPhone. No login session: the device keeps a
 // secret from when a manager activated it, and each employee proves who they are
@@ -28,6 +28,12 @@ const T = {
   already_in: { ar: 'أنت مسجل حضور من قبل', en: 'You are already checked in', ne: 'तपाईंको हाजिरी पहिले नै छ', hi: 'आप पहले से चेक इन हैं' },
   not_in: { ar: 'ما سجلت حضور', en: 'You have not checked in', ne: 'तपाईंले हाजिरी गर्नुभएको छैन', hi: 'आपने चेक इन नहीं किया' },
   too_soon: { ar: 'توك مسجل حضور', en: 'You just checked in', ne: 'भर्खर हाजिरी गर्नुभयो', hi: 'आपने अभी चेक इन किया' },
+  welcome_branch: { ar: 'أهلاً بك في فرع {b}', en: 'Welcome to {b} branch', ne: '{b} शाखामा स्वागत छ', hi: '{b} शाखा में आपका स्वागत है' },
+  ask_branch: { ar: 'هل انتقلت للشغل في فرع {b}؟', en: 'Have you moved to work at {b} branch?', ne: 'के तपाईं {b} शाखामा काम गर्न सर्नुभयो?', hi: 'क्या आप {b} शाखा में काम करने आ गए हैं?' },
+  ask_shift: { ar: 'هل تغيّر شفتك؟', en: 'Has your shift changed?', ne: 'के तपाईंको सिफ्ट परिवर्तन भयो?', hi: 'क्या आपकी शिफ्ट बदल गई है?' },
+  yes: { ar: 'نعم', en: 'Yes', ne: 'हो', hi: 'हाँ' },
+  no: { ar: 'لا', en: 'No', ne: 'होइन', hi: 'नहीं' },
+  sent_hr: { ar: 'وصل طلبك لـHR للموافقة', en: 'Sent to HR for approval', ne: 'स्वीकृतिको लागि HR लाई पठाइयो', hi: 'मंज़ूरी के लिए HR को भेजा गया' },
   net: { ar: 'ما فيه اتصال. جرّب مرة ثانية', en: 'No connection. Try again', ne: 'इन्टरनेट छैन। फेरि प्रयास गर्नुहोस्', hi: 'कनेक्शन नहीं। फिर कोशिश करें' },
 }
 const tt = (k, lang, vars = {}) => {
@@ -61,9 +67,10 @@ export default function Kiosk() {
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [now, setNow] = useState(new Date())
+  const [asked, setAsked] = useState(null) // null | 'sent' | 'no'
   const idle = useRef(null)
 
-  const reset = useCallback(() => { setStep('phone'); setPhone(''); setCode(''); setMe(null); setDone(null); setErr(''); setBusy(false) }, [])
+  const reset = useCallback(() => { setStep('phone'); setPhone(''); setCode(''); setMe(null); setDone(null); setErr(''); setBusy(false); setAsked(null) }, [])
 
   useEffect(() => {
     if (!token) { setInfo(null); return }
@@ -75,9 +82,10 @@ export default function Kiosk() {
   // go back to the start if nobody touches the screen for a while
   useEffect(() => {
     clearTimeout(idle.current)
-    if (step !== 'phone' || phone) idle.current = setTimeout(reset, step === 'done' ? 5000 : 30000)
+    const asking = step === 'done' && done && (done.ask_branch || done.ask_shift) && !asked
+    if (step !== 'phone' || phone) idle.current = setTimeout(reset, step === 'done' && !asking ? 6000 : 30000)
     return () => clearTimeout(idle.current)
-  }, [step, phone, code, reset])
+  }, [step, phone, code, reset, done, asked])
 
   const lang = me?.lang || 'ar'
   const errText = (r) => r.error === 'locked' ? tt('locked', lang, { n: r.minutes || 10 }) : r.error === 'mode' ? tt(r.mode === 'device' ? 'mode_device' : 'mode_mobile', lang) : tt(r.error, lang)
@@ -106,6 +114,14 @@ export default function Kiosk() {
     setDone(data); setStep('done')
   }
 
+  const answer = async (kind) => {
+    setBusy(true)
+    const { data, error } = await supabase.rpc('kiosk_request_change', { p_token: token, p_phone: phone, p_code: code, p_kind: kind })
+    setBusy(false)
+    if (error || !data?.ok) { setErr(tt('net', lang)); return }
+    setAsked('sent')
+  }
+
   const key = (k) => {
     setErr('')
     if (step === 'phone') {
@@ -124,16 +140,7 @@ export default function Kiosk() {
   }
 
   if (info === undefined) return <div className="kiosk center"><span className="spinner" /></div>
-  if (info === null) return (
-    <div className="kiosk center">
-      <div className="kiosk-card" style={{ textAlign: 'center', gap: 16 }}>
-        <Icon name="tablet" size={48} />
-        <h1 style={{ fontSize: 22 }}>هذا الجهاز مو مفعّل كآيباد بصمة</h1>
-        <p className="sub" style={{ fontSize: 15, lineHeight: 1.8 }}>المدير يدخل النظام من هذا الجهاز، ويروح لصفحة "الأجهزة والأبواب"، ويضغط "اجعل هذا الجهاز آيباد بصمة".</p>
-        <Link to="/" className="btn primary block">دخول المدير</Link>
-      </div>
-    </div>
-  )
+  if (info === null) return <KioskSetup onDone={() => window.location.reload()} />
 
   return (
     <div className="kiosk">
@@ -165,7 +172,7 @@ export default function Kiosk() {
 
         {step === 'me' && me && (
           <div className="kiosk-card" style={{ textAlign: 'center' }}>
-            <div className="sub" style={{ fontSize: 18 }}>{tt('hello', lang)}</div>
+            <div className="sub" style={{ fontSize: 18 }}>{tt('welcome_branch', lang, { b: info.branch })}</div>
             <h1 style={{ fontSize: 30 }}>{me.name}</h1>
             {me.job && <div className="sub" style={{ fontSize: 16 }}>{me.job}</div>}
             {me.open_since && <div className="notice" style={{ fontSize: 17 }}>{tt('since', lang)} <span className="num">{clock(new Date(me.open_since))}</span></div>}
@@ -185,6 +192,16 @@ export default function Kiosk() {
             <div className="num" style={{ fontSize: 44, fontWeight: 700 }}>{clock(new Date(done.at))}</div>
             <div style={{ fontSize: 20 }}>{me?.name}</div>
             {done.late > 0 && <div className="warn" style={{ justifyContent: 'center', fontSize: 17 }}>{tt('late', lang, { n: done.late })}</div>}
+            {(done.ask_branch || done.ask_shift) && !asked && (
+              <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ fontSize: 20, fontWeight: 600 }}>{done.ask_branch ? tt('ask_branch', lang, { b: done.branch }) : tt('ask_shift', lang)}</div>
+                <div className="row" style={{ justifyContent: 'center', gap: 12 }}>
+                  <button type="button" className="btn primary" style={{ minWidth: 120, minHeight: 56, fontSize: 20 }} disabled={busy} onClick={() => answer(done.ask_branch ? 'branch' : 'shift')}>{tt('yes', lang)}</button>
+                  <button type="button" className="btn" style={{ minWidth: 120, minHeight: 56, fontSize: 20 }} onClick={() => { setAsked('no'); setTimeout(reset, 1500) }}>{tt('no', lang)}</button>
+                </div>
+              </div>)}
+            {asked === 'sent' && <div className="notice" style={{ fontSize: 18 }}>{tt('sent_hr', lang)}</div>}
+            {err && <div className="error" style={{ fontSize: 17 }}>{err}</div>}
           </div>
         )}
       </main>

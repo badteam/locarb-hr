@@ -3,7 +3,8 @@ import { supabase, errMsg, fmtDate } from '../lib/supabase'
 import { parseCoord, parsePair, validPair, mapLink, distance, currentPosition } from '../lib/geo'
 import Icon from '../components/Icon.jsx'
 
-function BranchForm({ branch, onClose, onSaved }) {
+function BranchForm({ branch, pinSet, onClose, onSaved }) {
+  const [kioskPw, setKioskPw] = useState('')
   const [f, setF] = useState({
     name: branch?.name || '', name_en: branch?.name_en || '', is_central_kitchen: branch?.is_central_kitchen || false,
     latitude: branch?.latitude ?? '', longitude: branch?.longitude ?? '', geofence_radius_m: branch?.geofence_radius_m || 150, active: branch?.active ?? true,
@@ -37,8 +38,14 @@ function BranchForm({ branch, onClose, onSaved }) {
     if (lat !== null && !validPair(lat, lng)) { setErr('الإحداثيات مو صحيحة. انسخها من خرايط جوجل أو اضغط "استخدم موقعي الحالي".'); return }
     setBusy(true)
     const row = { ...f, name: f.name.trim(), name_en: f.name_en.trim() || null, latitude: lat, longitude: lng, geofence_radius_m: Number(parseCoord(f.geofence_radius_m)) || 150 }
-    const { error } = branch ? await supabase.from('branches').update(row).eq('id', branch.id) : await supabase.from('branches').insert(row)
-    if (error) setErr(errMsg(error)); else { onSaved(); onClose() }
+    const { data: saved, error } = branch ? await supabase.from('branches').update(row).eq('id', branch.id).select('id').single() : await supabase.from('branches').insert(row).select('id').single()
+    if (error) { setErr(errMsg(error)); setBusy(false); return }
+    if (kioskPw.trim()) {
+      if (kioskPw.trim().length < 4) { setErr('الرقم السري لصفحة البصمة لازم ٤ أرقام أو أكثر'); setBusy(false); return }
+      const { error: e2 } = await supabase.rpc('set_branch_kiosk_password', { p_branch: saved.id, p_password: kioskPw.trim() })
+      if (e2) { setErr(errMsg(e2)); setBusy(false); return }
+    }
+    onSaved(); onClose()
     setBusy(false)
   }
 
@@ -62,6 +69,13 @@ function BranchForm({ branch, onClose, onSaved }) {
           {acc != null && <div className={acc > 60 ? 'warn' : 'sub'}>دقة الموقع: ±{acc} متر{acc > 60 ? '. الدقة ضعيفة، اطلع لمكان مفتوح داخل الفرع وجرّب مرة ثانية. الكمبيوتر يعطي موقع تقريبي، استخدم الجوال.' : ''}</div>}
           {validPair(lat, lng) && <a className="btn" href={mapLink(lat, lng)} target="_blank" rel="noreferrer"><Icon name="pin" /> شوف الموقع على الخريطة</a>}
           <div className="field"><label htmlFor="rad">المسافة المسموحة (متر)</label><input id="rad" type="number" inputMode="numeric" className="input" value={f.geofence_radius_m} onChange={set('geofence_radius_m')} /></div>
+        </div>
+        <div className="card form" style={{ gap: 8 }}>
+          <strong style={{ fontSize: 14 }}>صفحة البصمة في الفرع (آيباد أو جوال الفرع)</strong>
+          <div className="sub">افتح الرابط على جهاز الفرع، اختار الفرع واكتب الرقم السري. الجهاز بعدها يطلع صفحة البصمة بس، والموظف يبصم برقم جواله والكود حقه.</div>
+          <div className="sub ltr" style={{ textAlign: 'right', userSelect: 'all' }}>{window.location.origin + import.meta.env.BASE_URL}kiosk</div>
+          <div className="field"><label htmlFor="kpw">{pinSet ? 'تغيير الرقم السري (محطوط)' : 'الرقم السري لصفحة البصمة'}</label>
+            <input id="kpw" className="input ltr" inputMode="numeric" autoComplete="off" placeholder={pinSet ? '••••' : 'مثلاً 4821'} value={kioskPw} onChange={(e) => setKioskPw(e.target.value)} /></div>
         </div>
         <label className="check"><input type="checkbox" checked={f.active} onChange={set('active')} /> الفرع شغال</label>
         {err && <div className="error">{err}</div>}
@@ -151,7 +165,9 @@ export default function Branches() {
   const [shifts, setShifts] = useState([])
   const [eb, setEb] = useState(undefined)
   const [es, setEs] = useState(undefined)
+  const [pins, setPins] = useState({})
   const load = useCallback(() => {
+    supabase.rpc('kiosk_password_status').then(({ data }) => setPins(data || {}))
     supabase.from('branches').select('*').order('is_central_kitchen', { ascending: false }).order('name').then(({ data }) => setBranches(data || []))
     supabase.from('shifts').select('*').order('start_time').then(({ data }) => setShifts(data || []))
   }, [])
@@ -186,7 +202,7 @@ export default function Branches() {
           ))}
         </div>
       </section>
-      {eb !== undefined && <BranchForm branch={eb} onClose={() => setEb(undefined)} onSaved={load} />}
+      {eb !== undefined && <BranchForm branch={eb} pinSet={!!(eb && pins[eb.id])} onClose={() => setEb(undefined)} onSaved={load} />}
       {es !== undefined && <ShiftForm shift={es} onClose={() => setEs(undefined)} onSaved={load} />}
     </div>
   )
