@@ -34,10 +34,11 @@ export default function Avatar({ name, path, size = 40, style, onClick, title })
 
 // square, small JPEG for upload
 export async function squarePhoto(file, side = 512) {
-  const bmp = await createImageBitmap(file)
+  let bmp
+  try { bmp = await createImageBitmap(file) } catch { return file } // older phones that can't decode the photo: upload it as it is
   const s = Math.min(bmp.width, bmp.height)
   const c = document.createElement('canvas'); c.width = side; c.height = side
   c.getContext('2d').drawImage(bmp, (bmp.width - s) / 2, (bmp.height - s) / 2, s, s, 0, 0, side, side)
   const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.86))
-  return new File([blob], 'photo.jpg', { type: 'image/jpeg' })
+  return blob ? new File([blob], 'photo.jpg', { type: 'image/jpeg' }) : file
 }
