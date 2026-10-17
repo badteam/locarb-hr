@@ -25,6 +25,7 @@ import BranchDocs from './pages/BranchDocs.jsx'
 import Maintenance from './pages/Maintenance.jsx'
 import Transactions from './pages/Transactions.jsx'
 import SmartUpload from './pages/SmartUpload.jsx'
+import BranchLocation from './pages/BranchLocation.jsx'
 import Inventory from './pages/inventory/Inventory.jsx'
 import Invoices from './pages/inventory/Invoices.jsx'
 import InvoiceDetail from './pages/inventory/InvoiceDetail.jsx'
@@ -60,7 +61,7 @@ function useUnread(enabled) {
 }
 
 const BRANCH_PATHS = ['/inventory/orders', '/inventory/stock', '/inventory/count']
-const ADMIN_PATHS = ['/devices', '/smart-upload', '/branch-docs', '/maintenance', '/transactions', '/settings', '/inventory', '/overtime', '/dashboard', '/payroll', '/attendance', '/documents', '/employees', '/branches', '/roles']
+const ADMIN_PATHS = ['/branch-location', '/devices', '/smart-upload', '/branch-docs', '/maintenance', '/transactions', '/settings', '/inventory', '/overtime', '/dashboard', '/payroll', '/attendance', '/documents', '/employees', '/branches', '/roles']
 
 export default function App() {
   const { access } = useAccess()
@@ -93,6 +94,7 @@ function Shell() {
   const canBranchDocs = can('manage_branch_docs') || can('branch_maintenance')
   const canTx = can('manage_branch_docs') || can('manage_documents')
   const canSmart = canTx || can('manage_suppliers')
+  const canLocation = can('branch_location') || can('manage_branches') || !!access.employee.is_branch_manager
   const canInv = can('manage_inventory') || can('manage_suppliers') || can('approve_purchases') || can('approve_branch_requests') || can('view_reports')
   const canOrders = can('branch_orders') || can('approve_branch_requests') || can('manage_inventory') || can('view_reports')
   const canCount = can('branch_count') || can('manage_inventory')
@@ -124,6 +126,7 @@ function Shell() {
     { to: '/transactions', icon: 'list', label: tr('المعاملات الحكومية'), show: canTx },
     { to: '/employees', icon: 'users', label: tr('الموظفين'), show: can('view_employees') || can('manage_employees') },
     { to: '/branches', icon: 'branch', label: tr('الفروع'), show: can('manage_branches') },
+    { to: '/branch-location', icon: 'pin', label: tr('موقع الفرع'), show: canLocation && !can('manage_branches') },
     { to: '/roles', icon: 'shield', label: tr('الأدوار والصلاحيات'), show: access.is_owner },
     { to: '/settings', icon: 'gear', label: tr('الإعدادات'), show: access.is_owner },
     { to: '/notifications', icon: 'bell', label: t('nav_notifications'), show: true, badge: unread },
@@ -201,6 +204,7 @@ function Shell() {
           {canBranchDocs && <Route path="/maintenance" element={<Maintenance />} />}
           {canTx && <Route path="/transactions" element={<Transactions />} />}
           {canSmart && <Route path="/smart-upload" element={<SmartUpload />} />}
+          {canLocation && <Route path="/branch-location" element={<BranchLocation />} />}
           {(can('view_employees') || can('manage_employees')) && <Route path="/employees" element={<Employees />} />}
           {can('manage_branches') && <Route path="/branches" element={<Branches />} />}
           {access.is_owner && <Route path="/roles" element={<Roles />} />}

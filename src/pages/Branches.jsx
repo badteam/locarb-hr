@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
-import { supabase, errMsg } from '../lib/supabase'
+import { supabase, errMsg, fmtDate } from '../lib/supabase'
+import { parseCoord, parsePair, validPair, mapLink, distance, currentPosition } from '../lib/geo'
 import Icon from '../components/Icon.jsx'
 
 function BranchForm({ branch, onClose, onSaved }) {
@@ -11,13 +12,31 @@ function BranchForm({ branch, onClose, onSaved }) {
   const [busy, setBusy] = useState(false)
   const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
 
-  const useHere = () => navigator.geolocation?.getCurrentPosition(
-    (p) => setF((x) => ({ ...x, latitude: p.coords.latitude.toFixed(6), longitude: p.coords.longitude.toFixed(6) })),
-    () => setErr('ما قدرنا ناخذ موقعك. اسمح للمتصفح بالموقع.'), { enableHighAccuracy: true })
+  const [locating, setLocating] = useState(false)
+  const [acc, setAcc] = useState(null)
+  const useHere = async () => {
+    setErr(''); setLocating(true)
+    const p = await currentPosition()
+    setLocating(false)
+    if (p.error) { setErr(p.error); return }
+    setAcc(p.accuracy)
+    setF((x) => ({ ...x, latitude: String(p.lat), longitude: String(p.lng) }))
+  }
+  // pasting "lat, lng" or a Google Maps link into either box fills both
+  const pasteCoords = (k) => (e) => {
+    const v = e.target.value
+    const pair = parsePair(v)
+    if (pair && /[,\s/]/.test(v.trim())) { setF((x) => ({ ...x, latitude: String(pair.lat), longitude: String(pair.lng) })); setAcc(null); return }
+    setF((x) => ({ ...x, [k]: v }))
+  }
+  const lat = parseCoord(f.latitude), lng = parseCoord(f.longitude)
 
   const save = async (e) => {
-    e.preventDefault(); setBusy(true); setErr('')
-    const row = { ...f, name: f.name.trim(), name_en: f.name_en.trim() || null, latitude: f.latitude === '' ? null : Number(f.latitude), longitude: f.longitude === '' ? null : Number(f.longitude), geofence_radius_m: Number(f.geofence_radius_m) || 150 }
+    e.preventDefault(); setErr('')
+    if ((lat === null) !== (lng === null)) { setErr('لازم تكتب الإحداثيتين مع بعض، أو تخليهم فاضيين.'); return }
+    if (lat !== null && !validPair(lat, lng)) { setErr('الإحداثيات مو صحيحة. انسخها من خرايط جوجل أو اضغط "استخدم موقعي الحالي".'); return }
+    setBusy(true)
+    const row = { ...f, name: f.name.trim(), name_en: f.name_en.trim() || null, latitude: lat, longitude: lng, geofence_radius_m: Number(parseCoord(f.geofence_radius_m)) || 150 }
     const { error } = branch ? await supabase.from('branches').update(row).eq('id', branch.id) : await supabase.from('branches').insert(row)
     if (error) setErr(errMsg(error)); else { onSaved(); onClose() }
     setBusy(false)
@@ -34,12 +53,15 @@ function BranchForm({ branch, onClose, onSaved }) {
         <div className="card form" style={{ gap: 10 }}>
           <strong style={{ fontSize: 14 }}>موقع الفرع (للتأكد إن الموظف داخل الفرع)</strong>
           <div className="sub">أسهل طريقة: افتح هالصفحة من جوالك وأنت داخل الفرع واضغط "استخدم موقعي الحالي".</div>
-          <button type="button" className="btn" onClick={useHere}><Icon name="pin" /> استخدم موقعي الحالي</button>
+          <button type="button" className="btn" onClick={useHere} disabled={locating}>{locating ? <><span className="spinner" /> جاري تحديد الموقع…</> : <><Icon name="pin" /> استخدم موقعي الحالي</>}</button>
+          <div className="sub">أو الصق الإحداثيات أو رابط خرايط جوجل في أي خانة.</div>
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-            <input className="input ltr" placeholder="Latitude" value={f.latitude} onChange={set('latitude')} />
-            <input className="input ltr" placeholder="Longitude" value={f.longitude} onChange={set('longitude')} />
+            <input className="input ltr" inputMode="decimal" placeholder="Latitude (مثل 29.3375)" aria-label="Latitude" value={f.latitude} onChange={pasteCoords('latitude')} style={Number.isNaN(lat) ? { borderColor: 'var(--red)' } : null} />
+            <input className="input ltr" inputMode="decimal" placeholder="Longitude (مثل 48.0012)" aria-label="Longitude" value={f.longitude} onChange={pasteCoords('longitude')} style={Number.isNaN(lng) ? { borderColor: 'var(--red)' } : null} />
           </div>
-          <div className="field"><label htmlFor="rad">المسافة المسموحة (متر)</label><input id="rad" type="number" className="input" value={f.geofence_radius_m} onChange={set('geofence_radius_m')} /></div>
+          {acc != null && <div className={acc > 60 ? 'warn' : 'sub'}>دقة الموقع: ±{acc} متر{acc > 60 ? '. الدقة ضعيفة، اطلع لمكان مفتوح داخل الفرع وجرّب مرة ثانية. الكمبيوتر يعطي موقع تقريبي، استخدم الجوال.' : ''}</div>}
+          {validPair(lat, lng) && <a className="btn" href={mapLink(lat, lng)} target="_blank" rel="noreferrer"><Icon name="pin" /> شوف الموقع على الخريطة</a>}
+          <div className="field"><label htmlFor="rad">المسافة المسموحة (متر)</label><input id="rad" type="number" inputMode="numeric" className="input" value={f.geofence_radius_m} onChange={set('geofence_radius_m')} /></div>
         </div>
         <label className="check"><input type="checkbox" checked={f.active} onChange={set('active')} /> الفرع شغال</label>
         {err && <div className="error">{err}</div>}
@@ -77,6 +99,53 @@ function ShiftForm({ shift, onClose, onSaved }) {
   )
 }
 
+function LocationRequests({ branches, onDone }) {
+  const [reqs, setReqs] = useState([])
+  const [note, setNote] = useState({})
+  const [msg, setMsg] = useState(null)
+  const load = useCallback(() => {
+    supabase.from('branch_location_requests').select('*, employees:requested_by(full_name)').eq('status', 'pending').order('created_at', { ascending: false }).then(({ data }) => setReqs(data || []))
+  }, [])
+  useEffect(() => { load() }, [load])
+  const decide = async (r, ok) => {
+    setMsg(null)
+    const { error } = await supabase.rpc('decide_branch_location', { p_id: r.id, p_approve: ok, p_note: note[r.id] || null })
+    if (error) { setMsg({ ok: false, t: errMsg(error) }); return }
+    setMsg({ ok: true, t: ok ? 'تم اعتماد الموقع والبصمة بتشتغل عليه من الحين' : 'تم رفض الموقع' }); load(); onDone()
+  }
+  if (!reqs.length) return msg ? <div className={msg.ok ? 'notice' : 'error'}>{msg.t}</div> : null
+  const bmap = Object.fromEntries(branches.map((b) => [b.id, b]))
+  return (
+    <section>
+      <h2 style={{ fontSize: 18, marginBottom: 10 }}>مواقع فروع تنتظر موافقتك <span className="badge">{reqs.length}</span></h2>
+      {msg && <div className={msg.ok ? 'notice' : 'error'} style={{ marginBottom: 8 }}>{msg.t}</div>}
+      <div className="card list" style={{ padding: '4px 14px' }}>
+        {reqs.map((r) => {
+          const b = bmap[r.branch_id]
+          const moved = b?.latitude ? distance({ lat: b.latitude, lng: b.longitude }, { lat: r.latitude, lng: r.longitude }) : null
+          return (
+            <div key={r.id} className="list-item" style={{ flexWrap: 'wrap', alignItems: 'flex-start' }}>
+              <div className="grow" style={{ minWidth: 220 }}>
+                <div style={{ fontWeight: 600 }}>{b?.name} · أرسله {r.employees?.full_name || '—'}</div>
+                <div className="sub">{fmtDate(r.created_at)}{r.accuracy_m != null ? ` · دقة ±${r.accuracy_m} م` : ''}{moved != null ? ` · يبعد ${moved} م عن الموقع الحالي` : ' · الفرع ما له موقع لين الحين'}</div>
+                {r.accuracy_m > 60 && <div className="sub" style={{ color: 'var(--amber)' }}>الدقة ضعيفة، ممكن الموقع مو مضبوط</div>}
+                {r.note && <div className="sub">ملاحظة: {r.note}</div>}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
+                <a className="btn" style={{ minHeight: 36 }} href={mapLink(r.latitude, r.longitude)} target="_blank" rel="noreferrer"><Icon name="pin" /> شوفه على الخريطة</a>
+                <input className="input" style={{ height: 38, width: 200 }} placeholder="ملاحظة (اختياري)" value={note[r.id] || ''} onChange={(e) => setNote({ ...note, [r.id]: e.target.value })} />
+                <div className="row" style={{ gap: 6 }}>
+                  <button className="btn primary" style={{ minHeight: 38 }} onClick={() => decide(r, true)}>اعتماد</button>
+                  <button className="btn danger" style={{ minHeight: 38 }} onClick={() => decide(r, false)}>رفض</button>
+                </div>
+              </div>
+            </div>)
+        })}
+      </div>
+    </section>
+  )
+}
+
 export default function Branches() {
   const [branches, setBranches] = useState([])
   const [shifts, setShifts] = useState([])
@@ -90,6 +159,7 @@ export default function Branches() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      <LocationRequests branches={branches} onDone={load} />
       <section>
         <div className="page-head"><h1>الفروع</h1><button className="btn primary" onClick={() => setEb(null)}><Icon name="plus" /> فرع جديد</button></div>
         <div className="card list" style={{ padding: '4px 14px' }}>
@@ -100,6 +170,7 @@ export default function Branches() {
                 <div className="sub">{b.is_central_kitchen ? 'المطبخ المركزي · ' : ''}{b.latitude ? `الموقع محدد · ${b.geofence_radius_m} م` : 'الموقع مو محدد'}</div></span>
               {!b.active && <span className="pill gray">مقفل</span>}
               {!b.latitude && b.active && <span className="pill amber">حدد الموقع</span>}
+              {b.latitude && b.active && branches.some((o) => o.id !== b.id && o.active && o.latitude === b.latitude && o.longitude === b.longitude) && <span className="pill red">نفس موقع فرع ثاني</span>}
             </button>
           ))}
         </div>
