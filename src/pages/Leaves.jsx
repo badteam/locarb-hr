@@ -3,7 +3,7 @@ import { supabase, fmtDate, errMsg } from '../lib/supabase'
 import { useAccess } from '../lib/access.jsx'
 import Icon from '../components/Icon.jsx'
 import SignaturePad, { uploadSignature, SignatureImage } from '../components/SignaturePad.jsx'
-import { useLang } from '../lib/i18n.jsx'
+import { useLang, ErrorText } from '../lib/i18n.jsx'
 import { MedicalPicker, attachMedical, MedicalCheck } from '../components/Medical.jsx'
 
 const STATUS = { pending: ['amber', 'بانتظار الموافقة', 'st_pending'], approved: ['ok', 'مقبولة', 'st_approved'], rejected: ['red', 'مرفوضة', 'st_rejected'], cancelled: ['gray', 'ملغية', 'st_cancelled'] }
@@ -39,7 +39,7 @@ function RequestForm({ types, balance, empId, onClose, onSaved }) {
     <div className="overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <form className="sheet form" onSubmit={save}>
         <div className="sheet-head"><h2 style={{ fontSize: 20 }}>{tr('request_leave')}</h2>
-          <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose}><Icon name="x" /></button></div>
+          <button type="button" className="icon-btn" aria-label={tr('close')} onClick={onClose}><Icon name="x" /></button></div>
         <div className="notice">{tr('your_balance', { n: balance })}</div>
         <div className="field"><span className="lbl">{tr('leave_type')}</span>
           <div className="chips">{types.map((x) => <button type="button" key={x.id} className={'chip' + (type === x.id ? ' on' : '')} onClick={() => setType(x.id)}>{tn(x.name)}</button>)}</div>
@@ -52,7 +52,7 @@ function RequestForm({ types, balance, empId, onClose, onSaved }) {
         <div className="field"><label htmlFor="lr">{tr('reason')}</label><textarea id="lr" className="input" style={{ height: 80, paddingTop: 10 }} value={reason} onChange={(e) => setReason(e.target.value)} /></div>
         {t?.name === 'مرضية' && <MedicalPicker file={medical} onPick={setMedical} />}
         <SignaturePad onChange={(empty) => setSigned(!empty)} />
-        {err && <div className="error">{err}</div>}
+        <ErrorText text={err} />
         <button className="btn primary block" disabled={busy}>{busy ? tr('sending') : tr('send')}</button>
       </form>
     </div>

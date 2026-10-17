@@ -31,5 +31,6 @@ export const errMsg = (e) => {
   if (m.includes('punch mode device')) return 'هذا الموظف يبصم من جهاز البصمة في الفرع'
   if (m.includes('punch mode kiosk')) return 'هذا الموظف يبصم من آيباد الفرع'
   if (m.includes('row-level security')) return 'ما عندك صلاحية لهذا الإجراء'
+  if (/fetch|network|Failed to fetch|Load failed/i.test(m)) return 'صار خطأ، جرّب مرة ثانية'
   return m
 }

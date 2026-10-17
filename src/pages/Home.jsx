@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { supabase, todayKuwait } from '../lib/supabase'
+import { supabase, todayKuwait, errMsg } from '../lib/supabase'
 import { useAccess } from '../lib/access.jsx'
 import { useLang, LangPicker } from '../lib/i18n.jsx'
 import Icon from '../components/Icon.jsx'
@@ -19,7 +19,7 @@ const hhmm = (x) => (x ? x.slice(0, 5) : '')
 
 export default function Home() {
   const { access } = useAccess()
-  const { t, tn, fmtDate, fmtTime } = useLang()
+  const { t, tr, tn, fmtDate, fmtTime } = useLang()
   const emp = access.employee
   const [today, setToday] = useState(null)
   const [docAlert, setDocAlert] = useState(null)
@@ -63,7 +63,7 @@ export default function Home() {
       }
       await load()
     } catch (e) {
-      setMsg({ ok: false, text: e.message?.includes('already checked in') ? t('already_in') : e.message })
+      setMsg({ ok: false, text: e.message?.includes('already checked in') ? t('already_in') : tr(errMsg(e)) })
     }
     setBusy(false)
   }

@@ -96,6 +96,7 @@ export default function InvoiceDetail() {
   const [dup, setDup] = useState(null)
   const [addSupplier, setAddSupplier] = useState(false)
   const [rejecting, setRejecting] = useState(false)
+  const [reopen, setReopen] = useState(null)
   const [rejectNote, setRejectNote] = useState('')
   const [reviewNote, setReviewNote] = useState('')
   const [names, setNames] = useState({})
@@ -105,6 +106,7 @@ export default function InvoiceDetail() {
   const canReceive = can('receive_goods') || can('manage_suppliers') || can('approve_purchases')
   const canReview = can('approve_purchases')
   const canPay = can('supplier_payments')
+  const canReopen = can('approve_purchases') || can('manage_suppliers')
 
   const signed = async (paths) => {
     if (!paths?.length) return []
@@ -308,7 +310,21 @@ export default function InvoiceDetail() {
       {dup && <div className="error" style={{ marginBottom: 14 }}><Icon name="warn" /> انتبه: نفس المورد عنده فاتورة مدخلة من قبل بنفس الرقم {dup}. لا تدخلها مرتين.</div>}
       {inv.received_at && <div className="notice" style={{ marginBottom: 10 }}>استلمها {names[inv.received_by] || '—'} · {fmtDate(inv.received_at)}. البضاعة دخلت المخزون.{inv.receive_note ? ` ملاحظة: ${inv.receive_note}` : ''}</div>}
       {stage === 'review' && !canReview && <div className="notice" style={{ marginBottom: 14 }}>الفاتورة الحين عند المحاسب للمراجعة.</div>}
-      {inv.status === 'approved' && <div className="notice" style={{ marginBottom: 14 }}>راجعها {names[inv.approved_by] || '—'} · {fmtDate(inv.approved_at)}{inv.review_note ? ` · ${inv.review_note}` : ''}</div>}
+      {inv.status === 'approved' && <div className="notice" style={{ marginBottom: 14 }}>راجعها {names[inv.approved_by] || '—'} · {fmtDate(inv.approved_at)}{inv.review_note ? ` · ${inv.review_note}` : ''}{inv.reopen_count ? ` · انعدلت ${inv.reopen_count} مرة` : ''}</div>}
+      {inv.status === 'review' && inv.reopened_at && <div className="warn" style={{ marginBottom: 14 }}><Icon name="warn" /> الفاتورة انفتحت للتعديل بعد ما انعتمدت ({names[inv.reopened_by] || '—'} · {fmtDate(inv.reopened_at)}): {inv.reopen_reason}. عدّل الأصناف أو الكميات أو الأسعار واحفظ، وبعدين تحتاج موافقة من جديد. المخزون والتكلفة يتصححون بالفرق لما تنعتمد.</div>}
+      {inv.status === 'approved' && canReopen && (reopen === null
+        ? <button className="btn" style={{ marginBottom: 14 }} onClick={() => setReopen('')}><Icon name="refresh" /> تعديل الفاتورة (فيها غلط)</button>
+        : <div className="card form" style={{ marginBottom: 14, gap: 8 }}>
+            <strong>تعديل فاتورة معتمدة</strong>
+            <div className="sub">الفاتورة ترجع للمراجعة، تعدّل فيها، وبعدين تحتاج موافقة من جديد. الدفعات المسجلة تبقى، والمبلغ المستحق ينحسب من جديد.</div>
+            <input className="input" autoFocus placeholder="وش الغلط؟ (مثلاً: الصنف غلط، الكمية ٥ مو ٥٠)" value={reopen} onChange={(e) => setReopen(e.target.value)} />
+            <div className="row"><button className="btn primary" disabled={!reopen.trim() || !!busy} onClick={async () => {
+              setErr(''); setBusy('reopen')
+              const { error } = await supabase.rpc('reopen_purchase_invoice', { p_invoice: id, p_reason: reopen.trim() })
+              setBusy(''); if (error) setErr(invErr(error)); else { setReopen(null); load() }
+            }}>{busy === 'reopen' ? <span className="spinner" /> : null} افتحها للتعديل</button>
+              <button className="btn" onClick={() => setReopen(null)}>إلغاء</button></div>
+          </div>)}
       {inv.status === 'rejected' && <div className="error" style={{ marginBottom: 14 }}>انرفضت{inv.reject_note ? `: ${inv.reject_note}` : ''}{inv.received_at ? '. كمياتها طلعت من المخزون.' : ''}</div>}
       {msg && <div className="notice" style={{ marginBottom: 14 }}>{msg}</div>}
       {err && <div className="error" style={{ marginBottom: 14 }}>{err}</div>}
@@ -460,7 +476,7 @@ export default function InvoiceDetail() {
               <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
                 <button className="btn" disabled={!!busy || !dirty} onClick={onSave}>{busy === 'save' ? <span className="spinner" /> : null} حفظ التعديلات</button>
                 {stage === 'receive' && inv.image_paths?.length > 0 && <button className="btn" disabled={!!busy} onClick={onReread}><Icon name="refresh" /> اقرا الصورة من جديد</button>}
-                {canReview && <button className="btn danger" disabled={!!busy} onClick={() => setRejecting(true)}>رفض</button>}
+                {canReview && !inv.reopened_at && <button className="btn danger" disabled={!!busy} onClick={() => setRejecting(true)}>رفض</button>}
                 <span className="grow" />
                 {stage === 'receive' && <button className="btn danger" disabled={!!busy} onClick={onDelete}><Icon name="trash" /> حذف</button>}
               </div>

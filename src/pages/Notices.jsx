@@ -3,7 +3,7 @@ import { supabase, fmtDate, errMsg } from '../lib/supabase'
 import { useAccess } from '../lib/access.jsx'
 import Icon from '../components/Icon.jsx'
 import SignaturePad, { uploadSignature, SignatureImage } from '../components/SignaturePad.jsx'
-import { useLang } from '../lib/i18n.jsx'
+import { useLang, ErrorText } from '../lib/i18n.jsx'
 
 const TYPES = { warning: 'إنذار', final_warning: 'إنذار نهائي', deduction: 'خصم', other: 'إشعار' }
 const STATUS = { pending: ['amber', 'بانتظار التوقيع', 'ns_pending'], signed: ['ok', 'تم التوقيع', 'ns_signed'], refused: ['red', 'رفض التوقيع', 'ns_refused'] }
@@ -80,7 +80,7 @@ function SignSheet({ notice, empId, onClose, onSaved }) {
         <div className="field"><label htmlFor="sc">{t('your_comment')}</label><textarea id="sc" className="input" style={{ height: 70, paddingTop: 10 }} value={comment} onChange={(e) => setComment(e.target.value)} /></div>
         <SignaturePad onChange={(empty) => setSigned(!empty)} />
         <div className="sub">{t('sign_means')}</div>
-        {err && <div className="error">{err}</div>}
+        <ErrorText text={err} />
         <button className="btn primary block" disabled={busy} onClick={() => respond(true)}>{t('sign_receive')}</button>
         <button className="btn danger" disabled={busy} onClick={() => respond(false)}>{t('refuse_sign')}</button>
       </div>

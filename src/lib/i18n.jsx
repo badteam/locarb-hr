@@ -338,3 +338,10 @@ export function useT(forceAr) {
   if (!forceAr) return c
   return { ...c, lang: 'ar', dir: 'rtl', t: arT, tr: (a, p = {}) => String(a).replace(/\{(\w+)\}/g, (_, k) => (p[k] ?? '')), tn: (n) => n, fmtDate: arDate, fmtTime: arTime }
 }
+
+// Error line on employee screens: shared Arabic messages shown in the employee's language
+export function ErrorText({ text }) {
+  const { tr } = useLang()
+  if (!text) return null
+  return <div className="error">{tr(text)}</div>
+}

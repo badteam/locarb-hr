@@ -3,7 +3,7 @@ import { supabase, fmtDate, errMsg } from '../lib/supabase'
 import { useAccess } from '../lib/access.jsx'
 import { MedicalPicker, attachMedical, MedicalCheck } from '../components/Medical.jsx'
 import Icon from '../components/Icon.jsx'
-import { useLang } from '../lib/i18n.jsx'
+import { useLang, ErrorText } from '../lib/i18n.jsx'
 
 const KINDS = [
   { k: 'attended', t: 'حضرت ونسيت أبصم' },
@@ -42,7 +42,7 @@ function RequestForm({ date, defaultKind, onClose, onSaved }) {
     <div className="overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <form className="sheet form" onSubmit={save}>
         <div className="sheet-head"><h2 style={{ fontSize: 20 }}>{t('corr_form')}</h2>
-          <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose}><Icon name="x" /></button></div>
+          <button type="button" className="icon-btn" aria-label={t('close')} onClick={onClose}><Icon name="x" /></button></div>
         <div className="field"><label htmlFor="cd">{t('date')}</label><input id="cd" type="date" className="input" value={d} onChange={(e) => setD(e.target.value)} required /></div>
         <div className="field"><span className="lbl">{t('what_happened')}</span>
           <div className="chips">{KINDS.map((x) => <button type="button" key={x.k} className={'chip' + (kind === x.k ? ' on' : '')} onClick={() => setKind(x.k)}>{t('k_' + x.k)}</button>)}</div>
@@ -56,7 +56,7 @@ function RequestForm({ date, defaultKind, onClose, onSaved }) {
         {kind === 'leave' && <div className="sub">{t('leave_one_day')}</div>}
         {kind === 'sick' && <MedicalPicker file={medical} onPick={setMedical} />}
         <div className="field"><label htmlFor="cr">{t('reason')}</label><textarea id="cr" className="input" style={{ height: 80, paddingTop: 10 }} value={reason} onChange={(e) => setReason(e.target.value)} required /></div>
-        {err && <div className="error">{err}</div>}
+        <ErrorText text={err} />
         <button className="btn primary block" disabled={busy}>{t('send')}</button>
       </form>
     </div>

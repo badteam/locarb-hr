@@ -3,7 +3,7 @@ import { supabase, errMsg } from '../lib/supabase'
 import { readDocument, ext, compressImage } from '../lib/docs'
 import Icon from './Icon.jsx'
 import AddDocType from './AddDocType.jsx'
-import { useT } from '../lib/i18n.jsx'
+import { useT, ErrorText } from '../lib/i18n.jsx'
 
 function Upload({ label, file, onPick }) {
   const preview = file && file.type !== 'application/pdf' ? URL.createObjectURL(file) : null
@@ -110,7 +110,7 @@ export default function DocumentForm({ employeeId, doc, onClose, onSaved, onRead
           </div>
         </div>
 
-        {err && <div className="error">{err}</div>}
+        <ErrorText text={err} />
         <button className="btn primary block" disabled={busy}>
           {busy ? <><span className="spinner" /> {step === 'reading' ? t('reading_doc') : t('saving')}</> : t('upload_doc')}
         </button>
