@@ -80,7 +80,7 @@ function Alerts() {
     setBusy(false)
     if (error) setErr(invErr(error)); else { setMsg(data.new_alerts ? `طلع ${data.new_alerts} تنبيه جديد` : 'ما فيه شي جديد. كل شي طبيعي.'); load() }
   }
-  const seen = async (ids) => { await supabase.from('monitor_alerts').update({ seen_at: new Date().toISOString(), seen_by: access.employee.id }).in('id', ids); load() }
+  const seen = async (ids) => { await supabase.from('monitor_alerts').update({ seen_at: new Date().toISOString(), seen_by: access.employee.id }).in('id', ids); load(); window.dispatchEvent(new Event('badges-changed')) }
   return (
     <div>
       <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
@@ -303,12 +303,18 @@ function Setup() {
 
 export default function Monitor() {
   const [tab, setTab] = useState('alerts')
+  const [newCount, setNewCount] = useState(0)
+  useEffect(() => {
+    const load = () => supabase.from('monitor_alerts').select('id', { count: 'exact', head: true }).is('seen_at', null).then(({ count }) => setNewCount(count || 0))
+    load(); const t = setInterval(load, 30000); return () => clearInterval(t)
+  }, [tab])
   return (
     <div>
       <div className="page-head"><div><h1>المراقب</h1>
         <div className="sub">يقارن كل فرع بنفسه وبالفروع الثانية، بالطلبات مو بس بالفلوس، ويدوّر على السبب. يفحص كل يوم، وكل أحد يكتب لك تقرير.</div></div></div>
       <div className="chips" style={{ marginBottom: 14 }}>
-        {TABS.map(([k, l]) => <button key={k} className={'chip' + (tab === k ? ' on' : '')} onClick={() => setTab(k)}>{l}</button>)}
+        {TABS.map(([k, l]) => <button key={k} className={'chip' + (tab === k ? ' on' : '')} onClick={() => setTab(k)}>{l}
+          {k === 'alerts' && newCount ? <span className="badge" style={{ marginInlineStart: 6 }}>{newCount}</span> : null}</button>)}
       </div>
       {tab === 'alerts' && <Alerts />}
       {tab === 'report' && <Report />}

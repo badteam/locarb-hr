@@ -1,5 +1,5 @@
 import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useAccess } from './lib/access.jsx'
 import { supabase } from './lib/supabase'
 import Icon from './components/Icon.jsx'
@@ -61,6 +61,22 @@ function useUnread(enabled) {
   return n
 }
 
+// counts of things waiting for me, per page (leaves to approve, invoices to receive, new alerts…)
+function useBadges(enabled, path) {
+  const [b, setB] = useState({})
+  const load = useCallback(() => { supabase.rpc('my_badges').then(({ data }) => data && setB(data)) }, [])
+  useEffect(() => {
+    if (!enabled) return
+    load()
+    const t = setInterval(load, 60000)
+    window.addEventListener('badges-changed', load)
+    window.addEventListener('focus', load)
+    return () => { clearInterval(t); window.removeEventListener('badges-changed', load); window.removeEventListener('focus', load) }
+  }, [enabled, load])
+  useEffect(() => { if (enabled) load() }, [path, enabled, load])
+  return b
+}
+
 const BRANCH_PATHS = ['/inventory/orders', '/inventory/stock', '/inventory/count']
 const ADMIN_PATHS = ['/branch-location', '/devices', '/smart-upload', '/branch-docs', '/maintenance', '/transactions', '/settings', '/inventory', '/overtime', '/dashboard', '/payroll', '/attendance', '/documents', '/employees', '/branches', '/roles']
 
@@ -77,6 +93,7 @@ function Shell() {
   const { t, tr, dir } = useLang()
   const location = useLocation()
   const unread = useUnread(!!access)
+  const badges = useBadges(!!access, location.pathname)
   const [more, setMore] = useState(false)
   const adminPage = ADMIN_PATHS.some((p) => location.pathname.startsWith(p)) && !BRANCH_PATHS.some((p) => location.pathname.startsWith(p))
 
@@ -150,7 +167,10 @@ function Shell() {
     { to: '/devices/log', icon: 'list', label: tr('السجل'), show: canDev },
     { to: '/notifications', icon: 'bell', label: t('nav_notifications'), show: true, badge: unread },
   ]
-  const nav = (section === 'inv' ? invNav : section === 'dev' ? devNav : hrNav).filter((x) => x.show)
+  const withBadge = (list) => list.map((x) => ({ ...x, badge: x.badge ?? (badges[x.to] || 0) }))
+  const sum = (list) => list.filter((x) => x.show && x.to !== '/notifications').reduce((a, x) => a + (badges[x.to] || 0), 0)
+  const secCount = { hr: sum(hrNav), inv: sum(invNav), dev: sum(devNav) }
+  const nav = withBadge((section === 'inv' ? invNav : section === 'dev' ? devNav : hrNav).filter((x) => x.show))
 
   const INV_MOBILE = ['/inventory', '/inventory/orders', '/inventory/stock', '/inventory/invoices', '/inventory/reports']
   const pick = (paths) => paths.map((p) => nav.find((x) => x.to === p)).filter(Boolean)
@@ -163,9 +183,9 @@ function Shell() {
 
   const switcher = (canInvSection || canDev) && (
     <div className="seg no-print" role="tablist" aria-label={tr('القسم')}>
-      <NavLink to="/" className={section === 'hr' ? 'on' : ''} role="tab" aria-selected={section === 'hr'}><Icon name="users" size={18} /> {tr('الموارد البشرية')}</NavLink>
-      {canInvSection && <NavLink to={invHome} className={section === 'inv' ? 'on' : ''} role="tab" aria-selected={section === 'inv'}><Icon name="box" size={18} /> {tr('المخزون والتوريد')}</NavLink>}
-      {canDev && <NavLink to="/devices" className={section === 'dev' ? 'on' : ''} role="tab" aria-selected={section === 'dev'}><Icon name="door" size={18} /> {tr('الأجهزة والأبواب')}</NavLink>}
+      <NavLink to="/" className={section === 'hr' ? 'on' : ''} role="tab" aria-selected={section === 'hr'}><Icon name="users" size={18} /> {tr('الموارد البشرية')}{section !== 'hr' && secCount.hr ? <span className="badge">{secCount.hr}</span> : null}</NavLink>
+      {canInvSection && <NavLink to={invHome} className={section === 'inv' ? 'on' : ''} role="tab" aria-selected={section === 'inv'}><Icon name="box" size={18} /> {tr('المخزون والتوريد')}{section !== 'inv' && secCount.inv ? <span className="badge">{secCount.inv}</span> : null}</NavLink>}
+      {canDev && <NavLink to="/devices" className={section === 'dev' ? 'on' : ''} role="tab" aria-selected={section === 'dev'}><Icon name="door" size={18} /> {tr('الأجهزة والأبواب')}{section !== 'dev' && secCount.dev ? <span className="badge">{secCount.dev}</span> : null}</NavLink>}
     </div>
   )
 
@@ -243,7 +263,11 @@ function Shell() {
           </NavLink>
         ))}
         <a href="#more" onClick={(e) => { e.preventDefault(); setMore(true) }} className={more ? 'active' : ''}>
-          <Icon name="list" size={22} />
+          <span style={{ position: 'relative' }}>
+            <Icon name="list" size={22} />
+            {(() => { const shown = new Set(mobileNav.map((x) => x.to)); const n = nav.filter((x) => !shown.has(x.to)).reduce((a, x) => a + (x.badge || 0), 0)
+              return n ? <span className="badge" style={{ position: 'absolute', top: -6, left: -10 }}>{n}</span> : null })()}
+          </span>
           {t('more')}
         </a>
       </nav>

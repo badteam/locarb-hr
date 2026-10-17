@@ -154,6 +154,13 @@ export default function Overtime() {
   const [params, setParams] = useSearchParams()
   const tab = params.get('tab') || 'month'
   const [month, setMonth] = useState(todayKuwait().slice(0, 7))
+  const [pend, setPend] = useState({ month: 0, short: 0 })
+  useEffect(() => {
+    Promise.all([
+      supabase.from('overtime_entries').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+      supabase.from('short_hours').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+    ]).then(([a, b]) => setPend({ month: a.count || 0, short: b.count || 0 }))
+  }, [tab, month])
   const [rows, setRows] = useState([])
   const [att, setAtt] = useState({})
   const [employees, setEmployees] = useState([])
@@ -195,7 +202,7 @@ export default function Overtime() {
           {tab === 'month' && <button className="btn primary" onClick={() => setAdding(true)}><Icon name="plus" /> إضافي يدوي</button>}
         </div>
       </div>
-      <div className="chips">{[['month', 'إضافي الشهر'], ['short', 'ساعات ناقصة']].map(([k, t]) => <button key={k} className={'chip' + (tab === k ? ' on' : '')} onClick={() => setParams({ tab: k }, { replace: true })}>{t}</button>)}</div>
+      <div className="chips">{[['month', 'إضافي الشهر'], ['short', 'ساعات ناقصة']].map(([k, t]) => <button key={k} className={'chip' + (tab === k ? ' on' : '')} onClick={() => setParams({ tab: k }, { replace: true })}>{t}{pend[k] ? <span className="badge" style={{ marginInlineStart: 6 }}>{pend[k]}</span> : null}</button>)}</div>
 
       {tab === 'short' ? <ShortHours month={month} /> : <>
         {settings?.ot_mode === 'fixed' && !Number(settings?.ot_rate) && (
