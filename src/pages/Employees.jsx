@@ -4,6 +4,7 @@ import { useAccess } from '../lib/access.jsx'
 import Icon from '../components/Icon.jsx'
 import DocumentForm from '../components/DocumentForm.jsx'
 import ReviewSheet from '../components/ReviewSheet.jsx'
+import Avatar, { squarePhoto } from '../components/Avatar.jsx'
 import { uploadAttachment, readFile, readError, copyFile, ACCEPT } from '../lib/ai'
 import EmployeesIO from '../components/EmployeesIO.jsx'
 
@@ -71,6 +72,19 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
   const [busy, setBusy] = useState(false)
   const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
   const editable = can('manage_employees')
+  const [picPath, setPicPath] = useState(emp?.personal_pic_path || null)
+  const hrPhoto = async (file) => {
+    if (!file || !emp) return
+    try {
+      const f = await squarePhoto(file)
+      const path = `${emp.id}/${crypto.randomUUID()}.jpg`
+      const { error } = await supabase.storage.from('profile-pics').upload(path, f, { contentType: 'image/jpeg' })
+      if (error) throw error
+      const { error: e2 } = await supabase.from('employees').update({ personal_pic_path: path, pending_pic_path: null, pic_note: null }).eq('id', emp.id)
+      if (e2) throw e2
+      setPicPath(path); onSaved()
+    } catch (e2) { setErr(errMsg(e2)) }
+  }
   const isOwnerRow = emp?.app_role === 'admin'
 
   const resetPw = async () => {
@@ -139,7 +153,13 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
     <div className="overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <form className="sheet form" onSubmit={save}>
         <div className="sheet-head">
-          <h2 style={{ fontSize: 20 }}>{emp ? emp.full_name : 'موظف جديد'}</h2>
+          <div className="row">
+            {emp && <label style={{ cursor: editable ? 'pointer' : 'default' }} title="صورة الموظف">
+              <Avatar name={emp.full_name} path={picPath} size={64} />
+              {editable && <input type="file" accept="image/*" hidden onChange={(e) => { hrPhoto(e.target.files?.[0]); e.target.value = '' }} />}
+            </label>}
+            <h2 style={{ fontSize: 20 }}>{emp ? emp.full_name : 'موظف جديد'}</h2>
+          </div>
           <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose}><Icon name="x" /></button>
         </div>
         <fieldset disabled={!editable || (isOwnerRow && !access.is_owner)} style={{ border: 0, padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -298,6 +318,34 @@ function ChangeRequests({ branches, shifts, onDone }) {
   )
 }
 
+// Photos employees uploaded, waiting for HR
+function PhotoRequests({ emps, onDone }) {
+  const list = emps.filter((e) => e.pending_pic_path)
+  const [busy, setBusy] = useState('')
+  if (!list.length) return null
+  const decide = async (e, ok) => {
+    setBusy(e.id)
+    await supabase.rpc('decide_photo', { p_employee: e.id, p_approve: ok, p_note: ok ? null : 'الصورة ما تنفع، ارفع صورة واضحة لوجهك' })
+    setBusy(''); onDone()
+  }
+  return (
+    <section style={{ marginBottom: 16 }}>
+      <h2 style={{ fontSize: 18, marginBottom: 8 }}>صور بانتظار الموافقة <span className="badge">{list.length}</span></h2>
+      <div className="card list" style={{ padding: '4px 14px' }}>
+        {list.map((e) => (
+          <div key={e.id} className="list-item" style={{ flexWrap: 'wrap' }}>
+            <Avatar name={e.full_name} path={e.personal_pic_path} size={48} title="الصورة الحالية" />
+            <span className="sub">←</span>
+            <Avatar name={e.full_name} path={e.pending_pic_path} size={72} title="الصورة الجديدة" />
+            <span className="grow" style={{ fontWeight: 600 }}>{e.full_name}</span>
+            <button className="btn primary" style={{ minHeight: 38 }} disabled={busy === e.id} onClick={() => decide(e, true)}>اعتماد</button>
+            <button className="btn danger" style={{ minHeight: 38 }} disabled={busy === e.id} onClick={() => decide(e, false)}>رفض</button>
+          </div>))}
+      </div>
+    </section>
+  )
+}
+
 export default function Employees() {
   const { can } = useAccess()
   const [emps, setEmps] = useState([])
@@ -333,6 +381,7 @@ export default function Employees() {
         <div><h1>الموظفين</h1><div className="sub">{emps.filter((e) => e.active).length} موظف فعّال</div></div>
         {can('manage_employees') && <button className="btn primary" onClick={() => setEditing(null)}><Icon name="plus" /> موظف جديد</button>}
       </div>
+      {can('manage_employees') && <PhotoRequests emps={emps} onDone={load} />}
       {can('manage_employees') && <ChangeRequests branches={branches} shifts={shifts} onDone={load} />}
       <EmployeesIO branches={branches} shifts={shifts} roles={roles} onDone={load} />
       <div className="row" style={{ flexWrap: 'wrap', marginBottom: 12 }}>
@@ -346,7 +395,7 @@ export default function Employees() {
         {shown.length === 0 && <div className="empty">ما فيه موظفين</div>}
         {shown.map((e) => (
           <div key={e.id} className="list-item">
-            <div className="avatar">{e.full_name[0]}</div>
+            <Avatar name={e.full_name} path={e.personal_pic_path} size={40} />
             <button className="grow" style={{ background: 'none', border: 0, textAlign: 'right', cursor: 'pointer', padding: 0 }} onClick={() => setEditing(e)}>
               <div style={{ fontWeight: 600 }}>{e.full_name} {!e.active && <span className="pill gray">موقوف</span>}</div>
               <div className="sub">{[e.job_title, bName[e.branch_id], e.app_role === 'admin' ? 'المالك' : rName[e.role_id], `رصيد الإجازات: ${Number(e.leave_balance)} يوم`].filter(Boolean).join(' · ')}</div>

@@ -5,6 +5,7 @@ import { useAccess } from '../lib/access.jsx'
 import { useLang, LangPicker } from '../lib/i18n.jsx'
 import Icon from '../components/Icon.jsx'
 import PunchCode from '../components/PunchCode.jsx'
+import Avatar, { squarePhoto } from '../components/Avatar.jsx'
 
 const getPosition = () => new Promise((resolve) => {
   if (!navigator.geolocation) return resolve(null)
@@ -28,6 +29,20 @@ export default function Home() {
   const [notices, setNotices] = useState(0)
   const [ot, setOt] = useState({ a: 0, p: 0 })
   const [busy, setBusy] = useState(false)
+  const [photoMsg, setPhotoMsg] = useState(null)
+  const uploadPhoto = async (file) => {
+    if (!file) return
+    setPhotoMsg({ ok: true, t: t('wait') })
+    try {
+      const f = await squarePhoto(file)
+      const path = `${emp.id}/${crypto.randomUUID()}.jpg`
+      const { error } = await supabase.storage.from('profile-pics').upload(path, f, { contentType: 'image/jpeg' })
+      if (error) throw error
+      const { error: e2 } = await supabase.rpc('submit_my_photo', { p_path: path })
+      if (e2) throw e2
+      setPhotoMsg({ ok: true, t: t('photo_sent') }); reload()
+    } catch { setPhotoMsg({ ok: false, t: tr('صار خطأ، جرّب مرة ثانية') }) }
+  }
   const [msg, setMsg] = useState(null)
 
   const load = useCallback(async () => {
@@ -74,12 +89,19 @@ export default function Home() {
   return (
     <div style={{ maxWidth: 520, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div className="row">
-        <div className="avatar" style={{ width: 48, height: 48, borderRadius: 24, background: 'var(--green)', color: '#fff' }}>{emp.full_name?.[0]}</div>
+        <label style={{ position: 'relative', cursor: 'pointer' }} title={t('my_photo')}>
+          <Avatar name={emp.full_name} path={emp.personal_pic_path} size={56} style={{ background: 'var(--green)', color: '#fff' }} />
+          <span style={{ position: 'absolute', bottom: -2, insetInlineEnd: -2, background: '#fff', borderRadius: 10, width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 3px rgba(0,0,0,.2)' }}><Icon name="camera" size={13} /></span>
+          <input type="file" accept="image/*" hidden onChange={(e) => { uploadPhoto(e.target.files?.[0]); e.target.value = '' }} />
+        </label>
         <div className="grow">
           <h1 style={{ fontSize: 20 }}>{isMorning() ? t('good_morning') : t('good_evening')}, {emp.full_name.split(' ')[0]}</h1>
           <div className="sub">{[tn(emp.job_title), access.branch_name && `${t('branch')}: ${tn(access.branch_name)}`].filter(Boolean).join(' · ')}</div>
         </div>
       </div>
+      {photoMsg && <div className={photoMsg.ok ? 'notice' : 'error'}>{photoMsg.t}</div>}
+      {!photoMsg && emp.pending_pic_path && <div className="notice">{t('photo_pending')}</div>}
+      {!photoMsg && !emp.pending_pic_path && emp.pic_note && <div className="warn">{t('photo_rejected_note', { note: emp.pic_note })}</div>}
       <LangPicker />
 
       <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useAccess } from './lib/access.jsx'
 import { supabase } from './lib/supabase'
 import Icon from './components/Icon.jsx'
+import Avatar from './components/Avatar.jsx'
 import { LangProvider, useLang } from './lib/i18n.jsx'
 import Login from './pages/Login.jsx'
 import Home from './pages/Home.jsx'
@@ -179,7 +180,7 @@ function Shell() {
           </NavLink>
         ))}
         <div className="spacer" />
-        <div className="sub" style={{ padding: '0 12px 8px' }}>{access.employee.full_name} · {tr(access.role_name || '')}</div>
+        <div className="row" style={{ padding: '0 12px 8px', gap: 8 }}><Avatar name={access.employee.full_name} path={access.employee.personal_pic_path} size={32} /><span className="sub">{access.employee.full_name} · {tr(access.role_name || '')}</span></div>
         <button className="navlink" style={{ border: 0, background: 'none', cursor: 'pointer' }} onClick={() => supabase.auth.signOut()}>
           <Icon name="logout" /> {t('logout')}
         </button>
