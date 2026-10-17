@@ -52,6 +52,7 @@ function Settings({ onClose }) {
     e.preventDefault()
     const { error } = await supabase.from('payroll_settings').update({
       working_days_per_month: Number(s.working_days_per_month), hours_per_day: Number(s.hours_per_day),
+      driver_hours_per_day: Number(s.driver_hours_per_day) || Number(s.hours_per_day), official_grace_minutes: Number(s.official_grace_minutes) || 0, short_hours_tolerance: Number(s.short_hours_tolerance) || 0,
       late_deduction_enabled: s.late_deduction_enabled, absence_deduction_enabled: s.absence_deduction_enabled,
       monthly_leave_accrual: Number(s.monthly_leave_accrual),
       ot_mode: s.ot_mode, ot_rate: Number(s.ot_rate) || 0, ot_multiplier: Number(s.ot_multiplier) || 1,
@@ -64,10 +65,17 @@ function Settings({ onClose }) {
       <form className="sheet form" onSubmit={save}>
         <div className="sheet-head"><h2 style={{ fontSize: 20 }}>إعدادات الرواتب</h2>
           <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose}><Icon name="x" /></button></div>
-        <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-          <div className="field"><label htmlFor="wd">أيام العمل بالشهر</label><input id="wd" type="number" step="0.5" className="input" value={s.working_days_per_month} onChange={set('working_days_per_month')} /></div>
-          <div className="field"><label htmlFor="hd">ساعات العمل باليوم</label><input id="hd" type="number" step="0.5" className="input" value={s.hours_per_day} onChange={set('hours_per_day')} /></div>
+        <div className="card form" style={{ gap: 10 }}>
+          <strong style={{ fontSize: 15 }}>الدوام وساعات العمل</strong>
+          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <div className="field"><label htmlFor="hd">ساعات العمل باليوم (الموظفين)</label><input id="hd" type="number" step="0.5" className="input" value={s.hours_per_day} onChange={set('hours_per_day')} /></div>
+            <div className="field"><label htmlFor="dh">ساعات العمل باليوم (السواقين)</label><input id="dh" type="number" step="0.5" className="input" value={s.driver_hours_per_day} onChange={set('driver_hours_per_day')} /></div>
+            <div className="field"><label htmlFor="og">سماحية التأخير للدوام الرسمي (دقيقة)</label><input id="og" type="number" className="input" value={s.official_grace_minutes} onChange={set('official_grace_minutes')} /></div>
+            <div className="field"><label htmlFor="st">نبهني لو نقص أكثر من (دقيقة)</label><input id="st" type="number" className="input" value={s.short_hours_tolerance} onChange={set('short_hours_tolerance')} /></div>
+          </div>
+          <div className="sub">الموظف اللي له ساعات خاصة في ملفه، تمشي عليه ساعاته هو.</div>
         </div>
+        <div className="field"><label htmlFor="wd">أيام العمل بالشهر</label><input id="wd" type="number" step="0.5" className="input" value={s.working_days_per_month} onChange={set('working_days_per_month')} /></div>
         <label className="check"><input type="checkbox" checked={s.late_deduction_enabled} onChange={set('late_deduction_enabled')} /> خصم التأخير تلقائياً (بالدقيقة)</label>
         <label className="check"><input type="checkbox" checked={s.absence_deduction_enabled} onChange={set('absence_deduction_enabled')} /> خصم الغياب تلقائياً (باليوم)</label>
         <div className="field"><label htmlFor="ac">رصيد الإجازة اللي ينضاف كل شهر (يوم)</label><input id="ac" type="number" step="0.25" className="input" value={s.monthly_leave_accrual} onChange={set('monthly_leave_accrual')} /></div>

@@ -20,6 +20,7 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
     weekly_holidays: emp?.weekly_holidays || [], leave_balance: emp?.leave_balance ?? 0,
     ot_mode: emp?.ot_mode || '', ot_rate: emp?.ot_rate ?? '', ot_multiplier: emp?.ot_multiplier ?? '',
     civil_id: emp?.civil_id || '', nationality: emp?.nationality || '',
+    work_mode: emp?.work_mode || 'flexible', official_start: emp?.official_start?.slice(0, 5) || '', official_end: emp?.official_end?.slice(0, 5) || '', is_driver: emp?.is_driver || false,
     punch_mode: emp?.punch_mode || 'any', bio_pin: emp?.bio_pin || '',
   })
   // personal 4-digit code for the branch iPad
@@ -83,7 +84,9 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
   const save = async (e) => {
     e.preventDefault(); setBusy(true); setErr(''); setOk('')
     try {
-      const row = { ...f, branch_id: f.branch_id || null, shift_id: f.shift_id || null, role_id: f.role_id || null, hire_date: f.hire_date || null, phone: f.phone.replace(/\D/g, '') || null,
+      if (f.work_mode === 'shift' && !f.shift_id) throw new Error('اختار الشفت')
+      if (f.work_mode === 'official' && (!f.official_start || !f.official_end)) throw new Error('اكتب وقت بداية ونهاية الدوام الرسمي')
+      const row = { ...f, branch_id: f.branch_id || null, shift_id: f.work_mode === 'shift' ? f.shift_id || null : null, official_start: f.work_mode === 'official' ? f.official_start : null, official_end: f.work_mode === 'official' ? f.official_end : null, role_id: f.role_id || null, hire_date: f.hire_date || null, phone: f.phone.replace(/\D/g, '') || null,
         working_hours: f.working_hours === '' ? null : Number(f.working_hours), annual_leave_days: Number(f.annual_leave_days) || 0, leave_balance: Number(f.leave_balance) || 0,
         ot_mode: f.ot_mode || null, ot_rate: f.ot_mode === 'fixed' && f.ot_rate !== '' ? Number(f.ot_rate) : null, ot_multiplier: f.ot_mode === 'multiplier' && f.ot_multiplier !== '' ? Number(f.ot_multiplier) : null,
         civil_id: f.civil_id.replace(/\D/g, '') || null, nationality: f.nationality || null,
@@ -158,9 +161,19 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
             <div className="field"><label htmlFor="b">الفرع</label>
               <select id="b" className="input" value={f.branch_id} onChange={set('branch_id')}><option value="">—</option>{branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
-            <div className="field"><label htmlFor="s">الشفت</label>
-              <select id="s" className="input" value={f.shift_id} onChange={set('shift_id')}><option value="">—</option>{shifts.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)})</option>)}</select></div>
+            <label className="check" style={{ alignSelf: 'end', minHeight: 48 }}><input type="checkbox" checked={f.is_driver} onChange={set('is_driver')} /> سواق (ساعاته من إعداد السواقين)</label>
           </div>
+          <div className="field"><span className="lbl">نوع الدوام</span>
+            <div className="chips">{[['flexible', 'مرن (يكمّل ساعاته)'], ['official', 'دوام رسمي (وقت ثابت)'], ['shift', 'شفتات']].map(([k, t]) => (
+              <button type="button" key={k} className={'chip' + (f.work_mode === k ? ' on' : '')} onClick={() => setF({ ...f, work_mode: k })}>{t}</button>))}</div>
+            {f.work_mode === 'flexible' && <div className="sub">ما فيه تأخير. المهم يكمّل ساعاته باليوم، ولو نقص يوصل تنبيه لـHR.</div>}
+          </div>
+          {f.work_mode === 'shift' && <div className="field"><label htmlFor="s">الشفت</label>
+            <select id="s" className="input" value={f.shift_id} onChange={set('shift_id')}><option value="">اختار…</option>{shifts.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)})</option>)}</select></div>}
+          {f.work_mode === 'official' && <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <div className="field"><label htmlFor="os">يبدأ الساعة</label><input id="os" type="time" className="input" value={f.official_start} onChange={set('official_start')} /></div>
+            <div className="field"><label htmlFor="oe">ينتهي الساعة</label><input id="oe" type="time" className="input" value={f.official_end} onChange={set('official_end')} /></div>
+          </div>}
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
             <div className="field"><label htmlFor="r">الدور والصلاحيات</label>
               <select id="r" className="input" value={f.role_id} onChange={set('role_id')} disabled={!access.is_owner || isOwnerRow}>
@@ -169,7 +182,7 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
             <div className="field"><label htmlFor="h">تاريخ التعيين</label><input id="h" type="date" className="input" value={f.hire_date} onChange={set('hire_date')} /></div>
           </div>
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-            <div className="field"><label htmlFor="wh">ساعات العمل باليوم</label><input id="wh" type="number" step="0.5" className="input" value={f.working_hours} onChange={set('working_hours')} /></div>
+            <div className="field"><label htmlFor="wh">ساعات العمل باليوم (اختياري)</label><input id="wh" type="number" step="0.5" className="input" placeholder="من الإعدادات" value={f.working_hours} onChange={set('working_hours')} /></div>
             <div className="field"><label htmlFor="al">الإجازة السنوية (يوم)</label><input id="al" type="number" className="input" value={f.annual_leave_days} onChange={set('annual_leave_days')} /></div>
           </div>
           <div className="field"><span className="lbl">أيام العطلة الأسبوعية</span>

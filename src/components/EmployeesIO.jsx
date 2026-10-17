@@ -134,7 +134,7 @@ export default function EmployeesIO({ branches, shifts, roles, onDone }) {
         const activeRaw = s(g('active'))
         const row = {
           full_name: name, phone, email: s(g('email')) || null, job_title: s(g('job_title')) || null,
-          branch_id: branchName ? bByName[branchName] || null : null, shift_id: shiftName ? shByName[shiftName] || null : null,
+          branch_id: branchName ? bByName[branchName] || null : null, shift_id: shiftName ? shByName[shiftName] || null : null, ...(shiftName && shByName[shiftName] ? { work_mode: 'shift' } : {}),
           hire_date: dateStr(g('hire_date')), working_hours: num(g('working_hours')), annual_leave_days: num(g('annual_leave_days')) ?? 30,
           weekly_holidays: days, active: activeRaw ? !['لا', 'no', 'false', '0'].includes(activeRaw.toLowerCase()) : true,
         }

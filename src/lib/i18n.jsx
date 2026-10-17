@@ -109,6 +109,7 @@ const D = {
   expired_on: { ar: 'انتهى {d}', en: 'Expired {d}', ne: '{d} मा समाप्त भयो', hi: '{d} को समाप्त हुआ' },
   medical_report: { ar: 'إرفاق التقرير الطبي (إذا عندك)', en: 'Attach the medical report (if you have one)', ne: 'मेडिकल रिपोर्ट संलग्न गर्नुहोस् (भए)', hi: 'मेडिकल रिपोर्ट लगाएँ (अगर है)' },
   medical_attached: { ar: 'التقرير مرفق ✓', en: 'Report attached ✓', ne: 'रिपोर्ट संलग्न ✓', hi: 'रिपोर्ट लगा दी ✓' },
+  flexible_hours: { ar: 'دوام مرن · {n} ساعات باليوم', en: 'Flexible hours · {n} hours a day', ne: 'लचिलो समय · दिनको {n} घण्टा', hi: 'लचीला समय · रोज़ {n} घंटे' },
   more: { ar: 'المزيد', en: 'More', ne: 'थप', hi: 'और' },
   close: { ar: 'إغلاق', en: 'Close', ne: 'बन्द गर्नुहोस्', hi: 'बंद करें' },
   in_review: { ar: 'بانتظار المراجعة', en: 'Under review', ne: 'समीक्षामा', hi: 'समीक्षा में' },

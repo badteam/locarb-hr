@@ -86,9 +86,11 @@ export default function Home() {
           <strong>{fmtDate(new Date())}</strong>
           {access.shift && <span className="sub">{access.shift.name}</span>}
         </div>
-        {access.shift
+        {emp.work_mode === 'shift' && access.shift
           ? <div style={{ fontSize: 26, fontWeight: 600 }} className="ltr">{hhmm(access.shift.start_time)} — {hhmm(access.shift.end_time)}</div>
-          : <div className="sub">{t('no_shift')}</div>}
+          : emp.work_mode === 'official' && emp.official_start
+            ? <div style={{ fontSize: 26, fontWeight: 600 }} className="ltr">{hhmm(emp.official_start)} — {hhmm(emp.official_end)}</div>
+            : <div className="sub">{t('flexible_hours', { n: Number(access.daily_hours || 8) })}</div>}
       </div>
 
       <div style={{ padding: '18px 0', display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
