@@ -30,6 +30,7 @@ export default function Home() {
   const [ot, setOt] = useState({ a: 0, p: 0 })
   const [busy, setBusy] = useState(false)
   const [photoMsg, setPhotoMsg] = useState(null)
+  const [moved, setMoved] = useState(null) // { id, name, sent }
   const uploadPhoto = async (file) => {
     if (!file) return
     setPhotoMsg({ ok: true, t: t('wait') })
@@ -82,6 +83,11 @@ export default function Home() {
         if (data?.late_minutes > 0) text += ' · ' + t('late_by', { n: data.late_minutes })
         if (data?.inside_geofence === false) text += ' · ' + t('outside_branch')
         setMsg({ ok: true, text })
+        // punched inside another branch: ask if they moved there
+        if (data?.branch_id && data.branch_id !== emp.branch_id) {
+          const { data: b } = await supabase.from('branches').select('id,name').eq('id', data.branch_id).single()
+          if (b) setMoved({ id: b.id, name: b.name })
+        }
       }
       await load()
     } catch (e) {
@@ -134,6 +140,15 @@ export default function Home() {
           </button>
         )}
         {msg && <div className={msg.ok ? 'notice' : 'error'}>{msg.text}</div>}
+        {moved && !moved.sent && (
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10, textAlign: 'center', width: '100%' }}>
+            <strong style={{ fontSize: 17 }}>{t('ask_moved', { b: tn(moved.name) })}</strong>
+            <div className="row" style={{ justifyContent: 'center' }}>
+              <button className="btn primary" style={{ minWidth: 100 }} onClick={async () => { await supabase.rpc('request_branch_change', { p_branch: moved.id }); setMoved({ ...moved, sent: true }) }}>{t('yes')}</button>
+              <button className="btn" style={{ minWidth: 100 }} onClick={() => setMoved(null)}>{t('no')}</button>
+            </div>
+          </div>)}
+        {moved?.sent && <div className="notice">{t('sent_hr_ok')}</div>}
       </div>
 
       <div className="grid" style={{ gridTemplateColumns: 'repeat(3, minmax(0,1fr))' }}>
