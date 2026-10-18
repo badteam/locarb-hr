@@ -125,7 +125,7 @@ export default function Invoices() {
 
   const load = useCallback(() => {
     let q = supabase.from('purchase_invoices').select('id,invoice_no,invoice_date,status,received_at,created_at,supplier_name_read,total_due,paid_amount,payment_status,due_date,suppliers(name),employees:created_by(full_name),purchase_invoice_lines(qty,unit_price),discount')
-      .order('created_at', { ascending: false }).limit(300)
+      .eq('price_only', false).order('created_at', { ascending: false }).limit(300)
     if (tab === 'receive') q = q.in('status', OPEN_ST).is('received_at', null)
     else if (tab === 'review') q = q.eq('status', 'review').not('received_at', 'is', null)
     else if (tab === 'unpaid') q = q.eq('status', 'approved').neq('payment_status', 'paid')
@@ -135,7 +135,7 @@ export default function Invoices() {
       if (tab === 'unpaid') d.sort((a, b) => String(a.due_date || '9').localeCompare(String(b.due_date || '9')))
       setRows(d)
     })
-    supabase.from('purchase_invoices').select('status,received_at,payment_status,total_due,paid_amount,due_date')
+    supabase.from('purchase_invoices').select('status,received_at,payment_status,total_due,paid_amount,due_date').eq('price_only', false)
       .or('status.in.(draft,reading,review,failed),and(status.eq.approved,payment_status.neq.paid)').then(({ data }) => {
         const c = { receive: 0, review: 0, unpaid: 0, owed: 0, overdue: 0 }
         const now = new Date().toISOString().slice(0, 10)

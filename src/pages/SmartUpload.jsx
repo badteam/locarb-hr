@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { supabase, errMsg, fmtDate, todayKuwait } from '../lib/supabase'
 import { useAccess } from '../lib/access.jsx'
 import { uploadAttachment, readFile, readError, copyFile, openFile, ACCEPT } from '../lib/ai'
@@ -123,7 +123,7 @@ function Card({ item, lk, onUpdate, onReview }) {
 }
 
 export default function SmartUpload() {
-  const { access } = useAccess()
+  const { access, can } = useAccess()
   const [items, setItems] = useState([])
   const [lk, setLk] = useState(null)
   const [review, setReview] = useState(null)
@@ -155,7 +155,8 @@ export default function SmartUpload() {
 
   return (
     <div style={{ maxWidth: 900 }}>
-      <div className="page-head"><div><h1>رفع ذكي</h1><div className="sub">ارفع أي ورقة: بطاقة، رخصة، فاتورة، إيصال. النظام يعرف وش هي ولمين، وأنت تأكد وتحفظ.</div></div></div>
+      <div className="page-head"><div><h1>رفع ذكي</h1><div className="sub">ارفع أي ورقة: بطاقة، رخصة، فاتورة، إيصال. النظام يعرف وش هي ولمين، وأنت تأكد وتحفظ.</div></div>
+        {can('manage_inventory') && <Link className="btn" to="/inventory/price-fill">فواتير قديمة للأسعار بس</Link>}</div>
       <label className="upload" style={{ height: 150, marginBottom: 16 }}>
         <input type="file" accept={ACCEPT} multiple onChange={(e) => { add([...e.target.files]); e.target.value = '' }} />
         <Icon name="camera" size={30} /><strong style={{ fontSize: 15, color: 'var(--ink)' }}>اختار صور أو ملفات PDF</strong><span>تقدر تختار أكثر من ملف مرة وحدة</span>

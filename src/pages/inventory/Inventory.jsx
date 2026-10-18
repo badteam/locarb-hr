@@ -234,6 +234,35 @@ function NutritionCard({ itemId, canEdit, onChanged }) {
   )
 }
 
+// how the meal cost sees this item: price of a kilo / litre, 100 g and one piece
+function PriceBreakdown({ item, onFix }) {
+  const mu = MEASURE_UNITS[item.unit || '']
+  const grams = mu ? mu[0] : Number(item.unit_grams) || 0
+  const ml = (mu ? mu[1] : item.unit_measure) === 'ml'
+  const price = Number(item.last_price) || 0
+  const pcs = Number(item.unit_pieces) || 0
+  const big = ml ? 'اللتر' : 'الكيلو', small = ml ? '100 مل' : '100 جرام'
+  const row = (l, v, strong) => <div className="row"><span className="grow sub">{l}</span><span className="num" style={{ fontWeight: strong ? 700 : 500 }}>{v}</span></div>
+  return (
+    <div className="card form" style={{ gap: 6 }}>
+      <div style={{ fontWeight: 600 }}>حساب السعر (اللي بيستخدمه كوست الوجبات)</div>
+      {row(`الـ${item.unit || 'وحدة'} فيه`, grams ? `${fmtContent(grams, ml ? 'ml' : 'g')}${pcs > 1 ? ` · ${pcs} حبة` : ''}` : pcs ? `${pcs} حبة` : '—')}
+      {row(`سعر الـ${item.unit || 'وحدة'}`, price ? `${kwd(price)} د.ك` : 'ما لوش سعر')}
+      {grams > 0 && price > 0 && <>
+        {row(`سعر ${big}`, `${kwd(price / grams * 1000)} د.ك`, true)}
+        {row(`سعر ${small}`, `${kwd(price / grams * 100)} د.ك`, true)}
+        {row(`سعر الجرام`, `${(price / grams).toFixed(4)} د.ك`)}
+      </>}
+      {pcs > 1 && price > 0 && row('سعر الحبة', `${kwd(price / pcs)} د.ك`)}
+      {pcs > 1 && grams > 0 && row('وزن الحبة', fmtContent(grams / pcs, ml ? 'ml' : 'g'))}
+      {Number(item.avg_cost) > 0 && grams > 0 && Math.abs(Number(item.avg_cost) - price) > 0.0005 && row(`متوسط التكلفة لـ${big}`, `${kwd(Number(item.avg_cost) / grams * 1000)} د.ك`)}
+      {!grams && item.unit !== 'حبة' && <div className="warn"><Icon name="warn" /> الـ{item.unit} فيه كام كيلو أو لتر؟ مش متسجل، فكوست الوجبات ما يقدرش يحسب سعر الكيلو.
+        {onFix && <button className="chip" style={{ minHeight: 28, marginInlineStart: 6 }} onClick={onFix}>اكتبها</button>}</div>}
+      {!price && <div className="warn"><Icon name="warn" /> الصنف ما لوش سعر. ارفع فاتورة قديمة من «تسعير من فواتير قديمة».</div>}
+    </div>
+  )
+}
+
 function ItemSheet({ item, lookups, canEdit, onClose, onChanged }) {
   const [levels, setLevels] = useState([])
   const [moves, setMoves] = useState([])
@@ -270,9 +299,10 @@ function ItemSheet({ item, lookups, canEdit, onClose, onChanged }) {
         <ProductPhotoLarge itemId={item.id} />
         <div className="grid stats">
           <div className="card stat"><div className="label">في المطبخ</div><div className="value num">{qtyFmt(item.kitchen_qty)}</div><div className="sub">{item.unit}</div></div>
-          <div className="card stat"><div className="label">آخر سعر</div><div className="value num" style={{ fontSize: 22 }}>{kwd(item.last_price)}</div><div className="sub">د.ك</div></div>
+          <div className="card stat"><div className="label">آخر سعر</div><div className="value num" style={{ fontSize: 22 }}>{kwd(item.last_price)}</div><div className="sub">د.ك / {item.unit || 'وحدة'}</div></div>
           <div className="card stat"><div className="label">متوسط التكلفة</div><div className="value num" style={{ fontSize: 22 }}>{kwd(item.avg_cost)}</div><div className="sub">د.ك</div></div>
         </div>
+        <PriceBreakdown item={item} onFix={canEdit ? () => setEdit(true) : null} />
         {canEdit && <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
           <button className="btn" onClick={() => setEdit(true)}>تعديل الصنف</button>
           {item.active ? <button className="btn danger" onClick={() => setRemoving(true)}><Icon name="trash" /> حذف الصنف</button>
@@ -461,7 +491,7 @@ export default function Inventory() {
 
   const load = useCallback(() => {
     supabase.from('inv_stock').select('*').order('name_ar').then(({ data }) => setItems(data || []))
-    supabase.from('purchase_invoices').select('id', { count: 'exact', head: true }).in('status', ['draft', 'reading', 'review', 'failed']).then(({ count }) => setPending(count || 0))
+    supabase.from('purchase_invoices').select('id', { count: 'exact', head: true }).eq('price_only', false).in('status', ['draft', 'reading', 'review', 'failed']).then(({ count }) => setPending(count || 0))
   }, [])
   useEffect(() => { load(); loadLookups(true).then(setLookups); refreshProductImages() }, [load])
 
@@ -508,6 +538,7 @@ export default function Inventory() {
         <div><h1>المخزون</h1><div className="sub">المطبخ المركزي والفروع</div></div>
         <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
           {access.is_owner && <button className="btn danger" onClick={() => setResetOpen(true)}><Icon name="trash" /> مسح المخزون</button>}
+          {canEdit && <Link className="btn" to="/inventory/price-fill"><Icon name="receipt" /> تسعير من فواتير قديمة</Link>}
           {canEdit && <Link className="btn" to="/inventory/opening"><Icon name="doc" /> رصيد أول المدة</Link>}
           {canEdit && noNut.length > 0 && <button className="btn" disabled={!!filling} onClick={fillAll}>{filling ? <><span className="spinner" /> {filling.done}/{filling.total}</> : <>تعبئة السعرات الناقصة ({noNut.length})</>}</button>}
           {canEdit && <button className="btn" onClick={() => setCatsOpen(true)}><Icon name="list" /> التصنيفات</button>}

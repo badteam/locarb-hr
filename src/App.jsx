@@ -26,6 +26,7 @@ import BranchDocs from './pages/BranchDocs.jsx'
 import Maintenance from './pages/Maintenance.jsx'
 import Transactions from './pages/Transactions.jsx'
 import SmartUpload from './pages/SmartUpload.jsx'
+import PriceFill from './pages/inventory/PriceFill.jsx'
 import BranchLocation from './pages/BranchLocation.jsx'
 import Inventory from './pages/inventory/Inventory.jsx'
 import Invoices from './pages/inventory/Invoices.jsx'
@@ -234,6 +235,7 @@ function Shell() {
           {access.is_owner && <Route path="/settings" element={<Settings />} />}
           {canInv && <Route path="/inventory" element={<Inventory />} />}
           {can('manage_inventory') && <Route path="/inventory/opening" element={<OpeningBalance />} />}
+          {can('manage_inventory') && <Route path="/inventory/price-fill" element={<PriceFill />} />}
           {canInvoices && <Route path="/inventory/invoices" element={<Invoices />} />}
           {canInvoices && <Route path="/inventory/invoices/:id" element={<InvoiceDetail />} />}
           {canMonitor && <Route path="/inventory/monitor" element={<Monitor />} />}
