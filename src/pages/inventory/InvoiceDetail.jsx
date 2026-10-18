@@ -8,6 +8,66 @@ import { PaymentForm } from './Payments.jsx'
 import { ItemForm } from './Inventory.jsx'
 import { SupplierForm } from './Suppliers.jsx'
 import Icon from '../../components/Icon.jsx'
+import UnitContent, { parsePack, isMeasureUnit, NONFOOD_CATS, MEASURE_UNITS, fmtContent } from '../../components/UnitContent.jsx'
+
+const CARTON_RE = /^(ctn|ctns|carton|cartons|box|bx|cs|case|كرتون|كرتونة|كرتونه|صندوق)$/i
+
+// Makes sure the system knows what is inside one unit, so the meal cost can price a kilo / 100 g.
+function PackHint({ line, info, editable, onFactor, onSaved }) {
+  const [c, setC] = useState(null)
+  const [busy, setBusy] = useState(false)
+  if (!line.item || !info || info.nonfood) return null
+  const unit = info.unit || line.item.unit
+  const pk = parsePack(line.raw_name)
+  const f = Number(line.pack_factor) || 1
+  const invCarton = CARTON_RE.test(String(line.unit_text || '').trim()) || /كرتون|ctn/i.test(line.raw_name || '')
+  const mu = MEASURE_UNITS[unit || '']
+  const save = async (patch) => {
+    setBusy(true)
+    const r = await supabase.from('inv_items').update(patch).eq('id', line.item.id)
+    setBusy(false)
+    if (!r.error) { onSaved(patch); setC(null) }
+  }
+  const box = (children, warn = true) => <div className="form" style={{ gap: 6, background: warn ? '#FFFBEB' : '#F7F9F5', borderRadius: 10, padding: 10, fontSize: 14 }}>{children}</div>
+
+  if (pk && editable) {
+    // stock unit is kilo/litre: one invoice carton = total kilos
+    if (mu) {
+      const want = +(pk.total / mu[0]).toFixed(3)
+      if (Math.abs(want - f) > 0.001) return box(<>
+        <div>الفاتورة بتقول الكرتونة فيها <b>{pk.n} × {fmtContent(pk.each, pk.measure)}</b> = {fmtContent(pk.total, pk.measure)}. والصنف متسجل بالـ{unit}.</div>
+        <div><button type="button" className="btn primary" style={{ minHeight: 34 }} onClick={() => onFactor(want)}>خلي الكرتونة = {want} {unit}</button></div></>)
+      return null
+    }
+    // stock unit is the carton itself
+    if (/كرتون/.test(unit || '')) {
+      { const ug = Number(info.unit_grams || 0)
+      // net weight (e.g. frozen with glaze) can be a bit under the gross weight on the invoice
+      if (!ug || ug < pk.total * 0.6 || ug > pk.total * 1.05) return box(<>
+        <div>الفاتورة بتقول الكرتونة فيها <b>{pk.n} × {fmtContent(pk.each, pk.measure)}</b> = {fmtContent(pk.total, pk.measure)}{info.unit_grams ? `، والمتسجل في الصنف ${fmtContent(info.unit_grams, info.unit_measure)}` : ''}.</div>
+        <div><button type="button" className="btn primary" disabled={busy} style={{ minHeight: 34 }} onClick={() => save({ unit_grams: pk.total, unit_pieces: pk.n, unit_measure: pk.measure })}>احفظ: الكرتونة = {fmtContent(pk.total, pk.measure)} ({pk.n} حبة)</button></div></>) }
+      return null
+    }
+    // stock unit is a bag/pack/piece but the invoice sells cartons of N
+    if (invCarton && f !== pk.n) return box(<>
+      <div>الفاتورة بالكرتونة، والكرتونة فيها <b>{pk.n} {unit}</b> كل واحد {fmtContent(pk.each, pk.measure)}. والمخزون بالـ{unit}.</div>
+      <div><button type="button" className="btn primary" disabled={busy} style={{ minHeight: 34 }} onClick={async () => {
+        onFactor(pk.n)
+        if (Math.abs(Number(info.unit_grams || 0) - pk.each) > 1) await save({ unit_grams: pk.each, unit_measure: pk.measure })
+      }}>خلي الكرتونة = {pk.n} {unit}</button></div></>)
+  }
+
+  // weight of the stock unit is unknown: ask once, it is saved on the item
+  if (!mu && unit !== 'حبة' && !Number(info.unit_grams)) {
+    if (!editable) return box(<div>الـ{unit} فيه كام كيلو؟ ناقص في الصنف، والكوست ما يقدر يحسب سعر الكيلو.</div>)
+    const v = c || { grams: null, pieces: info.unit_pieces, measure: info.unit_measure || 'g' }
+    return box(<>
+      <UnitContent unit={unit} grams={v.grams} pieces={v.pieces} measure={v.measure} required compact onChange={setC} />
+      <div><button type="button" className="btn primary" style={{ minHeight: 34 }} disabled={busy || !Number(v.grams)}
+        onClick={() => save({ unit_grams: Number(v.grams), unit_measure: v.measure, unit_pieces: v.pieces == null ? null : Number(v.pieces) })}>احفظ في الصنف</button></div></>)
+  }
+  return null
+}
 
 let tmpId = 0
 
@@ -89,6 +149,7 @@ export default function InvoiceDetail() {
   const [goodsUrls, setGoodsUrls] = useState([])
   const [lookups, setLookups] = useState(null)
   const [prev, setPrev] = useState({})
+  const [itemInfo, setItemInfo] = useState({})
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
@@ -155,10 +216,11 @@ export default function InvoiceDetail() {
     const ids = [...new Set(lines.map((l) => l.item?.id).filter(Boolean))]
     if (!ids.length) { setPrev({}); return }
     Promise.all([
-      supabase.from('inv_items').select('id,last_price').in('id', ids),
+      supabase.from('inv_items').select('id,last_price,unit_grams,unit_pieces,unit_measure,inv_units(name),inv_categories(name)').in('id', ids),
       head.supplier_id ? supabase.from('supplier_items').select('item_id,last_price,pack_factor').eq('supplier_id', head.supplier_id).in('item_id', ids) : Promise.resolve({ data: [] }),
     ]).then(([a, b]) => {
       const p = Object.fromEntries((a.data || []).map((x) => [x.id, { unit: Number(x.last_price) }]))
+      setItemInfo(Object.fromEntries((a.data || []).map((x) => [x.id, { unit: x.inv_units?.name, unit_grams: x.unit_grams, unit_pieces: x.unit_pieces, unit_measure: x.unit_measure, nonfood: NONFOOD_CATS.includes(x.inv_categories?.name || '') }])))
       for (const x of b.data || []) p[x.item_id] = { unit: Number(x.last_price) / (Number(x.pack_factor) || 1) }
       setPrev(p)
     })
@@ -420,6 +482,10 @@ export default function InvoiceDetail() {
                     <span className="grow" />
                     <span>يدخل المخزون: <strong className="num">{qtyFmt(recv * f)}</strong> {l.item.unit || ''}</span>
                   </div>)}
+
+                <PackHint line={l} info={l.item ? itemInfo[l.item.id] : null} editable={editable}
+                  onFactor={(n) => setL(i, { pack_factor: n })}
+                  onSaved={(patch) => setItemInfo((m) => ({ ...m, [l.item.id]: { ...m[l.item.id], ...patch } }))} />
 
                 {pSupplierUnit != null && (
                   <div className="sub">آخر سعر <span className="num">{kwd(pSupplierUnit)}</span>

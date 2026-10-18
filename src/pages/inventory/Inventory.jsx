@@ -8,6 +8,10 @@ import Icon from '../../components/Icon.jsx'
 import ProductImage, { ProductPhotoLarge, refreshProductImages } from '../../components/ProductImage.jsx'
 import { loginEmail } from '../../lib/supabase'
 import { compress } from './Invoices.jsx'
+import UnitContent, { isMeasureUnit, NONFOOD_CATS, MEASURE_UNITS, fmtContent } from '../../components/UnitContent.jsx'
+
+// a food item counted in cartons/bags/packs whose weight is unknown cannot be costed per gram
+const needsContent = (i) => i.active && !i.nonfood && i.unit && !isMeasureUnit(i.unit) && i.unit !== 'حبة' && !Number(i.unit_grams)
 
 const PAGE = 100
 
@@ -18,10 +22,14 @@ export function ItemForm({ item, lookups, onClose, onSaved, presetName }) {
     min_qty: item?.min_qty ?? 0, is_critical: item?.is_critical || false, active: item?.active ?? true, notes: item?.notes || '',
     kcal_100: item?.kcal_100 ?? '', protein_100: item?.protein_100 ?? '', carbs_100: item?.carbs_100 ?? '', fat_100: item?.fat_100 ?? '',
   })
-  const [prot, setProt] = useState({ groups: [], value: '', grams: '' })
+  const [prot, setProt] = useState({ groups: [], value: '' })
+  const [content, setContent] = useState({ grams: null, pieces: null, measure: 'g' })
   useEffect(() => {
     supabase.from('protein_groups').select('key,name_ar').order('sort_order').then(({ data }) => setProt((p) => ({ ...p, groups: data || [] })))
-    if (item?.id) supabase.from('inv_items').select('protein_group,unit_grams').eq('id', item.id).single().then(({ data }) => setProt((p) => ({ ...p, value: data?.protein_group || '', grams: data?.unit_grams ?? '' })))
+    if (item?.id) supabase.from('inv_items').select('protein_group,unit_grams,unit_pieces,unit_measure').eq('id', item.id).single().then(({ data }) => {
+      setProt((p) => ({ ...p, value: data?.protein_group || '' }))
+      setContent({ grams: data?.unit_grams ?? null, pieces: data?.unit_pieces ?? null, measure: data?.unit_measure || 'g' })
+    })
   }, [item?.id])
   const [newCat, setNewCat] = useState({ name: '', name_en: '' })
   const [err, setErr] = useState('')
@@ -31,6 +39,10 @@ export function ItemForm({ item, lookups, onClose, onSaved, presetName }) {
   const save = async (e) => {
     e.preventDefault(); setErr('')
     if (!f.name_ar.trim() || !f.name_en.trim()) { setErr('لازم تكتب اسم الصنف بالعربي وبالإنجليزي'); return }
+    const unitName = lookups.units.find((u) => u.id === f.unit_id)?.name
+    const catName = lookups.categories.find((c) => c.id === f.category_id)?.name
+    const needContent = f.unit_id && !isMeasureUnit(unitName) && unitName !== 'حبة' && !NONFOOD_CATS.includes(catName) && f.active
+    if (needContent && !Number(content.grams)) { setErr(`اكتب الـ${unitName} فيه كام كيلو أو جرام أو لتر، عشان السيستم يحسب سعر الكيلو في كوست الوجبات`); return }
     setBusy(true)
     let category_id = f.category_id || null
     if (category_id === '__new') {
@@ -41,7 +53,10 @@ export function ItemForm({ item, lookups, onClose, onSaved, presetName }) {
     const nv = (v) => (v === '' || v == null ? null : Number(v))
     const nut = { kcal_100: nv(f.kcal_100), protein_100: nv(f.protein_100), carbs_100: nv(f.carbs_100), fat_100: nv(f.fat_100) }
     const nutChanged = ['kcal_100', 'protein_100', 'carbs_100', 'fat_100'].some((k) => nut[k] !== (item?.[k] == null ? null : Number(item[k])))
-    const protRow = prot.value || item?.id ? { protein_group: prot.value || null, unit_grams: prot.grams === '' ? null : Number(prot.grams) } : {}
+    const mu = MEASURE_UNITS[lookups.units.find((u) => u.id === f.unit_id)?.name || '']
+    const protRow = { ...(prot.value || item?.id ? { protein_group: prot.value || null } : {}),
+      unit_grams: mu ? mu[0] : Number(content.grams) || null, unit_measure: mu ? mu[1] : content.measure || 'g',
+      unit_pieces: content.pieces == null || content.pieces === '' ? null : Number(content.pieces) }
     const row = { ...f, ...nut, ...protRow, category_id, unit_id: f.unit_id || null, min_qty: Number(f.min_qty) || 0, name_ar: f.name_ar.trim(), name_en: f.name_en.trim(), notes: f.notes || null,
       ...(nutChanged ? { nutrition_source: 'إدخال يدوي', nutrition_updated_at: new Date().toISOString() } : {}) }
     const r = item ? await supabase.from('inv_items').update(row).eq('id', item.id).select().single() : await supabase.from('inv_items').insert(row).select().single()
@@ -75,15 +90,18 @@ export function ItemForm({ item, lookups, onClose, onSaved, presetName }) {
         <div className="field"><label htmlFor="mq">الحد الأدنى في المطبخ</label>
           <input id="mq" type="number" step="any" min="0" className="input" value={f.min_qty} onChange={set('min_qty')} />
           <div className="sub">لما الكمية تنزل تحت هالرقم، الصنف يطلع لك باللون الأصفر.</div></div>
-        <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-          <div className="field"><label htmlFor="pg">بروتين يراقبه النظام</label>
-            <select id="pg" className="input" value={prot.value} onChange={(e) => setProt({ ...prot, value: e.target.value })}>
-              <option value="">{item?.id ? 'لا' : 'يتحدد تلقائي من الاسم'}</option>
-              {prot.groups.map((g) => <option key={g.key} value={g.key}>{g.name_ar}</option>)}
-            </select></div>
-          <div className="field"><label htmlFor="ug">وزن الوحدة بالجرام</label>
-            <input id="ug" type="number" min="0" step="any" className="input num" value={prot.grams} onChange={(e) => setProt({ ...prot, grams: e.target.value })} placeholder="مثلاً الكيس ١٠٠٠" /></div>
-        </div>
+        {(() => {
+          const un = lookups.units.find((u) => u.id === f.unit_id)?.name
+          if (!f.unit_id || isMeasureUnit(un)) return null
+          const cn = lookups.categories.find((c) => c.id === f.category_id)?.name
+          return <UnitContent unit={un} grams={content.grams} pieces={content.pieces} measure={content.measure}
+            required={un !== 'حبة' && !NONFOOD_CATS.includes(cn)} onChange={setContent} />
+        })()}
+        <div className="field"><label htmlFor="pg">بروتين يراقبه النظام</label>
+          <select id="pg" className="input" value={prot.value} onChange={(e) => setProt({ ...prot, value: e.target.value })}>
+            <option value="">{item?.id ? 'لا' : 'يتحدد تلقائي من الاسم'}</option>
+            {prot.groups.map((g) => <option key={g.key} value={g.key}>{g.name_ar}</option>)}
+          </select></div>
         <div className="field"><span className="lbl">القيمة الغذائية لكل ١٠٠ جرام</span>
           <div className="grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
             {[['kcal_100', 'سعرات'], ['protein_100', 'بروتين'], ['carbs_100', 'كارب'], ['fat_100', 'دهون']].map(([k, l]) => (
@@ -454,6 +472,7 @@ export default function Inventory() {
       (!cat || i.category_id === cat) &&
       (filter !== 'low' || Number(i.kitchen_qty) < Number(i.min_qty)) &&
       (filter !== 'critical' || i.is_critical) &&
+      (filter !== 'content' || needsContent(i)) &&
       (!s || i.name_ar.toLowerCase().includes(s) || (i.name_en || '').toLowerCase().includes(s)))
   }, [items, q, cat, filter])
 
@@ -462,6 +481,7 @@ export default function Inventory() {
   const value = active.reduce((a, i) => a + Math.max(Number(i.kitchen_qty), 0) * Number(i.avg_cost || 0), 0)
   const canEdit = can('manage_inventory')
   const noNut = active.filter((i) => i.kcal_100 == null)
+  const noContent = active.filter(needsContent).length
   const fillAll = async () => {
     const { data: rows } = await supabase.from('inv_items').select('id,nutrition_label_path').in('id', noNut.map((i) => i.id))
     const withLabel = new Set((rows || []).filter((r) => r.nutrition_label_path).map((r) => r.id))
@@ -515,7 +535,7 @@ export default function Inventory() {
         </select>
       </div>
       <div className="chips" style={{ marginBottom: 14 }}>
-        {[['all', 'الكل'], ['low', 'تحت الحد الأدنى'], ['critical', 'الجرد اليومي'], ['inactive', 'موقوفة']].map(([k, l]) =>
+        {[['all', 'الكل'], ['low', 'تحت الحد الأدنى'], ['critical', 'الجرد اليومي'], ...(noContent ? [['content', `ناقص وزن الكرتونة/الكيس (${noContent})`]] : []), ['inactive', 'موقوفة']].map(([k, l]) =>
           <button key={k} className={'chip' + (filter === k ? ' on' : '')} onClick={() => { setFilter(k); setLimit(PAGE) }}>{l}</button>)}
       </div>
 
@@ -530,7 +550,9 @@ export default function Inventory() {
                   <td><div className="row" style={{ gap: 10 }}><ProductImage itemId={i.id} size={42} />
                     <div><div style={{ fontWeight: 500 }}>{i.name_ar}</div><div className="cell-sub ltr">{i.name_en}</div>
                       {i.kcal_100 != null ? <div className="cell-sub">{Math.round(i.kcal_100)} سعرة/١٠٠غ · ب {Number(i.protein_100 ?? 0).toFixed(0)} · ك {Number(i.carbs_100 ?? 0).toFixed(0)} · د {Number(i.fat_100 ?? 0).toFixed(0)}{nutSource(i.nutrition_source) ? <> · <span className={'pill ' + nutSource(i.nutrition_source).cls} style={{ fontSize: 11, padding: '0 6px' }}>{nutSource(i.nutrition_source).label}</span></> : null}</div>
-                        : <div className="cell-sub" style={{ color: 'var(--amber)' }}>بدون سعرات</div>}</div></div></td>
+                        : <div className="cell-sub" style={{ color: 'var(--amber)' }}>بدون سعرات</div>}
+                      {needsContent(i) ? <div className="cell-sub" style={{ color: 'var(--amber)' }}>الـ{i.unit} فيه كام كيلو؟ ناقص</div>
+                        : i.unit_grams && !isMeasureUnit(i.unit) ? <div className="cell-sub">الـ{i.unit} = {fmtContent(i.unit_grams, i.unit_measure)}{Number(i.unit_pieces) > 1 ? ` · ${Number(i.unit_pieces)} حبة` : ''}</div> : null}</div></div></td>
                   <td className="sub">{i.category}</td>
                   <td><span className="num" style={{ fontWeight: 600 }}>{qtyFmt(i.kitchen_qty)}</span> <span className="sub">{i.unit}</span></td>
                   <td className="num sub">{Number(i.min_qty) ? qtyFmt(i.min_qty) : '—'}</td>
