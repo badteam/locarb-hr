@@ -1,6 +1,7 @@
 // Arabic phrase -> { en, ne, hi }. Used by tr() for menus and the screens branch staff use.
 // {n}, {v}, {b}, {d} are filled in at run time.
 const P = {
+  'أسعار الأصناف': { en: 'Item prices', ne: 'सामानको मूल्य', hi: 'सामान के दाम' },
   // newer menu items and shared error messages
   'رفع ذكي': { en: 'Smart upload', ne: 'स्मार्ट अपलोड', hi: 'स्मार्ट अपलोड' },
   'مستندات الموظفين': { en: 'Employee documents', ne: 'कर्मचारी कागजात', hi: 'कर्मचारी दस्तावेज़' },

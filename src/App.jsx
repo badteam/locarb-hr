@@ -35,6 +35,7 @@ import SupplierProfile from './pages/inventory/SupplierProfile.jsx'
 import Sales from './pages/inventory/Sales.jsx'
 import Monitor from './pages/inventory/Monitor.jsx'
 import Movements from './pages/inventory/Movements.jsx'
+import Prices from './pages/inventory/Prices.jsx'
 import Orders from './pages/inventory/Orders.jsx'
 import Settings from './pages/Settings.jsx'
 import BranchStock from './pages/inventory/BranchStock.jsx'
@@ -159,6 +160,7 @@ function Shell() {
     { to: '/inventory/invoices', icon: 'receipt', label: tr('فواتير الموردين'), show: canInvoices },
     { to: '/inventory/suppliers', icon: 'truck', label: tr('الموردين'), show: canSuppliers },
     { to: '/inventory/movements', icon: 'arrows', label: tr('حركة المخزون'), show: canInv },
+    { to: '/inventory/prices', icon: 'receipt', label: tr('أسعار الأصناف'), show: can('manage_inventory') },
     { to: '/settings', icon: 'gear', label: tr('الإعدادات'), show: access.is_owner },
     { to: '/notifications', icon: 'bell', label: t('nav_notifications'), show: true, badge: unread },
   ]
@@ -239,6 +241,7 @@ function Shell() {
           {canSuppliers && <Route path="/inventory/suppliers" element={<Suppliers />} />}
           {canSuppliers && <Route path="/inventory/suppliers/:id" element={<SupplierProfile />} />}
           {canInv && <Route path="/inventory/movements" element={<Movements />} />}
+          {can('manage_inventory') && <Route path="/inventory/prices" element={<Prices />} />}
           {canOrders && <Route path="/inventory/orders" element={<Orders />} />}
           {canCount && <Route path="/inventory/stock" element={<BranchStock />} />}
           {canCount && <Route path="/inventory/count" element={<StockCount />} />}
