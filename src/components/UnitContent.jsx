@@ -5,16 +5,36 @@ export const MEASURE_UNITS = { 'كغ': [1000, 'g'], 'كيلو': [1000, 'g'], 'غ
 export const isMeasureUnit = (u) => !!MEASURE_UNITS[u || '']
 export const NONFOOD_CATS = ['تغليف', 'تنظيف', 'قرطاسية', 'أدوات ومستلزمات العمل']
 
-// "10 X 1KG", "24X340G", "4x3.78L", "6 × 2 كجم", "40X250G" -> { n, each, total, measure }
+const U = '(kgs?|كجم|كغم?|كيلو|grams?|gms?|grms?|gr|g|جم|جرام|غرام|غ|ltrs?|lt|l|لتر|ملي|ml|مل)'
+const norm = (t) => String(t || '').replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/,/g, '.')
+const toG = (v, u) => {
+  u = u.toLowerCase()
+  const big = /^(kgs?|كجم|كغم?|كيلو|ltrs?|lt|l|لتر)$/.test(u)
+  return { each: big ? v * 1000 : v, measure: /^(ltrs?|lt|l|لتر|ملي|ml|مل)$/.test(u) ? 'ml' : 'g' }
+}
+
+// "10 X 1KG", "24X340G", "4x3.78L", "6 عبوات × 2 كجم", "250 ملي × 30 حبة" -> { n, each, total, measure }
 export function parsePack(text) {
-  const s = String(text || '').replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/,/g, '.')
-  const m = s.match(/(\d+)\s*(?:[^\d\s×xX*()]{1,8}\s*)?(?:x|X|×|\*)\s*(\d+(?:\.\d+)?)\s*(kgs?|كجم|كغ|كيلو|grams?|gms?|grm?s?|g|جم|غ|غرام|جرام|ltrs?|lt|l|لتر|ml|مل)(?![a-z])/i)
-  if (!m) return null
-  const n = Number(m[1]), v = Number(m[2]), u = m[3].toLowerCase()
-  const kilo = /^(kg|kgs|كجم|كغ|كيلو)$/.test(u), litre = /^(ltr|ltrs|lt|l|لتر)$/.test(u), ml = /^(ml|مل)$/.test(u)
-  const each = kilo || litre ? v * 1000 : v
-  if (!n || !each) return null
-  return { n, each, total: n * each, measure: litre || ml ? 'ml' : 'g' }
+  const s = norm(text)
+  let m = s.match(new RegExp(`(\\d+)\\s*(?:[^\\d\\s×xX*()]{1,8}\\s*)?(?:x|×|\\*)\\s*(\\d+(?:\\.\\d+)?)\\s*${U}(?![\\p{L}])`, 'iu'))
+  let n, w
+  if (m) { n = Number(m[1]); w = toG(Number(m[2]), m[3]) }
+  else {
+    m = s.match(new RegExp(`(\\d+(?:\\.\\d+)?)\\s*${U}\\s*(?:x|×|\\*)\\s*(\\d+)(?!\\s*${U}(?![\\p{L}]))`, 'iu'))
+    if (!m) return null
+    n = Number(m[3]); w = toG(Number(m[1]), m[2])
+  }
+  if (!n || !w.each) return null
+  return { n, each: w.each, total: n * w.each, measure: w.measure }
+}
+
+// a single size in the text: "زبدة 25 كيلو", "كرتون 20 كيلو", "15 كيلو" -> { each, measure } (the last one found)
+export function parseWeight(text) {
+  const all = [...norm(text).matchAll(new RegExp(`(\\d+(?:\\.\\d+)?)\\s*${U}(?![\\p{L}])`, 'giu'))]
+  if (!all.length) return null
+  const m = all[all.length - 1]
+  const w = toG(Number(m[1]), m[2])
+  return w.each ? w : null
 }
 
 export const fmtContent = (grams, measure = 'g') => {

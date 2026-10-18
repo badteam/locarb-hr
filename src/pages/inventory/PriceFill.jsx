@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { supabase, fmtDate } from '../../lib/supabase'
 import { kwd, loadLookups } from '../../lib/inv'
 import { startRead, compress } from './Invoices.jsx'
-import { parsePack, MEASURE_UNITS, fmtContent } from '../../components/UnitContent.jsx'
+import { parsePack, parseWeight, MEASURE_UNITS, fmtContent } from '../../components/UnitContent.jsx'
 import Icon from '../../components/Icon.jsx'
 
 // Old invoices uploaded only to learn prices: no quantities go into stock, nothing becomes payable.
@@ -11,24 +11,41 @@ import Icon from '../../components/Icon.jsx'
 const CARTON_RE = /ctn|carton|box|كرتون|صندوق/i
 const near = (a, b) => a != null && b != null && Math.abs(Number(a) - Number(b)) < 0.01
 
-// invoice price -> price of ONE stock unit of the item
+const KILO_RE = /^(كيلو|كغ|كجم|kg|kgs|k\.g)$/i
+const LITRE_RE = /^(لتر|ltr|l|lt)$/i
+
+// invoice price -> price of ONE stock unit of the item. Returns { price, how, grams?, pieces?, measure?, skip? }
 function stockPrice(line, item, packFactor) {
   const price = Number(line.unit_price) || 0
   if (!price) return { price: 0 }
-  const unit = item.inv_units?.name
-  const mu = MEASURE_UNITS[unit || '']
-  const pk = parsePack(line.raw_name)
-  if (Number(packFactor) > 1) return { price: price / Number(packFactor), how: `الكرتونة = ${Number(packFactor)} ${unit || ''}` }
-  if (mu && pk) { const k = pk.total / mu[0]; return { price: price / k, how: `${pk.n} × ${fmtContent(pk.each, pk.measure)} = ${+k.toFixed(3)} ${unit}` } }
-  if (pk && !/كرتون/.test(unit || '') && (CARTON_RE.test(line.unit_text || '') || CARTON_RE.test(line.raw_name || '')))
-    return { price: price / pk.n, how: `الكرتونة فيها ${pk.n} ${unit || ''}`, grams: pk.each, measure: pk.measure }
-  if (pk && /كرتون/.test(unit || '')) return { price, grams: pk.total, pieces: pk.n, measure: pk.measure }
-  return { price }
+  const unit = item.inv_units?.name || ''
+  const mu = MEASURE_UNITS[unit]
+  const ut = String(line.unit_text || '').trim()
+  const perKilo = KILO_RE.test(ut) || LITRE_RE.test(ut)
+  const pk = parsePack(line.raw_name) || parsePack(ut)
+  const w = pk ? pk.total : (parseWeight(ut)?.each || parseWeight(line.raw_name)?.each || null)
+  const wm = pk?.measure || parseWeight(ut)?.measure || parseWeight(line.raw_name)?.measure || 'g'
+  const invCarton = CARTON_RE.test(ut) || CARTON_RE.test(line.raw_name || '')
+  const itemCarton = /كرتون/.test(unit)
+  if (Number(packFactor) > 1) return { price: price / Number(packFactor), how: `وحدة الفاتورة = ${Number(packFactor)} ${unit}` }
+  if (mu) {
+    if (perKilo) return { price: price * mu[0] / 1000, how: 'الفاتورة بالكيلو' }
+    if (w) { const k = w / mu[0]; return { price: price / k, how: `وحدة الفاتورة فيها ${fmtContent(w, wm)} = ${+k.toFixed(3)} ${unit}` } }
+    return { price, how: `اعتبرت وحدة الفاتورة = 1 ${unit}` }
+  }
+  if (perKilo) {
+    const g = Number(item.unit_grams)
+    if (g) return { price: price * g / 1000, how: `الفاتورة بالكيلو، والـ${unit} = ${fmtContent(g, item.unit_measure)}` }
+    return { price: 0, skip: `الفاتورة بسعر الكيلو، والـ${unit} مش معروف وزنه. اكتب وزنه في الصنف وارفعها تاني` }
+  }
+  if (itemCarton) return { price, ...(w ? { grams: w, measure: wm, ...(pk ? { pieces: pk.n } : {}) } : {}) }
+  if (pk && invCarton) return { price: price / pk.n, how: `الكرتونة فيها ${pk.n} ${unit}`, grams: pk.each, measure: pk.measure }
+  return { price, ...(w && !invCarton ? { grams: w, measure: wm } : {}) }
 }
 
 const ST = {
   set: ['اتسعّر', 'ok'], has: ['عنده سعر من قبل', 'gray'], done: ['اتسعّر من فاتورة قبلها', 'gray'],
-  zero: ['السعر صفر في الفاتورة', 'gray'], none: ['مش موجود في المخزون', 'amber'], undone: ['اتلغى', 'gray'],
+  confirm: ['هو ده الصنف؟', 'amber'], wrong: ['مش هو، اتساب', 'gray'], zero: ['السعر صفر في الفاتورة', 'gray'], skip: ['محتاج وزن الوحدة', 'amber'], none: ['مش موجود في المخزون', 'amber'], undone: ['اتلغى', 'gray'],
 }
 
 export default function PriceFill() {
@@ -36,7 +53,21 @@ export default function PriceFill() {
   const [jobs, setJobs] = useState([])
   const priced = useRef(new Set())
   const queue = useRef(Promise.resolve())
+  const started = useRef(new Set())
   useEffect(() => { loadLookups().then(setLk) }, [])
+  // invoices that were read but not finished (page closed, or an error): finish them now
+  useEffect(() => {
+    supabase.from('purchase_invoices').select('id,created_at').eq('price_only', true).eq('status', 'review').order('created_at').then(({ data }) => {
+      for (const x of data || []) {
+        const key = x.id
+        if (started.current.has(key)) continue
+        started.current.add(key)
+        setJobs((l) => (l.some((j) => j.key === key) ? l : [...l, { key, name: 'فاتورة اترفعت قبل كده', id: x.id, state: 'بيقارن الأسعار…' }]))
+        queue.current = queue.current.then(() => apply(key, x.id))
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const upd = (key, patch) => setJobs((l) => l.map((j) => (j.key === key ? { ...j, ...(typeof patch === 'function' ? patch(j) : patch) } : j)))
 
@@ -69,17 +100,20 @@ export default function PriceFill() {
   const apply = async (key, id) => {
     try {
       const { data: inv } = await supabase.from('purchase_invoices')
-        .select('id,invoice_no,invoice_date,supplier_id,total_read,supplier_name_read,suppliers(name),purchase_invoice_lines(id,line_no,raw_name,qty,unit_text,unit_price,item_id,inv_items(id,name_ar,last_price,avg_cost,alert_base_price,unit_grams,inv_units(name)))')
+        .select('id,invoice_no,invoice_date,supplier_id,total_read,supplier_name_read,suppliers(name),purchase_invoice_lines(id,line_no,raw_name,qty,unit_text,unit_price,item_id,match_score,inv_items!purchase_invoice_lines_item_id_fkey(id,name_ar,last_price,avg_cost,alert_base_price,unit_grams,unit_measure,inv_units(name)))')
         .eq('id', id).single()
+      if (!inv) throw new Error('ما قدرتش أفتح الفاتورة بعد القراءة')
       const head = { supplier: inv.suppliers?.name || inv.supplier_name_read || 'مورد غير معروف', no: inv.invoice_no, date: inv.invoice_date, total: inv.total_read }
 
-      // same invoice uploaded before (here or as a real received invoice)?
+      // same invoice uploaded before (as a real invoice, or already used for prices)?
       let dup = null
-      if (inv.supplier_id && (inv.invoice_no || inv.invoice_date)) {
-        const { data: others } = await supabase.from('purchase_invoices').select('id,invoice_no,invoice_date,total_read,price_only,status')
-          .eq('supplier_id', inv.supplier_id).neq('id', id).neq('status', 'failed')
-        dup = (others || []).find((o) => (inv.invoice_no && o.invoice_no && String(o.invoice_no).trim() === String(inv.invoice_no).trim())
-          || (inv.invoice_date && o.invoice_date === inv.invoice_date && near(o.total_read, inv.total_read)))
+      if (inv.invoice_no || inv.invoice_date) {
+        let q = supabase.from('purchase_invoices').select('id,invoice_no,invoice_date,total_read,price_only,status,notes,supplier_id,supplier_name_read').neq('id', id).neq('status', 'failed')
+        q = inv.invoice_no ? q.eq('invoice_no', inv.invoice_no) : q.eq('invoice_date', inv.invoice_date)
+        const { data: others } = await q
+        const sameSup = (o) => (inv.supplier_id && o.supplier_id === inv.supplier_id) || (!inv.supplier_id && (!o.supplier_id || o.supplier_name_read === inv.supplier_name_read)) || near(o.total_read, inv.total_read)
+        const counted = (o) => !o.price_only || (o.status === 'rejected' && !String(o.notes || '').includes('متدبلة'))
+        dup = (others || []).find((o) => counted(o) && sameSup(o) && (inv.invoice_no ? true : near(o.total_read, inv.total_read)))
       }
       if (dup) {
         await supabase.from('purchase_invoices').update({ status: 'rejected', notes: 'تسعير فقط: فاتورة متدبلة' }).eq('id', id)
@@ -97,20 +131,35 @@ export default function PriceFill() {
         const it = l.inv_items
         if (!it) { rows.push({ l, st: 'none' }); continue }
         const sp = stockPrice(l, it, pf[it.id])
+        if (sp.skip) { rows.push({ l, it, st: 'skip', how: sp.skip }); continue }
         const p = Math.round(sp.price * 1000) / 1000
         if (!p) { rows.push({ l, it, st: 'zero' }); continue }
         if (priced.current.has(it.id)) { rows.push({ l, it, p, how: sp.how, st: 'done' }); continue }
         if (Number(it.last_price) > 0) { rows.push({ l, it, p, how: sp.how, st: 'has' }); continue }
+        const ug = Number(it.unit_grams)
         const patch = { last_price: p, ...(Number(it.avg_cost) > 0 ? {} : { avg_cost: p }), ...(Number(it.alert_base_price) > 0 ? {} : { alert_base_price: p }),
-          ...(sp.grams && !Number(it.unit_grams) ? { unit_grams: sp.grams, unit_measure: sp.measure, ...(sp.pieces ? { unit_pieces: sp.pieces } : {}) } : {}) }
-        const r = await supabase.from('inv_items').update(patch).eq('id', it.id).or('last_price.is.null,last_price.eq.0').select('id')
-        if (r.error) { rows.push({ l, it, p, st: 'none', err: r.error.message }); continue }
-        priced.current.add(it.id)
-        rows.push({ l, it, p, how: sp.how, st: r.data?.length ? 'set' : 'has', patch })
+          ...(sp.grams && (!ug || ug < sp.grams * 0.6) ? { unit_grams: sp.grams, unit_measure: sp.measure, ...(sp.pieces ? { unit_pieces: sp.pieces } : {}) } : {}) }
+        // a weak name match is not trusted: the user confirms it first
+        if (l.match_score != null && Number(l.match_score) < 0.75) { priced.current.add(it.id); rows.push({ l, it, p, how: sp.how, st: 'confirm', patch }); continue }
+        const st = await setPrice(it.id, patch)
+        rows.push({ l, it, p, how: sp.how, st, patch })
       }
       await supabase.from('purchase_invoices').update({ status: 'rejected', notes: 'تسعير فقط من فاتورة قديمة (الكميات ما دخلت المخزون)' }).eq('id', id)
       upd(key, { state: null, head, rows })
     } catch (e) { upd(key, { state: null, error: e.message || String(e) }) }
+  }
+
+  const setPrice = async (itemId, patch) => {
+    const r = await supabase.from('inv_items').update(patch).eq('id', itemId).or('last_price.is.null,last_price.eq.0').select('id')
+    if (r.error) return 'none'
+    priced.current.add(itemId)
+    return r.data?.length ? 'set' : 'has'
+  }
+  const confirm = async (key, i, ok) => {
+    const row = jobs.find((x) => x.key === key).rows[i]
+    const st = ok ? await setPrice(row.it.id, row.patch) : 'wrong'
+    if (!ok) priced.current.delete(row.it.id)
+    upd(key, (x) => ({ rows: x.rows.map((y, n) => (n === i ? { ...y, st } : y)) }))
   }
 
   const undo = async (key, i) => {
@@ -134,6 +183,7 @@ export default function PriceFill() {
           <li>الصنف اللي <b>عنده سعر</b> في المخزون: ما يتغيرش.</li>
           <li>الصنف اللي <b>ما لوش سعر</b>: ياخد السعر من الفاتورة، مرة واحدة بس، حتى لو الصنف متكرر في كذا فاتورة.</li>
           <li>الفاتورة <b>المتدبلة</b> (نفس المورد ونفس الرقم، أو نفس التاريخ والمبلغ): تتقال لك ومش بتتقرا.</li>
+          <li>لو اسم الصنف في الفاتورة <b>مش متأكد منه</b>، بيسألك «هو ده الصنف؟» قبل ما يحط السعر.</li>
           <li>لو الفاتورة بالكرتونة ومكتوب «10 × 1 كغ»، بيحوّل السعر لسعر وحدة المخزون (الكيلو أو الكيس).</li>
         </ul>
       </div>
@@ -146,6 +196,7 @@ export default function PriceFill() {
       {all.length > 0 && <div className="grid stats" style={{ marginBottom: 14 }}>
         <div className="card stat"><div className="label">اتسعّر</div><div className="value num" style={{ color: 'var(--ok)' }}>{n('set')}</div></div>
         <div className="card stat"><div className="label">عنده سعر (ما اتغيرش)</div><div className="value num">{n('has') + n('done')}</div></div>
+        {n('confirm') > 0 && <div className="card stat" style={{ borderColor: '#F3DDA8' }}><div className="label">محتاج تأكيد منك</div><div className="value num" style={{ color: 'var(--amber)' }}>{n('confirm')}</div></div>}
         <div className="card stat"><div className="label">مش موجود في المخزون</div><div className="value num" style={{ color: n('none') ? 'var(--amber)' : undefined }}>{n('none')}</div></div>
         <div className="card stat"><div className="label">فواتير متدبلة</div><div className="value num">{jobs.filter((j) => j.dup).length}</div></div>
       </div>}
@@ -167,8 +218,11 @@ export default function PriceFill() {
                 <tr key={r.l.id}>
                   <td><div>{r.l.raw_name}</div><div className="cell-sub num">{kwd(r.l.unit_price)}{r.l.unit_text ? ` / ${r.l.unit_text}` : ''}</div></td>
                   <td>{r.it ? <><div>{r.it.name_ar}</div><div className="cell-sub">{r.it.inv_units?.name}{r.st === 'has' ? ` · سعره ${kwd(r.it.last_price)}` : ''}</div></> : <span className="sub">—</span>}</td>
-                  <td>{r.p ? <><div className="num">{kwd(r.p)}</div>{r.how && <div className="cell-sub">{r.how}</div>}</> : '—'}</td>
+                  <td>{r.p ? <><div className="num">{kwd(r.p)} / {r.it?.inv_units?.name || ''}</div>{r.how && <div className="cell-sub">{r.how}</div>}</> : r.how ? <div className="cell-sub">{r.how}</div> : '—'}</td>
                   <td><span className={'pill ' + ST[r.st][1]}>{ST[r.st][0]}</span>
+                    {r.st === 'confirm' && <div className="row" style={{ gap: 6, marginTop: 6 }}>
+                      <button className="chip on" style={{ minHeight: 28 }} onClick={() => confirm(j.key, i, true)}>أيوه، حط السعر</button>
+                      <button className="chip" style={{ minHeight: 28 }} onClick={() => confirm(j.key, i, false)}>مش هو</button></div>}
                     {r.st === 'set' && <button className="chip" style={{ minHeight: 28, marginInlineStart: 6 }} onClick={() => undo(j.key, i)}>تراجع</button>}</td>
                 </tr>))}</tbody></table></div>}
           </div>))}
