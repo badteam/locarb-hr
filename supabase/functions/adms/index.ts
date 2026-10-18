@@ -104,7 +104,7 @@ Deno.serve(async (req) => {
   const sn = q.get("SN") ?? q.get("sn") ?? "";
   if (!/^[A-Za-z0-9_-]{4,40}$/.test(sn)) return text("OK");
   const body = req.method === "POST" ? await req.text() : "";
-  if (Deno.env.get("ADMS_DEBUG") || sn === "BOCK201461472") console.log("adms req", sn, req.method, path, q.get("table") ?? "", body.length, q.get("Stamp") ?? "", JSON.stringify(body.slice(0, 260)));
+  if (Deno.env.get("ADMS_DEBUG")) console.log("adms req", sn, req.method, path, q.get("table") ?? "", body.length, JSON.stringify(body.slice(0, 260)));
 
   try {
     if (path.endsWith("/cdata")) {
@@ -121,6 +121,13 @@ Deno.serve(async (req) => {
         return text(`OK: ${rows.length}`);
       }
       if (table === "OPERLOG" || table === "USERINFO" || table === "BIODATA") {
+        // device events (door opened, exit button, alarms): log the recent ones to diagnose door control
+        const recent = new Date(Date.now() + 3 * 3600_000 - 24 * 3600_000).toISOString().slice(0, 19).replace("T", " ");
+        for (const l of lines(body)) {
+          if (!l.startsWith("OPLOG")) continue;
+          const f = l.slice(6).split("\t");
+          if ((f[2] ?? "") >= recent) console.log("adms oplog", sn, JSON.stringify(l.slice(0, 120)));
+        }
         const rows = parseUsers(body);
         for (let i = 0; i < rows.length; i += 500) await ingest(sn, ip, "users", rows.slice(i, i + 500));
         if (!rows.length) await ingest(sn, ip, "hello");
