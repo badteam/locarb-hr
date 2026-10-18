@@ -46,8 +46,14 @@ export default function Home() {
   const [msg, setMsg] = useState(null)
 
   const load = useCallback(async () => {
-    const { data } = await supabase.from('attendance').select('*').eq('employee_id', emp.id).eq('work_date', todayKuwait()).order('check_in_at', { ascending: false }).limit(1)
-    setToday(data?.[0] || null)
+    // a shift can cross midnight: an open check-in from the last 16 hours is still the current shift
+    const since = new Date(Date.now() - 16 * 3600 * 1000).toISOString()
+    const { data: open } = await supabase.from('attendance').select('*').eq('employee_id', emp.id).is('check_out_at', null).gt('check_in_at', since).order('check_in_at', { ascending: false }).limit(1)
+    if (open?.[0]) setToday(open[0])
+    else {
+      const { data } = await supabase.from('attendance').select('*').eq('employee_id', emp.id).eq('work_date', todayKuwait()).order('check_in_at', { ascending: false }).limit(1)
+      setToday(data?.[0] || null)
+    }
     const { data: docs } = await supabase.from('employee_documents_status').select('document_type_name,days_left,status').eq('employee_id', emp.id).in('status', ['expired', 'expiring']).order('days_left').limit(1)
     setDocAlert(docs?.[0] || null)
     supabase.from('missed_punches').select('id', { count: 'exact', head: true }).eq('employee_id', emp.id).eq('resolved', false).then(({ count }) => setMissed(count || 0))

@@ -14,7 +14,11 @@ export default function Dashboard() {
   useEffect(() => {
     supabase.from('employees').select('id,full_name,job_title,branch_id').eq('active', true).then(({ data }) => setEmps(data || []))
     supabase.from('branches').select('id,name').eq('active', true).order('name').then(({ data }) => setBranches(data || []))
-    if (can('view_attendance')) supabase.from('attendance').select('*').eq('work_date', todayKuwait()).then(({ data }) => setAtt(data || []))
+    if (can('view_attendance')) {
+      // today's punches + night shifts that started yesterday and are still open
+      const since = new Date(Date.now() - 16 * 3600 * 1000).toISOString()
+      supabase.from('attendance').select('*').or(`work_date.eq.${todayKuwait()},and(check_out_at.is.null,check_in_at.gt.${since})`).then(({ data }) => setAtt(data || []))
+    }
     if (can('manage_documents')) supabase.from('employee_documents_status').select('*').in('status', ['expired', 'expiring']).order('days_left').limit(8).then(({ data }) => setDocs(data || []))
     const cnt = (q) => q.then(({ count }) => count || 0)
     Promise.all([
