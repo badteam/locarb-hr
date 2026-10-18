@@ -114,3 +114,13 @@ export const itemNames = (i, lang) => {
   const en = i?.name_en || i?.inv_items?.name_en || ''
   return lang === 'ar' || !en ? [ar, en] : [en, ar]
 }
+
+// where an item's nutrition numbers came from, as a short badge
+export function nutSource(src) {
+  const s = String(src || '')
+  if (s.startsWith('تقدير')) return { label: 'تقديري', cls: 'amber' }
+  if (s.startsWith('ورقة')) return { label: 'من المورد', cls: 'ok' }
+  if (s.startsWith('إدخال يدوي')) return { label: 'يدوي', cls: 'gray' }
+  if (s.startsWith('ملصق')) return { label: 'من الليبل', cls: 'ok' }
+  return null
+}

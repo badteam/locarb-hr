@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAccess } from '../../lib/access.jsx'
-import { kwd, qtyFmt, loadLookups, clearLookups, invErr, MOVE_KIND } from '../../lib/inv'
+import { kwd, qtyFmt, loadLookups, clearLookups, invErr, MOVE_KIND, nutSource } from '../../lib/inv'
 import { fmtDate } from '../../lib/supabase'
 import Icon from '../../components/Icon.jsx'
 import ProductImage, { ProductPhotoLarge, refreshProductImages } from '../../components/ProductImage.jsx'
@@ -190,7 +190,7 @@ function NutritionCard({ itemId, canEdit, onChanged }) {
   return (
     <div className="card form" style={{ gap: 10 }}>
       <div className="row" style={{ justifyContent: 'space-between' }}><strong style={{ fontSize: 14 }}>القيمة الغذائية لكل ١٠٠ جرام</strong>
-        {has && <span className={'pill ' + (est ? 'amber' : 'ok')}>{est ? 'تقدير' : n.nutrition_source === 'إدخال يدوي' ? 'يدوي' : 'من الملصق'}</span>}</div>
+        {has && nutSource(n.nutrition_source) && <span className={'pill ' + nutSource(n.nutrition_source).cls}>{nutSource(n.nutrition_source).label}</span>}</div>
       {has ? (
         <div className="grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, textAlign: 'center' }}>
           {[['kcal_100', 'سعرة'], ['protein_100', 'بروتين'], ['carbs_100', 'كارب'], ['fat_100', 'دهون']].map(([k, l]) => (
@@ -198,7 +198,7 @@ function NutritionCard({ itemId, canEdit, onChanged }) {
               <div className="num" style={{ fontWeight: 700, fontSize: k === 'kcal_100' ? 20 : 17 }}>{n[k] == null ? '—' : Number(n[k]).toLocaleString('en', { maximumFractionDigits: 1 })}</div>
               <div className="sub">{l}{k !== 'kcal_100' ? ' (غ)' : ''}</div></div>))}
         </div>) : <div className="empty" style={{ padding: 8 }}>ما فيه قيم غذائية للحين</div>}
-      {n.nutrition_source && est && <div className="sub">{n.nutrition_source}</div>}
+      {n.nutrition_source && (est || n.nutrition_source.startsWith('ورقة')) && <div className="sub">{n.nutrition_source}</div>}
       {n.allergens?.length > 0 && <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}><span className="sub">يحتوي:</span>{n.allergens.map((a) => <span key={a} className="pill red">{ALLERGEN_AR[a] || a}</span>)}</div>}
       {n.ingredients_text && <div><button type="button" className="chip" style={{ minHeight: 28 }} onClick={() => setShowIngr(!showIngr)}>المكونات</button>
         {showIngr && <div className="sub" style={{ marginTop: 6, lineHeight: 1.7 }}>{n.ingredients_text}</div>}</div>}
@@ -478,7 +478,7 @@ export default function Inventory() {
       setFilling({ done: ++done, total: noNut.length })
     }
     setFilling(null)
-    setNotice(`تعبّت السعرات: ${fromLabel} من الملصق، ${est} تقدير${skipped ? `، و${skipped} مو أكل` : ''}. القيم التقديرية عليها علامة "تقدير" وتقدر تصححها.`)
+    setNotice(`تعبّت السعرات: ${fromLabel} من الملصق، ${est} تقدير${skipped ? `، و${skipped} مو أكل` : ''}. القيم التقديرية عليها علامة "تقديري" وتقدر تصححها.`)
     load()
   }
 
@@ -529,7 +529,7 @@ export default function Inventory() {
                 <tr key={i.id} className="row-btn" onClick={() => setOpen(i)} tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && setOpen(i)}>
                   <td><div className="row" style={{ gap: 10 }}><ProductImage itemId={i.id} size={42} />
                     <div><div style={{ fontWeight: 500 }}>{i.name_ar}</div><div className="cell-sub ltr">{i.name_en}</div>
-                      {i.kcal_100 != null ? <div className="cell-sub">{Math.round(i.kcal_100)} سعرة/١٠٠غ · ب {Number(i.protein_100 ?? 0).toFixed(0)} · ك {Number(i.carbs_100 ?? 0).toFixed(0)} · د {Number(i.fat_100 ?? 0).toFixed(0)}{String(i.nutrition_source || '').startsWith('تقدير') ? ' (تقدير)' : ''}</div>
+                      {i.kcal_100 != null ? <div className="cell-sub">{Math.round(i.kcal_100)} سعرة/١٠٠غ · ب {Number(i.protein_100 ?? 0).toFixed(0)} · ك {Number(i.carbs_100 ?? 0).toFixed(0)} · د {Number(i.fat_100 ?? 0).toFixed(0)}{nutSource(i.nutrition_source) ? <> · <span className={'pill ' + nutSource(i.nutrition_source).cls} style={{ fontSize: 11, padding: '0 6px' }}>{nutSource(i.nutrition_source).label}</span></> : null}</div>
                         : <div className="cell-sub" style={{ color: 'var(--amber)' }}>بدون سعرات</div>}</div></div></td>
                   <td className="sub">{i.category}</td>
                   <td><span className="num" style={{ fontWeight: 600 }}>{qtyFmt(i.kitchen_qty)}</span> <span className="sub">{i.unit}</span></td>
