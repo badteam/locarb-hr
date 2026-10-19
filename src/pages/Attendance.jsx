@@ -6,7 +6,7 @@ import Icon from '../components/Icon.jsx'
 const toLocal = (ts) => ts ? new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kuwait' }).format(new Date(ts)) : ''
 const toTs = (date, hm) => hm ? new Date(`${date}T${hm}:00+03:00`).toISOString() : null
 
-function EditSheet({ row, emps, onClose, onSaved }) {
+function EditSheet({ row, emps, branches, onClose, onSaved }) {
   const isNew = !row.id
   const [empId, setEmpId] = useState(row.employee_id || '')
   const [date, setDate] = useState(row.work_date || todayKuwait())
@@ -14,6 +14,7 @@ function EditSheet({ row, emps, onClose, onSaved }) {
   const [tout, setTout] = useState(toLocal(row.check_out_at))
   const [late, setLate] = useState(row.late_minutes ?? 0)
   const [note, setNote] = useState(row.note || '')
+  const [branchId, setBranchId] = useState(row.branch_id || emps[row.employee_id]?.branch_id || '')
   const [err, setErr] = useState('')
   const save = async (e) => {
     e.preventDefault()
@@ -21,7 +22,7 @@ function EditSheet({ row, emps, onClose, onSaved }) {
     const inTs = toTs(date, tin)
     if (inTs && outTs && outTs < inTs) outTs = new Date(new Date(outTs).getTime() + 86400000).toISOString()
     const emp = emps[empId]
-    const data = { employee_id: empId, work_date: date, check_in_at: inTs, check_out_at: outTs, late_minutes: Number(late) || 0, note: note || null, method: 'manual', branch_id: row.branch_id || emp?.branch_id || null }
+    const data = { employee_id: empId, work_date: date, check_in_at: inTs, check_out_at: outTs, late_minutes: Number(late) || 0, note: note || null, method: 'manual', branch_id: branchId || row.branch_id || emp?.branch_id || null }
     const { error } = isNew ? await supabase.from('attendance').insert(data) : await supabase.from('attendance').update(data).eq('id', row.id)
     if (error) setErr(errMsg(error)); else { onSaved(); onClose() }
   }
@@ -31,9 +32,14 @@ function EditSheet({ row, emps, onClose, onSaved }) {
         <div className="sheet-head"><h2 style={{ fontSize: 20 }}>{isNew ? 'إضافة بصمة' : 'تعديل البصمة'}</h2>
           <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose}><Icon name="x" /></button></div>
         <div className="field"><label htmlFor="ee">الموظف</label>
-          <select id="ee" className="input" value={empId} onChange={(e) => setEmpId(e.target.value)} disabled={!isNew} required>
+          <select id="ee" className="input" value={empId} onChange={(e) => { setEmpId(e.target.value); if (isNew) setBranchId(emps[e.target.value]?.branch_id || '') }} disabled={!isNew} required>
             <option value="">اختار…</option>{Object.values(emps).map((x) => <option key={x.id} value={x.id}>{x.full_name}</option>)}
           </select></div>
+        <div className="field"><label htmlFor="eb">الفرع</label>
+          <select id="eb" className="input" value={branchId} onChange={(e) => setBranchId(e.target.value)} required>
+            <option value="">اختار…</option>{branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+          {empId && branchId && emps[empId]?.branch_id && branchId !== emps[empId].branch_id && <div className="sub">هذي البصمة بتنحسب على هالفرع. فرع الموظف الأساسي في ملفه ما يتغيّر.</div>}</div>
         <div className="field"><label htmlFor="ed">التاريخ</label><input id="ed" type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} required /></div>
         <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
           <div className="field"><label htmlFor="ei">الحضور</label><input id="ei" type="time" className="input" value={tin} onChange={(e) => setTin(e.target.value)} required /></div>
@@ -140,7 +146,7 @@ export default function Attendance() {
           </table>
         )}
       </div>
-      {editing && <EditSheet row={editing} emps={emps} onClose={() => setEditing(null)} onSaved={() => setTick((t) => t + 1)} />}
+      {editing && <EditSheet row={editing} emps={emps} branches={branches} onClose={() => setEditing(null)} onSaved={() => setTick((t) => t + 1)} />}
     </div>
   )
 }
