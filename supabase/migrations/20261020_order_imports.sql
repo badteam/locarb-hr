@@ -100,9 +100,11 @@ begin
       nb := nb + 1;
     end if;
     if nullif(trim(l->>'alias'), '') is not null then
-      insert into order_aliases(alias, unit, item_id, factor, updated_by, updated_at)
-      values (trim(l->>'alias'), coalesce(trim(l->>'unit'), ''), (l->>'item_id')::uuid, coalesce(nullif(l->>'factor', '')::numeric, 1), v_me, now())
-      on conflict (alias, unit) do update set item_id = excluded.item_id, factor = excluded.factor, updated_by = excluded.updated_by, updated_at = now();
+      insert into order_aliases(alias, unit, item_id, factor, content_qty, content_unit, updated_by, updated_at)
+      values (trim(l->>'alias'), coalesce(trim(l->>'unit'), ''), (l->>'item_id')::uuid, coalesce(nullif(l->>'factor', '')::numeric, 1),
+              nullif(l->>'content_qty', '')::numeric, nullif(l->>'content_unit', ''), v_me, now())
+      on conflict (alias, unit) do update set item_id = excluded.item_id, factor = excluded.factor, content_qty = excluded.content_qty,
+        content_unit = excluded.content_unit, updated_by = excluded.updated_by, updated_at = now();
     end if;
   end loop;
   if n = 0 then raise exception 'order has no quantities'; end if;
@@ -132,3 +134,18 @@ begin
   return json_build_object('movements', n);
 end $$;
 grant execute on function public.undo_order_import(uuid) to authenticated;
+
+-- saving links as they are made (page can close before the sheet is posted)
+alter table public.order_aliases alter column factor drop not null, alter column factor drop default;
+alter table public.order_aliases add column if not exists content_qty numeric, add column if not exists content_unit text;
+create or replace function public.save_order_alias(p_alias text, p_unit text, p_item uuid, p_factor numeric, p_content_qty numeric default null, p_content_unit text default null)
+returns void language plpgsql security definer set search_path to 'public' as $$
+begin
+  if not (private.has_perm('manage_inventory') or private.has_perm('approve_branch_requests')) then raise exception 'not allowed to import orders'; end if;
+  if nullif(trim(p_alias), '') is null or p_item is null then return; end if;
+  insert into order_aliases(alias, unit, item_id, factor, content_qty, content_unit, updated_by, updated_at)
+  values (trim(p_alias), coalesce(trim(p_unit), ''), p_item, p_factor, p_content_qty, nullif(p_content_unit, ''), private.current_employee_id(), now())
+  on conflict (alias, unit) do update set item_id = excluded.item_id, factor = excluded.factor, content_qty = excluded.content_qty,
+    content_unit = excluded.content_unit, updated_by = excluded.updated_by, updated_at = now();
+end $$;
+grant execute on function public.save_order_alias(text, text, uuid, numeric, numeric, text) to authenticated;

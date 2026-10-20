@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import readXlsxFile from 'read-excel-file/browser'
 import { supabase } from '../../lib/supabase'
 import { kwd, qtyFmt, loadLookups, invErr } from '../../lib/inv'
-import { parseSheet, guessBranch, normName, normUnit, unitFactor, bestMatches, similarity, kwDay, fileHash } from '../../lib/orderSheet'
+import { parseSheet, guessBranch, normName, normUnit, unitFactor, bestMatches, similarity, kwDay, fileHash, contentUnits, contentFactor } from '../../lib/orderSheet'
 import ProductImage from '../../components/ProductImage.jsx'
 import Icon from '../../components/Icon.jsx'
 
@@ -14,6 +14,7 @@ const r3 = (n) => Math.round(n * 1000) / 1000
 const branchKey = (s) => `order-import-branch:${normName(s)}`
 const lsGet = (k) => { try { return localStorage.getItem(k) || '' } catch { return '' } }
 const lsSet = (k, v) => { try { localStorage.setItem(k, v) } catch { /* private mode */ } }
+const draftKey = (hash) => `order-import-draft:${hash}`
 const fmtDay = (d) => (d ? d.split('-').reverse().join('/') : '—')
 const AI_ERR = { not_configured: 'مفتاح الذكاء مش متسجل في الإعدادات', invalid_key: 'مفتاح الذكاء غلط', no_credit: 'رصيد الذكاء خلص' }
 const CONF = { saved: ['ok', 'مربوط من قبل'], manual: ['ok', 'ربطته أنت'], high: ['ok', 'الذكاء: متأكد'], medium: ['amber', 'الذكاء: غالباً'], low: ['red', 'الذكاء: تخمين'], guess: ['amber', 'تشابه في الاسم'] }
@@ -38,13 +39,15 @@ export default function OrderImport() {
   const [msg, setMsg] = useState('')
   const [drag, setDrag] = useState(false)
   const [history, setHistory] = useState([])
+  const [stick, setStick] = useState(() => new Set())   // rows being worked on stay in view until the filter changes
+  const timers = useRef({})
 
   const loadHistory = useCallback(() => supabase.from('order_imports').select('*, branches(name)').order('created_at', { ascending: false }).limit(40)
     .then(({ data }) => setHistory(data || [])), [])
   useEffect(() => {
     loadLookups().then(setLookups)
     supabase.from('inv_stock').select('id,name_ar,name_en,unit,category,unit_grams,unit_pieces,unit_measure,avg_cost').eq('active', true).order('name_ar').then(({ data }) => setItems(data || []))
-    supabase.from('order_aliases').select('alias,unit,item_id,factor').then(({ data }) => setAliases(Object.fromEntries((data || []).map((a) => [`${a.alias}|${a.unit}`, a]))))
+    supabase.from('order_aliases').select('alias,unit,item_id,factor,content_qty,content_unit').then(({ data }) => setAliases(Object.fromEntries((data || []).map((a) => [`${a.alias}|${a.unit}`, a]))))
     loadHistory()
   }, [loadHistory])
   const byId = useMemo(() => Object.fromEntries(items.map((i) => [i.id, i])), [items])
@@ -67,9 +70,18 @@ export default function OrderImport() {
         const branch = branchOpts.some((b) => b.id === saved) ? saved : guessBranch([s.sheet, p.title, ...p.blocks.map((b) => b.title)], branchOpts)
         out.push({ key: s.sheet, name: s.sheet.trim(), title: p.title, date: p.date || '', branch, lines })
       }
+      // same file opened again: bring back what was chosen last time (branch, date, skipped lines, ticks)
+      let draft = {}
+      try { draft = JSON.parse(lsGet(draftKey(hash)) || '{}') } catch { draft = {} }
+      for (const s of out) {
+        const d = draft.sheets?.[s.key]
+        if (d?.branch && branchOpts.some((b) => b.id === d.branch)) s.branch = d.branch
+        if (d?.date) s.date = d.date
+      }
       if (!out.length) { setErr('ما لقيت أصناف في الملف. لازم يكون فيه عمود اسم الصنف (ITEM NAME) وعمود الكمية (QTY).'); setBusy(''); return }
       setFile({ name: f.name, hash })
       setSheets(out)
+      setOv(draft.ov || {})
       const { data: prev } = await supabase.from('order_imports').select('*').eq('file_hash', hash).eq('status', 'posted')
       setDone(Object.fromEntries((prev || []).map((x) => [x.sheet_name, x])))
       // links: saved ones first
@@ -78,7 +90,7 @@ export default function OrderImport() {
       for (const l of out.flatMap((s) => s.lines)) {
         if (m[l.mkey] || todo.some((t) => t.mkey === l.mkey)) continue
         const a = aliases[l.mkey]
-        if (a && byId[a.item_id]) m[l.mkey] = { item_id: a.item_id, factor: Number(a.factor), src: 'saved' }
+        if (a && byId[a.item_id]) m[l.mkey] = { item_id: a.item_id, factor: a.content_qty != null ? String(a.content_qty) : a.factor != null ? String(a.factor) : null, fu: a.content_qty != null ? a.content_unit : null, src: 'saved' }
         else todo.push(l)
       }
       setMaps(m)
@@ -123,11 +135,24 @@ export default function OrderImport() {
       .then((all) => setCounts(Object.fromEntries(all)))
   }, [kitchen, mappedIds, sheetBranches])
 
+  // remember choices for this file in this browser, and warn before leaving with sheets not posted
+  useEffect(() => {
+    if (!file) return
+    lsSet(draftKey(file.hash), JSON.stringify({ ov, sheets: Object.fromEntries(sheets.map((s) => [s.key, { branch: s.branch, date: s.date }])) }))
+  }, [file, ov, sheets])
+  const pending = !!file && sheets.some((s) => !done[s.key])
+  useEffect(() => {
+    if (!pending) return
+    const warn = (e) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [pending])
+
   // ---------- each line, worked out
   const work = (s, l) => {
     const m = maps[l.mkey]
     const item = m ? byId[m.item_id] : null
-    const factor = item ? (m.factor != null && m.factor !== '' ? Number(m.factor) : unitFactor(l.unit, item)) : null
+    const factor = item ? (m.factor != null && m.factor !== '' ? contentFactor(m.factor, m.fu || item.unit, item) : unitFactor(l.unit, item)) : null
     const o = ov[l.id] || {}
     const skipFor = (place) => {
       const day = kwDay(counts[place]?.[item?.id])
@@ -154,15 +179,32 @@ export default function OrderImport() {
     for (const l of s.lines) { const w = work(s, l); t[w.state]++; if (w.state !== 'ignored' && w.item) { if (!w.k) t.skipK++; if (!w.b) t.skipB++ } }
     return t
   }
-  const shown = rows.filter(({ w }) => filter === 'all' || (filter === 'todo' ? ['item', 'factor', 'review'].includes(w.state) : filter === 'skip' ? w.item && (!w.k || !w.b) && w.state !== 'ignored' : w.state === filter))
+  const shown = rows.filter(({ l, w }) => filter === 'all' || stick.has(l.id) || (filter === 'todo' ? ['item', 'factor', 'review'].includes(w.state) : filter === 'skip' ? w.item && (!w.k || !w.b) && w.state !== 'ignored' : w.state === filter))
 
   const setMap = (mkey, patch) => setMaps((m) => ({ ...m, [mkey]: { ...(m[mkey] || {}), ...patch } }))
+  // every link the manager makes is saved right away, so closing the page loses nothing
+  const saveLink = (mkey, m) => {
+    const item = byId[m?.item_id]
+    if (!item) return
+    const [alias, unit] = mkey.split('|')
+    const typed = m.factor != null && m.factor !== '' ? Number(m.factor) : null
+    const factor = typed != null ? contentFactor(typed, m.fu || item.unit, item) : null
+    supabase.rpc('save_order_alias', { p_alias: alias, p_unit: unit, p_item: item.id, p_factor: factor, p_content_qty: typed, p_content_unit: typed != null ? (m.fu || item.unit) : null })
+      .then(({ error }) => { if (error) setErr('ما قدرت أحفظ الربط: ' + invErr(error)) })
+    setAliases((a) => ({ ...a, [mkey]: { alias, unit, item_id: item.id, factor, content_qty: typed, content_unit: m.fu || null } }))
+  }
+  const linkChange = (mkey, patch) => {
+    const m = { ...(maps[mkey] || {}), ...patch }
+    setMaps((all) => ({ ...all, [mkey]: m }))
+    saveLink(mkey, m)
+  }
   const setLine = (id, patch) => setOv((o) => ({ ...o, [id]: { ...(o[id] || {}), ...patch } }))
   const setSheet = (patch) => setSheets((all) => all.map((s, i) => (i === active ? { ...s, ...patch } : s)))
   const okAllReview = () => {
     const next = {}
     for (const { l, w } of rows) if (w.state !== 'ignored' && ['medium', 'low', 'guess'].includes(w.m?.src)) next[l.mkey] = { ...maps[l.mkey], src: 'manual' }
     setMaps((m) => ({ ...m, ...next }))
+    Object.entries(next).forEach(([k, m]) => saveLink(k, m))
   }
 
   // ---------- posting one sheet
@@ -173,6 +215,7 @@ export default function OrderImport() {
       item_id: w.item.id, qty: w.stock, kitchen: w.k, branch: w.b,
       note: [l.extra ? l.block : '', `${l.name} ${qtyFmt(l.qty)} ${l.unit}`.trim(), !w.k ? 'ما انخصم من المطبخ: ' + (w.kSkip || 'باختيارك') : '', !w.b ? 'ما انضاف للفرع: ' + (w.bSkip || 'باختيارك') : ''].filter(Boolean).join(' · '),
       alias: normName(l.name), unit: normUnit(l.unit), factor: w.factor,
+      content_qty: w.m?.factor != null && w.m.factor !== '' ? Number(w.m.factor) : null, content_unit: w.m?.factor != null && w.m.factor !== '' ? (w.m.fu || w.item.unit) : null,
     }))
     const { data, error } = await supabase.rpc('post_order_import', { p_branch: s.branch, p_date: s.date, p_file_name: file.name, p_file_hash: file.hash, p_sheet: s.key, p_lines: lines, p_force: force })
     setBusy('')
@@ -184,7 +227,7 @@ export default function OrderImport() {
     setDone((d) => ({ ...d, [s.key]: { ...data, id: data.id, request_id: data.request_id } }))
     setMsg(`اتسجلت طلبية ${s.name}: ${data.lines} صنف بقيمة ${kwd(data.value)} د.ك. انخصم من المطبخ ${data.kitchen} صنف، وانضاف للفرع ${data.branch} صنف.`)
     // the links just saved count as saved links from now on
-    setAliases((a) => ({ ...a, ...Object.fromEntries(lines.map((x) => [`${x.alias}|${x.unit}`, { alias: x.alias, unit: x.unit, item_id: x.item_id, factor: x.factor }])) }))
+    setAliases((a) => ({ ...a, ...Object.fromEntries(lines.map((x) => [`${x.alias}|${x.unit}`, { alias: x.alias, unit: x.unit, item_id: x.item_id, factor: x.factor, content_qty: x.content_qty, content_unit: x.content_unit }])) }))
     setMaps((m) => Object.fromEntries(Object.entries(m).map(([k, v]) => [k, lines.some((x) => `${x.alias}|${x.unit}` === k) ? { ...v, src: 'saved' } : v])))
     loadHistory()
     const nextOpen = sheets.findIndex((x, i) => i !== active && !done[x.key])
@@ -235,7 +278,7 @@ export default function OrderImport() {
             {sheets.map((s, i) => {
               const tt = tally(s)
               const n = tt.item + tt.factor + tt.review
-              return <button key={s.key} className={'chip' + (i === active ? ' on' : '')} onClick={() => { setActive(i); setFilter('todo') }}>
+              return <button key={s.key} className={'chip' + (i === active ? ' on' : '')} onClick={() => { setActive(i); setFilter('todo'); setStick(new Set()) }}>
                 {s.name} {done[s.key] ? <span className="pill ok" style={{ marginInlineStart: 6 }}>اتسجل ✓</span>
                   : !s.branch ? <span className="pill red" style={{ marginInlineStart: 6 }}>بدون فرع</span>
                   : n ? <span className="badge" style={{ marginInlineStart: 6 }}>{n}</span> : <span className="pill ok" style={{ marginInlineStart: 6 }}>جاهز</span>}</button>
@@ -260,7 +303,7 @@ export default function OrderImport() {
           {!isDone && <>
             <div className="seg" style={{ maxWidth: 640 }}>
               {[['todo', `محتاج مراجعة (${blocking})`], ['skip', `متخطّى بسبب الجرد (${rows.filter(({ w }) => w.item && (!w.k || !w.b) && w.state !== 'ignored').length})`], ['ok', `جاهز (${t.ok})`], ['all', `الكل (${sheet.lines.length})`]].map(([k, lb]) =>
-                <a key={k} href={'#' + k} className={filter === k ? 'on' : ''} onClick={(e) => { e.preventDefault(); setFilter(k) }}>{lb}</a>)}
+                <a key={k} href={'#' + k} className={filter === k ? 'on' : ''} onClick={(e) => { e.preventDefault(); setFilter(k); setStick(new Set()) }}>{lb}</a>)}
             </div>
             {rows.some(({ w }) => w.state !== 'ignored' && ['medium', 'low', 'guess'].includes(w.m?.src)) && filter !== 'ok' && <div className="row" style={{ justifyContent: 'space-between', marginBottom: 10, gap: 10, flexWrap: 'wrap' }}>
               <span className="sub">الأصفر: الذكاء مش متأكد. بص عليهم، غيّر الغلط، وبعدين أكّد الباقي.</span>
@@ -271,7 +314,8 @@ export default function OrderImport() {
                 const st = w.state
                 const tone = st === 'ignored' ? 'gray' : st === 'item' || st === 'factor' ? 'red' : st === 'review' ? 'amber' : 'ok'
                 return (
-                  <div key={l.id} className={'order-row imp ' + tone}>
+                  <div key={l.id} className={'order-row imp ' + tone} onFocusCapture={() => !stick.has(l.id) && setStick((x) => new Set(x).add(l.id))}
+                    onPointerDownCapture={() => !stick.has(l.id) && setStick((x) => new Set(x).add(l.id))}>
                     <div className="row" style={{ gap: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
                       <div style={{ minWidth: 150, flex: '1 1 160px' }}>
                         <div className="cell-sub">مكتوب في الشيت {l.extra ? <span className="pill blue" style={{ fontSize: 11, padding: '1px 6px' }}>{l.block}</span> : null}</div>
@@ -290,7 +334,7 @@ export default function OrderImport() {
                         <div className="row" style={{ gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
                           {w.m?.src && CONF[w.m.src] && <span className={'pill ' + CONF[w.m.src][0]}>{CONF[w.m.src][1]}</span>}
                           {w.m?.note && st === 'review' && <span className="sub" style={{ fontSize: 12 }}>{w.m.note}</span>}
-                          {st === 'review' && <button className="btn" style={{ minHeight: 30, padding: '0 10px', fontSize: 13 }} onClick={() => setMap(l.mkey, { src: 'manual' })}>✓ صح</button>}
+                          {st === 'review' && <button className="btn" style={{ minHeight: 30, padding: '0 10px', fontSize: 13 }} onClick={() => linkChange(l.mkey, { src: 'manual' })}>✓ صح</button>}
                         </div>
                       </div>
                     </div>
@@ -300,16 +344,27 @@ export default function OrderImport() {
                         {(w.factor !== 1 || st === 'factor' || w.m?.factor != null) && (
                           <div className="row" style={{ gap: 6, alignItems: 'center' }}>
                             <span className="sub">1 {l.unit || 'وحدة'} =</span>
-                            <input className="input num" style={{ width: 90, height: 40 }} inputMode="decimal" placeholder="؟" aria-label={`كم ${w.item.unit} في الـ ${l.unit}`}
-                              value={w.m?.factor ?? (w.factor ?? '')} onChange={(e) => { const v = e.target.value.replace(/[^\d.]/g, ''); setMap(l.mkey, { factor: v === '' ? null : v }) }} />
-                            <span className="sub">{w.item.unit || ''}</span>
+                            <input className="input num" style={{ width: 90, height: 40 }} inputMode="decimal" placeholder="؟" aria-label={`كم في الـ ${l.unit}`}
+                              value={w.m?.factor ?? (w.factor ?? '')} onChange={(e) => {
+                                const v = e.target.value.replace(/[^\d.]/g, '')
+                                const m = { ...(maps[l.mkey] || {}), factor: v === '' ? null : v }
+                                setMap(l.mkey, { factor: m.factor })
+                                clearTimeout(timers.current[l.mkey])
+                                timers.current[l.mkey] = setTimeout(() => saveLink(l.mkey, m), 800)
+                              }} />
+                            <select className="input" style={{ width: 'auto', height: 40, paddingInline: 10 }} aria-label="الوحدة" value={w.m?.fu || w.item.unit || ''}
+                              onChange={(e) => linkChange(l.mkey, { fu: e.target.value, factor: w.m?.factor ?? null })}>
+                              {contentUnits(w.item).map((u) => <option key={u} value={u}>{u}</option>)}
+                            </select>
+                            {w.m?.fu && w.m.fu !== w.item.unit && w.factor > 0 && <span className="sub">= {qtyFmt(w.factor)} {w.item.unit}</span>}
                           </div>
                         )}
                         <span className="grow" />
                         <span style={{ fontWeight: 700 }} className="num">{w.stock != null ? `${qtyFmt(w.stock)} ${w.item.unit || ''}` : '—'}</span>
                       </div>
                     )}
-                    {st === 'factor' && <div className="sub" style={{ color: 'var(--red)', fontSize: 13 }}>الشيت بالـ "{l.unit}" والصنف في المخزن بالـ "{w.item.unit}". اكتب كام {w.item.unit} في الـ {l.unit} الواحد (بيتحفظ للمرات الجاية).</div>}
+                    {st === 'factor' && <div className="sub" style={{ color: 'var(--red)', fontSize: 13 }}>الشيت بالـ "{l.unit}" والصنف في المخزن بالـ "{w.item.unit}". اكتب الـ {l.unit} الواحد فيه كام، واختار الوحدة جنبها (كيلو، حبة…). بيتحفظ للمرات الجاية.</div>}
+                    {st === 'factor' && contentUnits(w.item).length === 1 && <div className="sub" style={{ fontSize: 12 }}>عشان تكتبه بالكيلو أو بالحبة، سجّل الـ {w.item.unit} فيه كام كيلو/حبة من بطاقة الصنف في المخزون.</div>}
 
                     {w.item && st !== 'ignored' && (
                       <div className="row" style={{ gap: 14, flexWrap: 'wrap' }}>
@@ -379,7 +434,7 @@ export default function OrderImport() {
       )}
 
       {picking && <ItemPicker items={items} line={sheets.flatMap((s) => s.lines).find((l) => l.mkey === picking)} current={maps[picking]?.item_id}
-        onPick={(id) => { setMap(picking, { item_id: id, factor: null, src: 'manual', note: '' }); setPicking(null) }} onClose={() => setPicking(null)} />}
+        onPick={(id) => { linkChange(picking, { item_id: id, factor: null, fu: null, src: 'manual', note: '' }); setPicking(null) }} onClose={() => setPicking(null)} />}
     </div>
   )
 }

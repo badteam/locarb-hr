@@ -149,3 +149,28 @@ export async function fileHash(file) {
   const h = await crypto.subtle.digest('SHA-256', buf)
   return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
+
+// "1 box = 5 كغ" -> how many stock units of the item. The manager can say the content in kilos,
+// grams, pieces, litres or the item's own unit; the item's recorded content (grams / pieces per unit) converts it.
+const PER_UNIT_G = { 'كغ': 1000, 'كيلو': 1000, 'غرام': 1, 'لتر': 1000, 'مل': 1 }
+const gramsPerUnit = (item) => PER_UNIT_G[item?.unit] || Number(item?.unit_grams) || 0
+const piecesPerUnit = (item) => (item?.unit === 'حبة' ? 1 : Number(item?.unit_pieces) > 1 ? Number(item.unit_pieces) : 0)
+const WEIGHT = { 'كغ': 1000, 'غرام': 1 }
+const VOLUME = { 'لتر': 1000, 'مل': 1 }
+export function contentUnits(item) {
+  const out = [item?.unit || 'وحدة']
+  const g = gramsPerUnit(item)
+  const ml = item?.unit_measure === 'ml' || ['لتر', 'مل'].includes(item?.unit)
+  if (g) for (const u of Object.keys(ml ? VOLUME : WEIGHT)) if (!out.includes(u)) out.push(u)
+  if (piecesPerUnit(item) && !out.includes('حبة')) out.push('حبة')
+  return out
+}
+export function contentFactor(v, fu, item) {
+  const n = Number(v)
+  if (!(n > 0)) return null
+  if (!fu || fu === item?.unit) return n
+  const g = gramsPerUnit(item)
+  if (WEIGHT[fu] || VOLUME[fu]) return g ? +(n * (WEIGHT[fu] || VOLUME[fu]) / g).toFixed(6) : null
+  if (fu === 'حبة') { const p = piecesPerUnit(item); return p ? +(n / p).toFixed(6) : null }
+  return null
+}
