@@ -99,10 +99,10 @@ export default function OrderImport() {
     } catch (e) { setErr('ما قدرت أقرا الملف: ' + (e.message || e)); setBusy('') }
   }
 
-  const matchWithAi = async (todo) => {
+  const matchWithAi = async (todo, again = false) => {
     setAi('running')
     const chunks = []
-    for (let i = 0; i < todo.length; i += 60) chunks.push(todo.slice(i, i + 60))
+    for (let i = 0; i < todo.length; i += 40) chunks.push(todo.slice(i, i + 40))
     const res = await Promise.all(chunks.map((c) => supabase.functions.invoke('match-order-items', { body: { lines: c.map((l) => ({ name: l.name, unit: l.unit })) } })
       .then(({ data, error }) => (error || !data?.ok ? { fail: data?.error || 'network' } : data)).catch(() => ({ fail: 'network' }))))
     const next = {}
@@ -121,8 +121,15 @@ export default function OrderImport() {
         }
       })
     })
-    setMaps((m) => ({ ...next, ...m }))
+    setMaps((m) => (again ? { ...m, ...Object.fromEntries(Object.entries(next).filter(([k]) => !['saved', 'manual'].includes(m[k]?.src))) } : { ...next, ...m }))
     setAi(failed ? 'error:' + failed : 'done')
+  }
+
+  // run the AI again for every line not already linked by hand or from before
+  const retryAi = () => {
+    const seen = new Set()
+    const todo = sheets.flatMap((x) => x.lines).filter((l) => !['saved', 'manual'].includes(maps[l.mkey]?.src) && !seen.has(l.mkey) && seen.add(l.mkey))
+    if (todo.length) matchWithAi(todo, true)
   }
 
   // ---------- counts: when was each item last counted, in the kitchen and in each branch
@@ -268,7 +275,7 @@ export default function OrderImport() {
       </label>
 
       {ai === 'running' && <div className="notice row" style={{ gap: 10, marginTop: 12 }}><span className="spinner" /> الذكاء بيربط أسامي الأصناف بالمخزن… ممكن ياخد دقيقة.</div>}
-      {ai.startsWith('error') && <div className="warn" style={{ marginTop: 12 }}><Icon name="warn" /> الذكاء ما اشتغلش ({AI_ERR[ai.slice(6)] || 'مشكلة اتصال'}). ربطت اللي أسماؤه قريبة، والباقي اختاره بإيدك.</div>}
+      {ai.startsWith('error') && <div className="warn" style={{ marginTop: 12 }}><Icon name="warn" /> الذكاء ما اشتغلش ({AI_ERR[ai.slice(6)] || (ai.slice(6) === 'network' ? 'مشكلة اتصال' : ai.slice(6, 120))}). ربطت اللي أسماؤه قريبة، والباقي اختاره بإيدك. <button className="btn" style={{ minHeight: 34, marginInlineStart: 'auto' }} onClick={retryAi}>حاول تاني</button></div>}
       {msg && <div className="notice" style={{ marginTop: 12 }}>{msg}</div>}
       {err && <div className="error" style={{ marginTop: 12 }}>{err}</div>}
 

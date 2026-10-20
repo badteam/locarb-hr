@@ -49,18 +49,30 @@ Answer only by calling save_matches once, with one entry per line.`;
       properties: { line: { type: "number" }, item: { type: "number", description: "catalog number, 0 if none" },
         confidence: { type: "string", enum: ["high", "medium", "low"] }, note_ar: { type: "string" } } } } } },
   };
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({ model: MODEL, max_tokens: 16000, tools: [tool], tool_choice: { type: "tool", name: "save_matches" }, messages: [{ role: "user", content: prompt }] }),
-  });
-  if (!res.ok) {
-    const t = await res.text();
-    return json({ ok: false, error: res.status === 401 ? "invalid_key" : /credit|balance|billing/i.test(t) ? "no_credit" : `reader error ${res.status}`.slice(0, 200) });
+  // this model does not accept a forced tool_choice: the prompt asks for the tool call, and we retry once if it is missing
+  let r: any = null, lastText = "";
+  for (let attempt = 0; attempt < 2 && !r; attempt++) {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({ model: MODEL, max_tokens: 8000, tools: [tool], tool_choice: { type: "auto" }, messages: [{ role: "user", content: prompt }] }),
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      console.error("match-order-items", res.status, t.slice(0, 500));
+      return json({ ok: false, error: res.status === 401 ? "invalid_key" : /credit|balance|billing/i.test(t) ? "no_credit" : `reader error ${res.status}: ${t.slice(0, 200)}` });
+    }
+    const out = await res.json();
+    r = out.content?.find((c: any) => c.type === "tool_use" && c.name === "save_matches")?.input ?? null;
+    lastText = (out.content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join(" ");
+    if (!r?.matches) {
+      // sometimes the answer comes as JSON text instead of a tool call
+      const a = lastText.indexOf("{"), b = lastText.lastIndexOf("}");
+      try { if (a >= 0 && b > a) r = JSON.parse(lastText.slice(a, b + 1)); } catch { r = null; }
+      if (!r?.matches) r = null;
+    }
   }
-  const out = await res.json();
-  const r: any = out.content?.find((c: any) => c.type === "tool_use")?.input;
-  if (!r?.matches) return json({ ok: false, error: "unreadable" });
+  if (!r) { console.error("match-order-items unreadable", lastText.slice(0, 300)); return json({ ok: false, error: "unreadable" }); }
   const matches = r.matches.map((m: any) => {
     const it: any = m.item > 0 ? items[m.item - 1] : null;
     return { line: Number(m.line) - 1, item_id: it?.id ?? null, confidence: it ? m.confidence : "none", note: m.note_ar ?? "" };
