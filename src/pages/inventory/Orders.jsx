@@ -32,7 +32,10 @@ export default function Orders() {
     <div>
       <div className="page-head"><div><h1>{tr('طلبات الفروع')}</h1>
         <div className="sub">{kitchen ? tr('الفروع تطلب، والمطبخ يوافق ويرسل، والفرع يأكد الاستلام') : tr('اطلب من المطبخ المركزي وأكد الاستلام لما يوصل')}</div></div>
-        {(can('branch_orders') || kitchen || can('manage_inventory')) && <Link className="btn primary" to="/inventory/orders/new"><Icon name="plus" /> {tr('طلب جديد')}</Link>}</div>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          {(kitchen || can('manage_inventory')) && <Link className="btn" to="/inventory/orders/import"><Icon name="download" /> {tr('رفع طلبيات من إكسل')}</Link>}
+          {(can('branch_orders') || kitchen || can('manage_inventory')) && <Link className="btn primary" to="/inventory/orders/new"><Icon name="plus" /> {tr('طلب جديد')}</Link>}
+        </div></div>
       <div className="chips" style={{ marginBottom: 14 }}>
         {TABS.map(([k, l]) => <button key={k} className={'chip' + (tab === k ? ' on' : '')} onClick={() => setTab(k)}>
           {tr(l)}{counts[k] ? <span className="badge" style={{ marginInlineStart: 6 }}>{counts[k]}</span> : null}</button>)}

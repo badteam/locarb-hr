@@ -191,3 +191,16 @@ td { padding: 12px 8px; border-bottom: 1px solid #EEF1EC; }
   input, select, textarea, .input { font-size: 16px; }
   .sheet { padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
 }
+
+/* Excel order import */
+.drop { display: flex; align-items: center; gap: 14px; cursor: pointer; border: 2px dashed var(--line-strong); background: #FAFCF8; padding: 22px 18px; }
+.drop.on, .drop:hover { border-color: var(--green); background: var(--green-soft); }
+.order-row.imp { border-inline-start-width: 4px; }
+.order-row.imp.red { border-inline-start-color: var(--red); }
+.order-row.imp.amber { border-inline-start-color: #D97706; }
+.order-row.imp.ok { border-inline-start-color: var(--green); }
+.order-row.imp.gray { opacity: .55; }
+.pick { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 12px; background: #fff; cursor: pointer; font: inherit; color: inherit; }
+.pick:hover { border-color: var(--green); }
+.pick-row { width: 100%; border: 0; background: none; cursor: pointer; font: inherit; color: inherit; border-bottom: 1px solid var(--line); }
+.pick-row:hover, .pick-row.on { background: var(--green-soft); }

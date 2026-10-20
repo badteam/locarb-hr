@@ -45,6 +45,7 @@ import Reports from './pages/inventory/Reports.jsx'
 import OpeningBalance from './pages/inventory/OpeningBalance.jsx'
 import NewOrder from './pages/inventory/NewOrder.jsx'
 import OrderDetail from './pages/inventory/OrderDetail.jsx'
+import OrderImport from './pages/inventory/OrderImport.jsx'
 import Devices from './pages/devices/Devices.jsx'
 import DeviceNames from './pages/devices/DeviceNames.jsx'
 import DeviceLog from './pages/devices/DeviceLog.jsx'
@@ -154,6 +155,7 @@ function Shell() {
   const invNav = [
     { to: '/inventory', icon: 'box', label: tr('المخزون'), show: canInv },
     { to: '/inventory/orders', icon: 'list', label: tr('طلبات الفروع'), show: canOrders },
+    { to: '/inventory/orders/import', icon: 'download', label: tr('رفع طلبيات إكسل'), show: can('manage_inventory') || can('approve_branch_requests') },
     { to: '/inventory/stock', icon: 'check', label: tr('رصيد الفرع والجرد'), show: canCount },
     { to: '/inventory/monitor', icon: 'shield', label: tr('المراقب'), show: canMonitor },
     { to: '/inventory/sales', icon: 'dash', label: tr('المبيعات وتكلفة المواد'), show: canSales },
@@ -249,6 +251,7 @@ function Shell() {
           {canCount && <Route path="/inventory/count" element={<StockCount />} />}
           {canReports && <Route path="/inventory/reports" element={<Reports />} />}
           {canOrders && <Route path="/inventory/orders/new" element={<NewOrder />} />}
+          {(can('manage_inventory') || can('approve_branch_requests')) && <Route path="/inventory/orders/import" element={<OrderImport />} />}
           {canOrders && <Route path="/inventory/orders/:id" element={<OrderDetail />} />}
           {canDev && <Route path="/devices" element={<Devices />} />}
           {canDev && <Route path="/devices/log" element={<DeviceLog />} />}
