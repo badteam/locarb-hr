@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { supabase, fmtDate } from '../../lib/supabase'
 import { kwd, loadLookups } from '../../lib/inv'
 import { startRead, compress } from './Invoices.jsx'
+import { pdfToPages, isPdf } from '../../lib/pdfPages'
 import { parsePack, parseWeight, MEASURE_UNITS, fmtContent } from '../../components/UnitContent.jsx'
 import Icon from '../../components/Icon.jsx'
 
@@ -71,24 +72,42 @@ export default function PriceFill() {
 
   const upd = (key, patch) => setJobs((l) => l.map((j) => (j.key === key ? { ...j, ...(typeof patch === 'function' ? patch(j) : patch) } : j)))
 
-  const add = (files) => {
+  // a big PDF becomes page images; a long one (many invoices scanned together) is read 20 pages at a time
+  const PER_READ = 20
+  const add = async (files) => {
     for (const file of files) {
-      const key = crypto.randomUUID()
-      setJobs((l) => [...l, { key, name: file.name, state: 'قاعد يرفع…' }])
-      read(key, file).then((id) => { if (id) queue.current = queue.current.then(() => apply(key, id)) })
+      let parts = [file]
+      if (isPdf(file) && file.size > 6 * 1024 * 1024) {
+        const key = crypto.randomUUID()
+        setJobs((l) => [...l, { key, name: file.name, state: 'ملف كبير، بجهّز صفحاته…' }])
+        try { parts = await pdfToPages(file, (n, t) => upd(key, { state: `بجهّز الصفحات ${n} من ${t}…` })) }
+        catch (e) { upd(key, { state: null, error: 'ما قدرت أفتح الـ PDF: ' + (e.message || e) }); continue }
+        setJobs((l) => l.filter((j) => j.key !== key))
+      }
+      for (let i = 0; i < parts.length; i += PER_READ) {
+        const chunk = parts.slice(i, i + PER_READ)
+        const key = crypto.randomUUID()
+        const name = parts.length > PER_READ ? `${file.name} (صفحات ${i + 1}-${i + chunk.length})` : file.name
+        setJobs((l) => [...l, { key, name, state: 'قاعد يرفع…' }])
+        read(key, chunk).then((id) => { if (id) queue.current = queue.current.then(() => apply(key, id)) })
+      }
     }
   }
 
-  const read = async (key, file) => {
+  const read = async (key, files) => {
     try {
       const { data: inv, error } = await supabase.from('purchase_invoices').insert({ branch_id: lk.kitchen.id, status: 'draft', price_only: true, notes: 'تسعير فقط من فاتورة قديمة' }).select('id').single()
       if (error) throw error
-      const f = await compress(file)
-      const ext = f.type === 'application/pdf' ? 'pdf' : f.type === 'image/png' ? 'png' : 'jpg'
-      const path = `${inv.id}/1-${Date.now()}.${ext}`
-      const up = await supabase.storage.from('invoices').upload(path, f, { contentType: f.type || 'image/jpeg' })
-      if (up.error) throw up.error
-      await supabase.from('purchase_invoices').update({ image_paths: [path] }).eq('id', inv.id)
+      const paths = []
+      for (let i = 0; i < files.length; i++) {
+        const f = await compress(files[i])
+        const ext = f.type === 'application/pdf' ? 'pdf' : f.type === 'image/png' ? 'png' : 'jpg'
+        const path = `${inv.id}/${i + 1}-${Date.now()}.${ext}`
+        const up = await supabase.storage.from('invoices').upload(path, f, { contentType: f.type || 'image/jpeg' })
+        if (up.error) throw up.error
+        paths.push(path)
+      }
+      await supabase.from('purchase_invoices').update({ image_paths: paths }).eq('id', inv.id)
       upd(key, { state: 'قاعد يقرا الفاتورة…', id: inv.id })
       const r = await startRead(inv.id)
       if (r?.error) throw new Error(r.error === 'no_credit' ? 'رصيد قارئ الفواتير خلص' : r.error === 'not_configured' ? 'قارئ الفواتير مش متفعّل' : r.error)

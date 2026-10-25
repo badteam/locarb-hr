@@ -1,3 +1,4 @@
+import { pdfToPages } from '../../lib/pdfPages'
 import { useEffect, useState, useCallback } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase, fmtDate } from '../../lib/supabase'
@@ -48,8 +49,11 @@ function NewInvoice({ onClose }) {
     const { data: inv, error } = await supabase.from('purchase_invoices').insert({ branch_id: branch, supplier_id: supplier || null, status: 'draft' }).select().single()
     if (error) { setErr(invErr(error)); setBusy(''); return }
     const paths = []
-    for (let i = 0; i < files.length; i++) {
-      const f = await compress(files[i])
+    // a big PDF goes up as one light image per page (any size works)
+    const pages = []
+    for (const x of files) pages.push(...await pdfToPages(x))
+    for (let i = 0; i < pages.length; i++) {
+      const f = await compress(pages[i])
       const ext = f.type === 'application/pdf' ? 'pdf' : f.type === 'image/png' ? 'png' : 'jpg'
       const path = `${inv.id}/${i + 1}-${Date.now()}.${ext}`
       const up = await supabase.storage.from('invoices').upload(path, f, { contentType: f.type || 'image/jpeg' })
