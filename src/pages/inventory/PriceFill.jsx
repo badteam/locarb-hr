@@ -6,6 +6,7 @@ import { startRead, compress } from './Invoices.jsx'
 import { pdfToPages, isPdf } from '../../lib/pdfPages'
 import { parsePack, parseWeight, MEASURE_UNITS, fmtContent } from '../../components/UnitContent.jsx'
 import Icon from '../../components/Icon.jsx'
+import ItemSearchSheet from '../../components/ItemSearchSheet.jsx'
 
 // Old invoices uploaded only to learn prices: no quantities go into stock, nothing becomes payable.
 // A price is written only on items that have no price yet, once per item.
@@ -53,9 +54,15 @@ export default function PriceFill() {
   const [lk, setLk] = useState(null)
   const [jobs, setJobs] = useState([])
   const priced = useRef(new Set())
+  const [items, setItems] = useState([])
+  const [picking, setPicking] = useState(null)   // { key, i }
+  const [busyRow, setBusyRow] = useState('')
   const queue = useRef(Promise.resolve())
   const started = useRef(new Set())
-  useEffect(() => { loadLookups().then(setLk) }, [])
+  useEffect(() => {
+    loadLookups().then(setLk)
+    supabase.from('inv_stock').select('id,name_ar,name_en,unit,category').eq('active', true).order('name_ar').then(({ data }) => setItems(data || []))
+  }, [])
   // invoices that were read but not finished (page closed, or an error): finish them now
   useEffect(() => {
     supabase.from('purchase_invoices').select('id,created_at').eq('price_only', true).eq('status', 'review').order('created_at').then(({ data }) => {
@@ -122,7 +129,7 @@ export default function PriceFill() {
         .select('id,invoice_no,invoice_date,supplier_id,total_read,supplier_name_read,suppliers(name),purchase_invoice_lines(id,line_no,raw_name,qty,unit_text,unit_price,item_id,match_score,inv_items!purchase_invoice_lines_item_id_fkey(id,name_ar,last_price,avg_cost,alert_base_price,unit_grams,unit_measure,inv_units(name)))')
         .eq('id', id).single()
       if (!inv) throw new Error('ما قدرتش أفتح الفاتورة بعد القراءة')
-      const head = { supplier: inv.suppliers?.name || inv.supplier_name_read || 'مورد غير معروف', no: inv.invoice_no, date: inv.invoice_date, total: inv.total_read }
+      const head = { supplier: inv.suppliers?.name || inv.supplier_name_read || 'مورد غير معروف', supplier_id: inv.supplier_id, no: inv.invoice_no, date: inv.invoice_date, total: inv.total_read }
 
       // same invoice uploaded before (as a real invoice, or already used for prices)?
       let dup = null
@@ -179,6 +186,39 @@ export default function PriceFill() {
     const st = ok ? await setPrice(row.it.id, row.patch) : 'wrong'
     if (!ok) priced.current.delete(row.it.id)
     upd(key, (x) => ({ rows: x.rows.map((y, n) => (n === i ? { ...y, st } : y)) }))
+  }
+
+  // the manager picks the right item for a line (wrong link, or none): the old price comes off, the new one goes on,
+  // and the link is remembered for this supplier
+  const relink = async (key, i, itemId) => {
+    const j = jobs.find((x) => x.key === key), row = j.rows[i]
+    setBusyRow(`${key}:${i}`)
+    try {
+      if (row.st === 'set' && row.it) {
+        const back = Object.fromEntries(Object.keys(row.patch).map((k) => [k, null]))
+        await supabase.from('inv_items').update(back).eq('id', row.it.id).eq('last_price', row.p)
+        priced.current.delete(row.it.id)
+      } else if (row.st === 'confirm' && row.it) priced.current.delete(row.it.id)
+      if (row.l.raw_name) await supabase.rpc('save_item_alias', { p_supplier: j.head?.supplier_id || null, p_alias: row.l.raw_name, p_item: itemId })
+      const { data: it } = await supabase.from('inv_items').select('id,name_ar,last_price,avg_cost,alert_base_price,unit_grams,unit_measure,inv_units(name)').eq('id', itemId).single()
+      const { data: si } = j.head?.supplier_id ? await supabase.from('supplier_items').select('pack_factor').eq('supplier_id', j.head.supplier_id).eq('item_id', itemId).maybeSingle() : { data: null }
+      const sp = stockPrice(row.l, it, si?.pack_factor)
+      let next
+      if (sp.skip) next = { l: row.l, it, st: 'skip', how: sp.skip }
+      else {
+        const p = Math.round(sp.price * 1000) / 1000
+        if (!p) next = { l: row.l, it, st: 'zero' }
+        else if (Number(it.last_price) > 0) next = { l: row.l, it, p, how: sp.how, st: 'has' }
+        else {
+          const ug = Number(it.unit_grams)
+          const patch = { last_price: p, ...(Number(it.avg_cost) > 0 ? {} : { avg_cost: p }), ...(Number(it.alert_base_price) > 0 ? {} : { alert_base_price: p }),
+            ...(sp.grams && (!ug || ug < sp.grams * 0.6) ? { unit_grams: sp.grams, unit_measure: sp.measure, ...(sp.pieces ? { unit_pieces: sp.pieces } : {}) } : {}) }
+          next = { l: row.l, it, p, how: sp.how, st: await setPrice(it.id, patch), patch }
+        }
+      }
+      upd(key, (x) => ({ rows: x.rows.map((y, n) => (n === i ? { ...next, manual: true } : y)) }))
+    } catch (e) { upd(key, { error: e.message || String(e) }) }
+    setBusyRow('')
   }
 
   const undo = async (key, i) => {
@@ -241,11 +281,22 @@ export default function PriceFill() {
                   <td><span className={'pill ' + ST[r.st][1]}>{ST[r.st][0]}</span>
                     {r.st === 'confirm' && <div className="row" style={{ gap: 6, marginTop: 6 }}>
                       <button className="chip on" style={{ minHeight: 28 }} onClick={() => confirm(j.key, i, true)}>أيوه، حط السعر</button>
-                      <button className="chip" style={{ minHeight: 28 }} onClick={() => confirm(j.key, i, false)}>مش هو</button></div>}
-                    {r.st === 'set' && <button className="chip" style={{ minHeight: 28, marginInlineStart: 6 }} onClick={() => undo(j.key, i)}>تراجع</button>}</td>
+                      <button className="chip" style={{ minHeight: 28 }} onClick={() => confirm(j.key, i, false)}>مش هو</button>
+                      <button className="chip" style={{ minHeight: 28 }} onClick={() => setPicking({ key: j.key, i })}>اختار غيره</button></div>}
+                    {r.st === 'set' && <button className="chip" style={{ minHeight: 28, marginInlineStart: 6 }} onClick={() => undo(j.key, i)}>تراجع</button>}
+                    {r.st !== 'confirm' && <div style={{ marginTop: 6 }}>
+                      <button className={'chip' + (r.it ? '' : ' on')} style={{ minHeight: 28 }} disabled={busyRow === `${j.key}:${i}`} onClick={() => setPicking({ key: j.key, i })}>
+                        {busyRow === `${j.key}:${i}` ? <span className="spinner" /> : null} {r.it ? 'غيّر الصنف' : 'اختار الصنف'}</button>
+                      {r.manual && <span className="cell-sub" style={{ marginInlineStart: 6 }}>ربطته أنت</span>}</div>}</td>
                 </tr>))}</tbody></table></div>}
           </div>))}
       </div>
+      {picking && (() => {
+        const row = jobs.find((x) => x.key === picking.key)?.rows?.[picking.i]
+        return <ItemSearchSheet items={items} line={{ name: row?.l.raw_name || '', unit: row?.l.unit_text || '' }} current={row?.it?.id}
+          hint="السعر بيتحط على الصنف ده، والربط بيتحفظ مع المورد" onClose={() => setPicking(null)}
+          onPick={(id) => { const p = picking; setPicking(null); relink(p.key, p.i, id) }} />
+      })()}
     </div>
   )
 }

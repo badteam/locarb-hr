@@ -1,0 +1,5 @@
+-- Invoice name matching: a name that shares words but not the product ("عدس أحمر مجروش" vs "فلفل أحمر مجروش"),
+-- or the opposite form ("ناعم" vs "حب"), loses 0.3 so it is asked about instead of linked silently.
+-- Applied live on 2026-10-25: private.match_norm, private.match_penalty, public.match_items (score minus penalty),
+-- public.save_item_alias(p_supplier, p_alias, p_item) for links chosen by hand on the price page.
+-- See the live definitions with: select pg_get_functiondef('private.match_penalty'::regproc);

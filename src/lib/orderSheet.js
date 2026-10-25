@@ -129,8 +129,10 @@ const dice = (a, b) => {
   for (const g of x) { const k = pool.indexOf(g); if (k >= 0) { hit++; pool.splice(k, 1) } }
   return (2 * hit) / (x.length + y.length)
 }
+// words that say size or packing, not what the product is
+const NOISE = new Set(['كيلو', 'كغ', 'كجم', 'جرام', 'غرام', 'جم', 'حبه', 'حبات', 'ملي', 'مل', 'لتر', 'كرتون', 'كرتونه', 'كيس', 'علبه', 'باكيت', 'x', 'kg', 'kgs', 'g', 'gm', 'gr', 'ml', 'ltr', 'l', 'pcs', 'pc', 'pce', 'pkt', 'ctn', 'box', 'bag', 'inch', 'lb', 'lbs', 'oz'])
 export function similarity(query, item) {
-  const q = normName(query).replace(/\b\d+\s*(pce|pcs|pc|inch|ml|g|kg)\b/g, ' ').split(' ').filter((w) => w.length > 1)
+  const q = normName(query).split(' ').filter((w) => w.length > 1 && !/\d/.test(w) && !NOISE.has(w))
   if (!q.length) return 0
   const names = [item.name_en, item.name_ar].map(normName).join(' ').split(' ').filter(Boolean)
   if (!names.length) return 0
