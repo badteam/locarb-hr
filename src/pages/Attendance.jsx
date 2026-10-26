@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { supabase, todayKuwait, fmtTime, fmtDate, errMsg } from '../lib/supabase'
 import { useAccess } from '../lib/access.jsx'
 import Icon from '../components/Icon.jsx'
@@ -73,6 +73,8 @@ export default function Attendance() {
   const [from, setFrom] = useState(daysAgo(6))
   const [to, setTo] = useState(todayKuwait())
   const [branch, setBranch] = useState('')
+  const [empFilter, setEmpFilter] = useState('')
+  const [exporting, setExporting] = useState(false)
   const [branches, setBranches] = useState([])
   const [rows, setRows] = useState([])
   const [ot, setOt] = useState({})
@@ -83,23 +85,39 @@ export default function Attendance() {
     supabase.from('employees').select('id,full_name,job_title,branch_id,location_mode').then(({ data }) => setEmps(Object.fromEntries((data || []).map((e) => [e.id, e]))))
   }, [])
 
-  useEffect(() => {
-    let q = supabase.from('attendance').select('*').gte('work_date', from).lte('work_date', to).order('check_in_at', { ascending: false }).limit(1000)
+  // same filters for the screen (first 1000) and the export (everything, fetched page by page)
+  const query = useCallback(() => {
+    let q = supabase.from('attendance').select('*').gte('work_date', from).lte('work_date', to).order('check_in_at', { ascending: false })
     if (branch) q = q.eq('branch_id', branch)
-    q.then(({ data }) => setRows(data || []))
+    if (empFilter) q = q.eq('employee_id', empFilter)
+    return q
+  }, [from, to, branch, empFilter])
+
+  useEffect(() => {
+    query().limit(1000).then(({ data }) => setRows(data || []))
     supabase.from('overtime_entries').select('employee_id,work_date,minutes,approved_minutes,status').gte('work_date', from).lte('work_date', to).in('status', ['pending', 'approved'])
       .then(({ data }) => setOt(Object.fromEntries((data || []).map((o) => [o.employee_id + o.work_date, o]))))
-  }, [from, to, branch, tick])
+  }, [from, to, query, tick])
 
   const bName = Object.fromEntries(branches.map((b) => [b.id, b.name]))
   const hours = (a) => a.check_out_at ? ((new Date(a.check_out_at) - new Date(a.check_in_at)) / 3600000).toFixed(1) : '—'
 
-  const exportCsv = () => {
+  const exportCsv = async () => {
+    setExporting(true)
+    const all = []
+    for (let i = 0; ; i += 1000) {
+      const { data, error } = await query().range(i, i + 999)
+      if (error) { setExporting(false); alert(errMsg(error)); return }
+      all.push(...(data || []))
+      if (!data || data.length < 1000) break
+    }
+    setExporting(false)
+    const rows = all
     const head = ['الموظف', 'الفرع', 'التاريخ', 'الحضور', 'الانصراف', 'الساعات', 'التأخير (دقيقة)', 'داخل الفرع', 'طريقة البصمة']
     const lines = rows.map((a) => [emps[a.employee_id]?.full_name, bName[a.branch_id], a.work_date, fmtTime(a.check_in_at), fmtTime(a.check_out_at), hours(a), a.late_minutes, a.inside_geofence === null ? '' : a.inside_geofence ? 'نعم' : 'لا', METHOD[a.method] || a.method || ''])
     const csv = '﻿' + [head, ...lines].map((r) => r.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
-    const a = document.createElement('a'); a.href = url; a.download = `attendance_${from}_${to}.csv`; a.click()
+    const a = document.createElement('a'); a.href = url; a.download = `attendance_${empFilter ? (emps[empFilter]?.full_name || 'employee').replace(/\s+/g, '_') + '_' : ''}${from}_${to}.csv`; a.click()
   }
 
   return (
@@ -108,7 +126,7 @@ export default function Attendance() {
         <h1>سجل الحضور</h1>
         <div className="row">
           {canEdit && <button className="btn primary" onClick={() => setEditing({})}><Icon name="plus" /> إضافة بصمة</button>}
-          <button className="btn" onClick={exportCsv}>تنزيل Excel</button>
+          <button className="btn" onClick={exportCsv} disabled={exporting}>{exporting ? <span className="spinner" /> : null} تنزيل Excel</button>
         </div>
       </div>
       <div className="card row" style={{ flexWrap: 'wrap', marginBottom: 14 }}>
@@ -120,7 +138,14 @@ export default function Attendance() {
             {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
         </div>
+        <div className="field" style={{ minWidth: 220 }}><label htmlFor="ef">الموظف</label>
+          <select id="ef" className="input" value={empFilter} onChange={(e) => setEmpFilter(e.target.value)}>
+            <option value="">كل الموظفين</option>
+            {Object.values(emps).sort((x, y) => (x.full_name || '').localeCompare(y.full_name || '')).map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+          </select>
+        </div>
       </div>
+      {rows.length >= 1000 && <div className="warn" style={{ marginBottom: 12 }}>الصفحة تعرض أول 1000 بصمة. ملف Excel فيه كل بصمات الفترة.</div>}
       <div className="card table-wrap">
         {rows.length === 0 ? <div className="empty">ما فيه سجلات في هالفترة</div> : (
           <table>
