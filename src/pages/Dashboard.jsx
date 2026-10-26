@@ -99,7 +99,10 @@ export default function Dashboard() {
 
         {can('view_attendance') && (
           <section className="card">
-            <h2 style={{ fontSize: 17, marginBottom: 12 }}>الحضور حسب الفرع</h2>
+            <div className="row" style={{ justifyContent: 'space-between', marginBottom: 12 }}>
+              <h2 style={{ fontSize: 17 }}>الحضور حسب الفرع</h2>
+              <Link to="/attendance/board" className="sub" style={{ color: 'var(--green)' }}>كل الفروع · الشهر</Link>
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {branches.map((b) => {
                 const total = emps.filter((e) => e.branch_id === b.id).length
@@ -107,11 +110,12 @@ export default function Dashboard() {
                 if (!total) return null
                 const pct = Math.round((here / total) * 100)
                 return (
-                  <div key={b.id} className="row" style={{ fontSize: 14 }}>
+                  <Link key={b.id} to={`/attendance/board?branch=${b.id}`} className="row" style={{ fontSize: 14, color: 'inherit', textDecoration: 'none' }} title="افتح حضور الفرع">
                     <div style={{ width: 110 }}>{b.name}</div>
                     <div className="bar"><div style={{ width: pct + '%', background: pct < 60 ? '#B45309' : undefined }} /></div>
                     <div className="ltr" style={{ width: 48, textAlign: 'left' }}>{here}/{total}</div>
-                  </div>
+                    <span className="sub" aria-hidden>‹</span>
+                  </Link>
                 )
               })}
             </div>

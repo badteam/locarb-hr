@@ -1,6 +1,7 @@
 // Arabic phrase -> { en, ne, hi }. Used by tr() for menus and the screens branch staff use.
 // {n}, {v}, {b}, {d} are filled in at run time.
 const P = {
+  'الحضور والغياب': { en: 'Attendance & absence', ne: 'हाजिरी र अनुपस्थिति', hi: 'हाज़िरी और गैरहाज़िरी' },
   'الرقم المدني': { en: 'Civil ID', ne: 'सिभिल आईडी नम्बर', hi: 'सिविल आईडी नंबर' },
   'الجنسية': { en: 'Nationality', ne: 'राष्ट्रियता', hi: 'राष्ट्रीयता' },
   'ما تقدر تختار وقت بعد الوقت الحالي': { en: "You can't pick a time later than now", ne: 'अहिलेभन्दा पछिको समय छान्न मिल्दैन', hi: 'अभी के बाद का समय नहीं चुन सकते' },

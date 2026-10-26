@@ -15,6 +15,7 @@ import Branches from './pages/Branches.jsx'
 import Roles from './pages/Roles.jsx'
 import Notifications from './pages/Notifications.jsx'
 import Attendance from './pages/Attendance.jsx'
+import AttendanceBoard from './pages/AttendanceBoard.jsx'
 import Leaves from './pages/Leaves.jsx'
 import Corrections from './pages/Corrections.jsx'
 import Notices from './pages/Notices.jsx'
@@ -139,6 +140,7 @@ function Shell() {
     { to: '/dashboard', icon: 'dash', label: tr('لوحة اليوم'), show: isManager, group: 'الإدارة' },
     { to: '/payroll', icon: 'box', label: tr('الرواتب'), show: can('manage_payroll') },
     { to: '/overtime', icon: 'calendar', label: tr('الإضافي'), show: can('approve_overtime') },
+    { to: '/attendance/board', icon: 'users', label: tr('الحضور والغياب'), show: can('view_attendance') },
     { to: '/attendance', icon: 'calendar', label: tr('سجل الحضور'), show: can('view_attendance') },
     { to: '/smart-upload', icon: 'camera', label: tr('رفع ذكي'), show: canSmart },
     { to: '/documents', icon: 'warn', label: tr('مستندات الموظفين'), show: can('manage_documents') },
@@ -225,6 +227,7 @@ function Shell() {
           {can('approve_overtime') && <Route path="/overtime" element={<Overtime />} />}
           {isManager && <Route path="/dashboard" element={<Dashboard />} />}
           {can('view_attendance') && <Route path="/attendance" element={<Attendance />} />}
+          {can('view_attendance') && <Route path="/attendance/board" element={<AttendanceBoard />} />}
           {can('manage_documents') && <Route path="/documents" element={<AllDocuments />} />}
           {canBranchDocs && <Route path="/branch-docs" element={<BranchDocs />} />}
           {canBranchDocs && <Route path="/maintenance" element={<Maintenance />} />}
