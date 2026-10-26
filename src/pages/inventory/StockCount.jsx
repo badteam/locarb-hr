@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
-import { qtyFmt, kwd, invErr, itemNames, packPieces, packTotal } from '../../lib/inv'
+import { qtyFmt, kwd, invErr, itemNames, packPieces, packTotal, branchPieces, toPieces } from '../../lib/inv'
 import { useLang } from '../../lib/i18n.jsx'
 import { useAccess } from '../../lib/access.jsx'
 import { useBranchChoice, BranchPicker } from './BranchStock.jsx'
@@ -39,7 +39,7 @@ export default function StockCount() {
   const [result, setResult] = useState(null)
 
   useEffect(() => { const b = params.get('branch'); if (b && bc.options.some((o) => o.id === b)) setBranch(b) }, [params, bc.options, setBranch])
-  useEffect(() => { supabase.from('inv_stock').select('id,name_ar,name_en,unit,unit_pieces,category_id,category,is_critical,avg_cost').eq('active', true).order('name_ar').then(({ data }) => setItems(data || [])) }, [])
+  useEffect(() => { supabase.from('inv_stock').select('id,name_ar,name_en,unit,unit_pieces,branch_by_piece,category_id,category,is_critical,avg_cost').eq('active', true).order('name_ar').then(({ data }) => setItems(data || [])) }, [])
   useEffect(() => {
     if (!branch) return
     setCounts(readDraft(branch)); setResult(null)
@@ -66,10 +66,19 @@ export default function StockCount() {
   const setCount = (id, v) => setCounts((c) => { const n = { ...c, [id]: v }; if (v === '') delete n[id]; writeDraft(branch, n); return n })
   const byId = useMemo(() => Object.fromEntries(items.map((i) => [i.id, i])), [items])
   // counts[id] = whole units; counts[id + ':p'] = loose pieces (carton items only)
-  const counted = (id) => packTotal(counts[id] ?? '', counts[id + ':p'] ?? '', packPieces(byId[id]))
+  const isKitchen = !!lookups?.stockBranches.find((b) => b.id === branch)?.is_central_kitchen
+  // branches count carton drinks in pieces (one box); the kitchen in cartons + loose pieces
+  const counted = (id) => {
+    const bp = branchPieces(byId[id], isKitchen)
+    if (bp) { const v = counts[id] ?? ''; return v === '' ? null : Math.round(Number(v) / bp * 1000) / 1000 }
+    return packTotal(counts[id] ?? '', counts[id + ':p'] ?? '', packPieces(byId[id]))
+  }
   const entered = [...new Set(Object.keys(counts).map((k) => k.replace(/:p$/, '')))].map((id) => [id, counted(id)]).filter(([, v]) => v != null)
-  const diffs = entered.map(([id, v]) => ({ id, item: byId[id], exp: levels[id] || 0, got: Number(v) })).filter((d) => d.item && d.got !== d.exp)
-  const shortVal = diffs.filter((d) => d.got < d.exp).reduce((a, d) => a + (d.exp - d.got) * Number(d.item.avg_cost || 0), 0)
+  const diffs = entered.map(([id, v]) => {
+    const bp = branchPieces(byId[id], isKitchen)
+    return { id, item: byId[id], exp: bp ? toPieces(levels[id] || 0, bp) : levels[id] || 0, got: bp ? toPieces(v, bp) : Number(v), val: v, raw: levels[id] || 0 }
+  }).filter((d) => d.item && d.got !== d.exp)
+  const shortVal = diffs.filter((d) => d.got < d.exp).reduce((a, d) => a + (d.raw - d.val) * Number(d.item.avg_cost || 0), 0)
 
   const submit = async () => {
     setBusy(true); setErr('')
@@ -107,15 +116,16 @@ export default function StockCount() {
         {shown.length === 0 && <div className="card empty">{scope === 'fav' ? tr('ما فيه مفضلة لهالفرع. اختار "الأصناف الموجودة" أو "تصنيف".') : scope === 'cat' && !cat ? tr('اختار التصنيف') : tr('ما فيه أصناف هنا')}</div>}
         {shown.map((i) => {
           const v = counts[i.id] ?? ''
-          const n = packPieces(i)
+          const bp = branchPieces(i, isKitchen)
+          const n = bp ? 0 : packPieces(i)
           const tot = counted(i.id)
-          const exp = levels[i.id] || 0
-          const d = tot == null ? null : Math.round((tot - exp) * 1000) / 1000
+          const exp = bp ? toPieces(levels[i.id] || 0, bp) : levels[i.id] || 0
+          const d = tot == null ? null : Math.round(((bp ? toPieces(tot, bp) : tot) - exp) * 1000) / 1000
           return (
             <div key={i.id} className="order-row" style={{ flexDirection: 'row', alignItems: 'center' }}>
               <ProductImage itemId={i.id} size={48} />
               <div className="grow"><div style={{ fontWeight: 600 }}>{itemNames(i, lang)[0]}</div>
-                <div className="cell-sub">{tr(i.unit || '')}{d != null ? <> · {tr('المتوقع {n}', { n: qtyFmt(exp) })} · {d === 0 ? <span style={{ color: 'var(--ok)' }}>{tr('مطابق ✓')}</span>
+                <div className="cell-sub">{tr(bp ? 'حبة' : i.unit || '')}{d != null ? <> · {tr('المتوقع {n}', { n: qtyFmt(exp) })} · {d === 0 ? <span style={{ color: 'var(--ok)' }}>{tr('مطابق ✓')}</span>
                   : <span style={{ color: d < 0 ? 'var(--red)' : 'var(--amber)', fontWeight: 600 }}>{d < 0 ? tr('ناقص') : tr('زايد')} {qtyFmt(Math.abs(d))}</span>}</> : null}</div></div>
               {n ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>

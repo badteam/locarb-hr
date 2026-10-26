@@ -128,6 +128,16 @@ export function nutSource(src) {
 // Items stocked by the carton/pack whose content is a known number of pieces (drinks: 30 cans a carton).
 // Branches often count loose pieces: they enter cartons and pieces, and the system stores cartons.
 export const packPieces = (i) => (i && i.unit !== 'حبة' && Number(i.unit_pieces) > 1 ? Number(i.unit_pieces) : 0)
+// Branches count and see carton drinks in pieces (the kitchen keeps cartons). Stock is stored in cartons either way.
+// -> pieces per carton when this place should see the item in pieces, else 0
+// only items marked "branches count in pieces" (inv_items.branch_by_piece), e.g. drinks
+export const branchPieces = (i, isKitchen) => (isKitchen || !i?.branch_by_piece ? 0 : packPieces(i))
+export const toPieces = (qty, n) => {
+  if (qty == null || qty === '') return qty
+  const x = Number(qty) * n
+  // cartons are stored to 3 decimals, so 61 cans = 2.033 cartons = 60.99: show whole pieces when that close
+  return Math.abs(x - Math.round(x)) < 0.05 * Math.max(1, n / 30) ? Math.round(x) : Math.round(x * 10) / 10
+}
 export const packTotal = (whole, pieces, n) => {
   if ((whole === '' || whole == null) && (pieces === '' || pieces == null)) return null
   return Math.round(((Number(whole) || 0) + (n ? (Number(pieces) || 0) / n : 0)) * 1000) / 1000

@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAccess } from '../../lib/access.jsx'
 import { useLang } from '../../lib/i18n.jsx'
-import { qtyFmt, kwd, ORDER_STATUS, invErr, itemNames, loadLookups } from '../../lib/inv'
+import { qtyFmt, kwd, ORDER_STATUS, invErr, itemNames, loadLookups, branchPieces, toPieces } from '../../lib/inv'
 import Icon from '../../components/Icon.jsx'
 import ProductImage from '../../components/ProductImage.jsx'
 
@@ -23,7 +23,7 @@ export default function OrderDetail() {
 
   const load = useCallback(async () => {
     const { data } = await supabase.from('branch_requests')
-      .select('*, branches:branch_id(name,name_en), creator:created_by(full_name), sender:dispatched_by(full_name), receiver:received_by(full_name), branch_request_lines(*, inv_items(name_ar,name_en,inv_units(name,name_en)))')
+      .select('*, branches:branch_id(name,name_en), creator:created_by(full_name), sender:dispatched_by(full_name), receiver:received_by(full_name), branch_request_lines(*, inv_items(name_ar,name_en,unit_pieces,branch_by_piece,inv_units(name,name_en)))')
       .eq('id', id).maybeSingle()
     if (!data) { setR(false); return }
     setR(data)
@@ -99,7 +99,7 @@ export default function OrderDetail() {
                 <ProductImage itemId={l.item_id} size={48} />
                 <div className="grow"><div style={{ fontWeight: 600 }}>{n1}</div>{n2 && <div className="cell-sub">{n2}</div>}
                   <div className="cell-sub">
-                    {l.on_hand != null ? `${tr('عندهم {n}', { n: qtyFmt(l.on_hand) })} · ` : ''}{tr('طلبوا {n}', { n: qtyFmt(l.requested_qty) })} {unit}
+                    {l.on_hand != null ? `${tr('عندهم {n}', { n: branchPieces({ ...l.inv_items, unit: l.inv_items?.inv_units?.name }, false) ? `${qtyFmt(toPieces(l.on_hand, branchPieces({ ...l.inv_items, unit: l.inv_items?.inv_units?.name }, false)))} ${tr('حبة')}` : qtyFmt(l.on_hand) })} · ` : ''}{tr('طلبوا {n}', { n: qtyFmt(l.requested_qty) })} {unit}
                     {l.sent_qty != null ? ` · ${tr('انرسل {n}', { n: qtyFmt(l.sent_qty) })}` : ''}{l.received_qty != null ? ` · ${tr('وصل {n}', { n: qtyFmt(l.received_qty) })}` : ''}
                     {canDispatch && kq != null ? ` · ${tr('في المطبخ {n}', { n: qtyFmt(kq) })}` : ''}</div>
                 </div>

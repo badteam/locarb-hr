@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAccess } from '../../lib/access.jsx'
 import { useLang } from '../../lib/i18n.jsx'
-import { qtyFmt, kwd, loadLookups, invErr, MOVE_KIND, itemNames } from '../../lib/inv'
+import { qtyFmt, kwd, loadLookups, invErr, MOVE_KIND, itemNames, branchPieces, toPieces } from '../../lib/inv'
 import Icon from '../../components/Icon.jsx'
 import ProductImage from '../../components/ProductImage.jsx'
 
@@ -36,7 +36,7 @@ export function BranchPicker({ branch, setBranch, any, options }) {
 
 const REASONS = ['خربان', 'انتهت الصلاحية', 'طاح أو انكسر', 'رجّعه زبون']
 
-export function WasteSheet({ branch, items, onClose, onSaved }) {
+export function WasteSheet({ branch, items, onClose, onSaved, isKitchen = false }) {
   const { tr, lang } = useLang()
   const [q, setQ] = useState('')
   const [item, setItem] = useState(null)
@@ -54,7 +54,8 @@ export function WasteSheet({ branch, items, onClose, onSaved }) {
     if (!item) { setErr(tr('اختار الصنف')); return }
     if (!(Number(qty) > 0)) { setErr(tr('اكتب الكمية')); return }
     setBusy(true)
-    const { error } = await supabase.rpc('record_waste', { p_branch: branch, p_item: item.id, p_qty: Number(qty), p_note: reason === 'غيره' ? other : reason })
+    const n = branchPieces(item, isKitchen)
+    const { error } = await supabase.rpc('record_waste', { p_branch: branch, p_item: item.id, p_qty: n ? Math.round(Number(qty) / n * 1000) / 1000 : Number(qty), p_note: reason === 'غيره' ? other : reason })
     setBusy(false)
     if (error) setErr(tr(invErr(error))); else { onSaved(); onClose() }
   }
@@ -74,7 +75,7 @@ export function WasteSheet({ branch, items, onClose, onSaved }) {
                 <span className="grow">{itemNames(i, lang)[0]}<div className="cell-sub">{itemNames(i, lang)[1]}{i.unit ? ` · ${tr(i.unit)}` : ''}</div></span></button>)}</div>}
           </div>
         )}
-        <div className="field"><label htmlFor="wq">{tr('الكمية')} {item?.unit ? `(${tr(item.unit)})` : ''}</label>
+        <div className="field"><label htmlFor="wq">{tr('الكمية')} {item ? `(${tr(branchPieces(item, isKitchen) ? 'حبة' : item.unit || '')})` : ''}</label>
           <input id="wq" className="input num" inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value.replace(/[^\d.]/g, ''))} /></div>
         <div className="field"><span className="lbl">{tr('السبب')}</span>
           <div className="chips">{[...REASONS, 'غيره'].map((r) => <button key={r} type="button" className={'chip' + (reason === r ? ' on' : '')} onClick={() => setReason(r)}>{tr(r)}</button>)}</div>
@@ -100,11 +101,11 @@ export default function BranchStock() {
   const [waste, setWaste] = useState(false)
   const canCount = can('branch_count') || can('manage_inventory')
 
-  useEffect(() => { supabase.from('inv_stock').select('id,name_ar,name_en,unit,category,avg_cost').eq('active', true).order('name_ar').then(({ data }) => setItems(data || [])) }, [])
+  useEffect(() => { supabase.from('inv_stock').select('id,name_ar,name_en,unit,unit_pieces,branch_by_piece,category,avg_cost').eq('active', true).order('name_ar').then(({ data }) => setItems(data || [])) }, [])
   const load = useCallback(() => {
     if (!branch) return
     supabase.from('stock_levels').select('item_id,qty,updated_at').eq('branch_id', branch).then(({ data }) => setLevels(Object.fromEntries((data || []).map((x) => [x.item_id, x]))))
-    supabase.from('stock_movements').select('id,qty,kind,note,created_at,inv_items(name_ar,name_en,inv_units(name)),employees:created_by(full_name)').eq('branch_id', branch).order('created_at', { ascending: false }).limit(15).then(({ data }) => setMoves(data || []))
+    supabase.from('stock_movements').select('id,qty,kind,note,created_at,inv_items(name_ar,name_en,unit_pieces,branch_by_piece,inv_units(name)),employees:created_by(full_name)').eq('branch_id', branch).order('created_at', { ascending: false }).limit(15).then(({ data }) => setMoves(data || []))
     supabase.from('stock_counts').select('id,created_at,lines_count,short_value,over_value,employees:created_by(full_name)').eq('branch_id', branch).order('created_at', { ascending: false }).limit(5).then(({ data }) => setCounts(data || []))
   }, [branch])
   useEffect(() => { load() }, [load])
@@ -115,6 +116,7 @@ export default function BranchStock() {
   }, [items, levels, q, onlyStock])
   const value = Object.entries(levels).reduce((a, [id, l]) => a + Math.max(Number(l.qty), 0) * Number(items.find((i) => i.id === id)?.avg_cost || 0), 0)
   const lastCount = counts[0]
+  const isKitchen = !!bc.lookups?.stockBranches.find((b) => b.id === branch)?.is_central_kitchen
 
   return (
     <div>
@@ -144,8 +146,9 @@ export default function BranchStock() {
           <thead><tr><th style={{ textAlign: 'start' }}>{tr('الصنف')}</th><th style={{ textAlign: 'start' }}>{tr('الكمية')}</th><th style={{ textAlign: 'start' }}>{tr('آخر تحديث')}</th></tr></thead>
           <tbody>{shown.slice(0, 200).map((i) => {
             const l = levels[i.id]
+            const n = branchPieces(i, isKitchen)
             return <tr key={i.id}><td><div className="row" style={{ gap: 10 }}><ProductImage itemId={i.id} size={38} /><div>{itemNames(i, lang)[0]}<div className="cell-sub">{tr(i.category || '')}</div></div></div></td>
-              <td><span className="num" style={{ fontWeight: 600, color: l && Number(l.qty) < 0 ? 'var(--red)' : undefined }}>{l ? qtyFmt(l.qty) : '—'}</span> <span className="sub">{tr(i.unit || '')}</span></td>
+              <td><span className="num" style={{ fontWeight: 600, color: l && Number(l.qty) < 0 ? 'var(--red)' : undefined }}>{l ? qtyFmt(n ? toPieces(l.qty, n) : l.qty) : '—'}</span> <span className="sub">{tr(n ? 'حبة' : i.unit || '')}</span></td>
               <td className="sub">{l ? fmtDate(l.updated_at) : ''}</td></tr>
           })}</tbody>
         </table>
@@ -158,9 +161,9 @@ export default function BranchStock() {
         {moves.map((m) => <div key={m.id} className="list-item">
           <span className={'pill ' + (MOVE_KIND[m.kind]?.[0] || 'gray')}>{tr(MOVE_KIND[m.kind]?.[1] || m.kind)}</span>
           <span className="grow">{itemNames(m.inv_items, lang)[0]}<div className="cell-sub">{fmtDate(m.created_at)} {fmtTime(m.created_at)}{m.employees?.full_name ? ` · ${m.employees.full_name}` : ''}{m.note ? ` · ${tr(m.note)}` : ''}</div></span>
-          <span className="num" style={{ fontWeight: 600, color: m.qty < 0 ? 'var(--red)' : 'var(--ok)' }}>{m.qty > 0 ? '+' : ''}{qtyFmt(m.qty)}</span></div>)}
+          <span className="num" style={{ fontWeight: 600, color: m.qty < 0 ? 'var(--red)' : 'var(--ok)' }}>{m.qty > 0 ? '+' : ''}{(() => { const n = branchPieces({ ...m.inv_items, unit: m.inv_items?.inv_units?.name }, isKitchen); return n ? `${qtyFmt(toPieces(m.qty, n))} ${tr('حبة')}` : qtyFmt(m.qty) })()}</span></div>)}
       </div>
-      {waste && <WasteSheet branch={branch} items={items} onClose={() => setWaste(false)} onSaved={load} />}
+      {waste && <WasteSheet branch={branch} items={items} isKitchen={isKitchen} onClose={() => setWaste(false)} onSaved={load} />}
     </div>
   )
 }

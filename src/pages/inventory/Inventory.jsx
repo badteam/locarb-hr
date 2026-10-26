@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAccess } from '../../lib/access.jsx'
-import { kwd, qtyFmt, loadLookups, clearLookups, invErr, MOVE_KIND, nutSource } from '../../lib/inv'
+import { kwd, qtyFmt, loadLookups, clearLookups, invErr, MOVE_KIND, nutSource, branchPieces, toPieces } from '../../lib/inv'
 import { fmtDate } from '../../lib/supabase'
 import Icon from '../../components/Icon.jsx'
 import ProductImage, { ProductPhotoLarge, refreshProductImages } from '../../components/ProductImage.jsx'
@@ -19,7 +19,7 @@ export function ItemForm({ item, lookups, onClose, onSaved, presetName }) {
   const [f, setF] = useState({
     name_ar: item?.name_ar || presetName || '', name_en: item?.name_en || '',
     category_id: item?.category_id || lookups.categories[0]?.id || '', unit_id: item?.unit_id || '',
-    min_qty: item?.min_qty ?? 0, is_critical: item?.is_critical || false, active: item?.active ?? true, notes: item?.notes || '',
+    min_qty: item?.min_qty ?? 0, is_critical: item?.is_critical || false, branch_by_piece: item?.branch_by_piece || false, active: item?.active ?? true, notes: item?.notes || '',
     kcal_100: item?.kcal_100 ?? '', protein_100: item?.protein_100 ?? '', carbs_100: item?.carbs_100 ?? '', fat_100: item?.fat_100 ?? '',
   })
   const [prot, setProt] = useState({ groups: [], value: '' })
@@ -109,6 +109,11 @@ export function ItemForm({ item, lookups, onClose, onSaved, presetName }) {
                 <input type="number" step="any" min="0" className="input num" value={f[k]} onChange={set(k)} aria-label={l} /></div>))}
           </div>
           <div className="sub">تقدر تخليها فاضية وتعبيها من كرت الصنف: من الملصق أو قيم تقديرية.</div></div>
+        {(() => {
+          const un = lookups.units.find((u) => u.id === f.unit_id)?.name
+          if (!un || un === 'حبة' || !(Number(content.pieces) > 1)) return null
+          return <label className="check"><input type="checkbox" checked={f.branch_by_piece} onChange={set('branch_by_piece')} /> الفروع تعدّ بالحبة ({un} = {Number(content.pieces)} حبة). المطبخ والطلبات بالـ{un}</label>
+        })()}
         <label className="check"><input type="checkbox" checked={f.is_critical} onChange={set('is_critical')} /> صنف غالي أو يخرب بسرعة (يدخل في الجرد اليومي)</label>
         <label className="check"><input type="checkbox" checked={f.active} onChange={set('active')} /> الصنف مستخدم</label>
         {err && <div className="error">{err}</div>}
@@ -284,7 +289,7 @@ function ItemSheet({ item, lookups, canEdit, onClose, onChanged }) {
     setRmErr(invErr(del.error))
   }
   const load = useCallback(() => {
-    supabase.from('stock_levels').select('qty, branch_id, branches(name)').eq('item_id', item.id).then(({ data }) => setLevels(data || []))
+    supabase.from('stock_levels').select('qty, branch_id, branches(name,is_central_kitchen)').eq('item_id', item.id).then(({ data }) => setLevels(data || []))
     supabase.from('stock_movements').select('id,qty,kind,note,created_at,unit_cost,branches(name),employees:created_by(full_name)').eq('item_id', item.id).order('created_at', { ascending: false }).limit(20).then(({ data }) => setMoves(data || []))
     supabase.from('supplier_items').select('last_price,last_date,suppliers(name)').eq('item_id', item.id).order('last_date', { ascending: false }).then(({ data }) => setPrices(data || []))
   }, [item.id])
@@ -311,7 +316,7 @@ function ItemSheet({ item, lookups, canEdit, onClose, onChanged }) {
         </div>}
         <NutritionCard itemId={item.id} canEdit={canEdit} onChanged={onChanged} />
         {levels.length > 0 && <div className="card"><strong style={{ fontSize: 14 }}>الكمية في كل مكان</strong>
-          <div className="list">{levels.map((l) => <div key={l.branch_id} className="list-item"><span className="grow">{l.branches?.name}</span><span className="num">{qtyFmt(l.qty)}</span></div>)}</div></div>}
+          <div className="list">{levels.map((l) => { const n = branchPieces(item, l.branches?.is_central_kitchen); return <div key={l.branch_id} className="list-item"><span className="grow">{l.branches?.name}</span><span className="num">{n ? `${qtyFmt(toPieces(l.qty, n))} حبة` : `${qtyFmt(l.qty)} ${item.unit || ''}`}</span></div> })}</div></div>}
         <div className="card"><strong style={{ fontSize: 14 }}>أسعار الموردين</strong>
           {prices.length === 0 ? <div className="empty">ما انشرى من أي مورد في النظام الجديد للحين</div> :
             <div className="list">{prices.map((p, i) => <div key={i} className="list-item"><span className="grow">{p.suppliers?.name}<div className="sub">{fmtDate(p.last_date)}</div></span><span className="num">{kwd(p.last_price)}</span></div>)}</div>}</div>
