@@ -22,6 +22,7 @@ export default function OpeningBalance() {
   const [q, setQ] = useState('')
   const [cat, setCat] = useState('')
   const [onlyFilled, setOnlyFilled] = useState(false)
+  const [noPriceOnly, setNoPriceOnly] = useState(false)
   const [limit, setLimit] = useState(120)
   const [confirm, setConfirm] = useState(false)
   const [busy, setBusy] = useState('')
@@ -45,11 +46,16 @@ export default function OpeningBalance() {
     return n
   })
 
+  // an item has a price if it has a cost, or one is typed here
+  const priced = (i) => Number(i.avg_cost) > 0 || Number(i.last_price) > 0 || (vals[i.id]?.price ?? '') !== ''
+  const unpricedCount = items.filter((i) => !priced(i)).length
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase()
-    return items.filter((i) => (!cat || i.category_id === cat) && (!onlyFilled || vals[i.id]) &&
+    const list = items.filter((i) => (!cat || i.category_id === cat) && (!onlyFilled || vals[i.id]) && (!noPriceOnly || !priced(i)) &&
       (!s || i.name_ar.toLowerCase().includes(s) || (i.name_en || '').toLowerCase().includes(s)))
-  }, [items, q, cat, onlyFilled, vals])
+    // items without a price come first
+    return list.map((i, n) => [i, n]).sort((a, b) => (Number(!!(Number(a[0].avg_cost) > 0 || Number(a[0].last_price) > 0)) - Number(!!(Number(b[0].avg_cost) > 0 || Number(b[0].last_price) > 0))) || a[1] - b[1]).map(([i]) => i)
+  }, [items, q, cat, onlyFilled, noPriceOnly, vals]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const filled = Object.entries(vals).filter(([, v]) => v.qty !== undefined && v.qty !== '' || v.price !== undefined && v.price !== '')
   const total = filled.reduce((a, [id, v]) => {
@@ -141,6 +147,7 @@ export default function OpeningBalance() {
           <option value="">كل التصنيفات</option>{lookups.categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <label className="check"><input type="checkbox" checked={onlyFilled} onChange={(e) => setOnlyFilled(e.target.checked)} /> اللي كتبت لها بس</label>
+        <label className="check"><input type="checkbox" checked={noPriceOnly} onChange={(e) => { setNoPriceOnly(e.target.checked); setLimit(120) }} /> بدون سعر بس ({unpricedCount})</label>
       </div>
 
       <div className="order-list">
@@ -152,7 +159,7 @@ export default function OpeningBalance() {
               <div className="row" style={{ gap: 10 }}>
                 <ProductImage itemId={i.id} size={44} />
                 <div className="grow"><div style={{ fontWeight: 600 }}>{i.name_ar}</div>
-                  <div className="cell-sub">{i.category}{i.unit ? ` · ${i.unit}` : ''}{levels[i.id] != null ? ` · الرصيد الحالي ${qtyFmt(levels[i.id])}` : ''}{i.avg_cost ? ` · التكلفة الحالية ${kwd(i.avg_cost)}` : ''}</div></div>
+                  <div className="cell-sub">{!(Number(i.avg_cost) > 0 || Number(i.last_price) > 0) && <span className="pill amber" style={{ marginInlineEnd: 6 }}>بدون سعر</span>}{i.category}{i.unit ? ` · ${i.unit}` : ''}{levels[i.id] != null ? ` · الرصيد الحالي ${qtyFmt(levels[i.id])}` : ''}{i.avg_cost ? ` · التكلفة الحالية ${kwd(i.avg_cost)}` : ''}</div></div>
               </div>
               <div className="grid" style={{ gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
                 <div className="field"><span className="lbl" style={{ fontSize: 12 }}>الكمية {i.unit ? `(${i.unit})` : ''}</span>
