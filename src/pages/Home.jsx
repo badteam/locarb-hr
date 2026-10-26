@@ -7,12 +7,13 @@ import Icon from '../components/Icon.jsx'
 import PunchCode from '../components/PunchCode.jsx'
 import Avatar, { squarePhoto } from '../components/Avatar.jsx'
 
+// the phone's location is required to punch; tells apart "not allowed" from "couldn't get it"
 const getPosition = () => new Promise((resolve) => {
-  if (!navigator.geolocation) return resolve(null)
+  if (!navigator.geolocation) return resolve({ err: 'loc_unavailable' })
   navigator.geolocation.getCurrentPosition(
     (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
-    () => resolve(null),
-    { enableHighAccuracy: true, timeout: 10000 },
+    (e) => resolve({ err: e.code === 1 ? 'loc_denied' : 'loc_unavailable' }),
+    { enableHighAccuracy: true, timeout: 20000, maximumAge: 60000 },
   )
 })
 
@@ -77,7 +78,8 @@ export default function Home() {
         setMsg({ ok: true, text: t('checked_out_ok') })
       } else {
         const pos = await getPosition()
-        const { data, error } = await supabase.rpc('check_in', { p_lat: pos?.lat ?? null, p_lng: pos?.lng ?? null, p_method: 'app' })
+        if (pos.err) { setMsg({ ok: false, text: t(pos.err) }); setBusy(false); return }
+        const { data, error } = await supabase.rpc('check_in', { p_lat: pos.lat, p_lng: pos.lng, p_method: 'app' })
         if (error) throw error
         let text = t('checked_in_ok')
         if (data?.late_minutes > 0) text += ' · ' + t('late_by', { n: data.late_minutes })
@@ -91,7 +93,7 @@ export default function Home() {
       }
       await load()
     } catch (e) {
-      setMsg({ ok: false, text: e.message?.includes('already checked in') ? t('already_in') : tr(errMsg(e)) })
+      setMsg({ ok: false, text: e.message?.includes('already checked in') ? t('already_in') : e.message?.includes('location required') ? t('loc_unavailable') : tr(errMsg(e)) })
     }
     setBusy(false)
   }

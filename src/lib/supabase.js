@@ -30,6 +30,7 @@ export const errMsg = (e) => {
   if (m.includes('employees_bio_pin_check')) return 'رقم جهاز البصمة لازم يكون أرقام بس'
   if (m.includes('punch mode device')) return 'هذا الموظف يبصم من جهاز البصمة في الفرع'
   if (m.includes('punch mode kiosk')) return 'هذا الموظف يبصم من آيباد الفرع'
+  if (m.includes('location required')) return 'لازم يكون الموقع شغّال في الجوال عشان تبصم'
   if (m.includes('future time')) return 'ما تقدر تختار وقت بعد الوقت الحالي'
   if (m.includes('future date')) return 'ما تقدر تختار تاريخ بعد اليوم'
   if (m.includes('out before in')) return 'وقت الانصراف لازم يكون بعد الحضور'
