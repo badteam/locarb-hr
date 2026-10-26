@@ -1,0 +1,6 @@
+-- Applied live 2026-10-26.
+-- Soft drinks are stocked by the carton (30 cans): unit_pieces = 30; "هيلثي كولا زيرو سكر" moved from piece to carton.
+-- Branch stock of soft drinks had been counted in cans: one count_adjust movement per branch (ref_type 'unit_fix') divides it by 30
+-- (kitchen untouched; Mahboula's Kinza Diet stays, it was recounted in cartons). Backup: private.bak_20261026_drinks_levels.
+-- private.photo_item_to_stock(): a photo-count line with count_unit = 'piece' on a carton/pack item (unit_pieces > 1)
+-- is divided by unit_pieces before it becomes the stock figure.

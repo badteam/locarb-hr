@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
-import { qtyFmt, kwd, invErr, itemNames } from '../../lib/inv'
+import { qtyFmt, kwd, invErr, itemNames, packPieces, packTotal } from '../../lib/inv'
 import { useLang } from '../../lib/i18n.jsx'
 import { useAccess } from '../../lib/access.jsx'
 import { useBranchChoice, BranchPicker } from './BranchStock.jsx'
@@ -39,7 +39,7 @@ export default function StockCount() {
   const [result, setResult] = useState(null)
 
   useEffect(() => { const b = params.get('branch'); if (b && bc.options.some((o) => o.id === b)) setBranch(b) }, [params, bc.options, setBranch])
-  useEffect(() => { supabase.from('inv_stock').select('id,name_ar,name_en,unit,category_id,category,is_critical,avg_cost').eq('active', true).order('name_ar').then(({ data }) => setItems(data || [])) }, [])
+  useEffect(() => { supabase.from('inv_stock').select('id,name_ar,name_en,unit,unit_pieces,category_id,category,is_critical,avg_cost').eq('active', true).order('name_ar').then(({ data }) => setItems(data || [])) }, [])
   useEffect(() => {
     if (!branch) return
     setCounts(readDraft(branch)); setResult(null)
@@ -64,14 +64,16 @@ export default function StockCount() {
   }, [items, scope, favs, levels, cat, q])
 
   const setCount = (id, v) => setCounts((c) => { const n = { ...c, [id]: v }; if (v === '') delete n[id]; writeDraft(branch, n); return n })
-  const entered = Object.entries(counts).filter(([, v]) => v !== '' && v != null)
   const byId = useMemo(() => Object.fromEntries(items.map((i) => [i.id, i])), [items])
+  // counts[id] = whole units; counts[id + ':p'] = loose pieces (carton items only)
+  const counted = (id) => packTotal(counts[id] ?? '', counts[id + ':p'] ?? '', packPieces(byId[id]))
+  const entered = [...new Set(Object.keys(counts).map((k) => k.replace(/:p$/, '')))].map((id) => [id, counted(id)]).filter(([, v]) => v != null)
   const diffs = entered.map(([id, v]) => ({ id, item: byId[id], exp: levels[id] || 0, got: Number(v) })).filter((d) => d.item && d.got !== d.exp)
   const shortVal = diffs.filter((d) => d.got < d.exp).reduce((a, d) => a + (d.exp - d.got) * Number(d.item.avg_cost || 0), 0)
 
   const submit = async () => {
     setBusy(true); setErr('')
-    const { data, error } = await supabase.rpc('finish_stock_count', { p_branch: branch, p_lines: entered.map(([item_id, v]) => ({ item_id, counted: Number(v) })), p_scope: scope, p_note: null })
+    const { data, error } = await supabase.rpc('finish_stock_count', { p_branch: branch, p_lines: entered.map(([item_id, v]) => ({ item_id, counted: v })), p_scope: scope, p_note: null })
     setBusy(false); setConfirm(false)
     if (error) { setErr(tr(invErr(error))); return }
     writeDraft(branch, {}); setCounts({}); setResult(data)
@@ -105,16 +107,31 @@ export default function StockCount() {
         {shown.length === 0 && <div className="card empty">{scope === 'fav' ? tr('ما فيه مفضلة لهالفرع. اختار "الأصناف الموجودة" أو "تصنيف".') : scope === 'cat' && !cat ? tr('اختار التصنيف') : tr('ما فيه أصناف هنا')}</div>}
         {shown.map((i) => {
           const v = counts[i.id] ?? ''
+          const n = packPieces(i)
+          const tot = counted(i.id)
           const exp = levels[i.id] || 0
-          const d = v === '' ? null : Number(v) - exp
+          const d = tot == null ? null : Math.round((tot - exp) * 1000) / 1000
           return (
             <div key={i.id} className="order-row" style={{ flexDirection: 'row', alignItems: 'center' }}>
               <ProductImage itemId={i.id} size={48} />
               <div className="grow"><div style={{ fontWeight: 600 }}>{itemNames(i, lang)[0]}</div>
                 <div className="cell-sub">{tr(i.unit || '')}{d != null ? <> · {tr('المتوقع {n}', { n: qtyFmt(exp) })} · {d === 0 ? <span style={{ color: 'var(--ok)' }}>{tr('مطابق ✓')}</span>
                   : <span style={{ color: d < 0 ? 'var(--red)' : 'var(--amber)', fontWeight: 600 }}>{d < 0 ? tr('ناقص') : tr('زايد')} {qtyFmt(Math.abs(d))}</span>}</> : null}</div></div>
+              {n ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
+                  <div className="row" style={{ gap: 6 }}>
+                    <label className="field" style={{ gap: 2 }}><span className="cell-sub" style={{ marginTop: 0 }}>{tr(i.unit || '')}</span>
+                      <input className="input num" style={{ width: 72, height: 44, fontSize: 16, fontWeight: 600 }} inputMode="decimal" placeholder="0" value={v}
+                        onChange={(e) => setCount(i.id, e.target.value.replace(/[^\d.]/g, ''))} aria-label={`${tr('العدد الفعلي')} (${tr(i.unit || '')}): ${itemNames(i, lang)[0]}`} /></label>
+                    <label className="field" style={{ gap: 2 }}><span className="cell-sub" style={{ marginTop: 0 }}>{tr('حبة')}</span>
+                      <input className="input num" style={{ width: 72, height: 44, fontSize: 16, fontWeight: 600 }} inputMode="decimal" placeholder="0" value={counts[i.id + ':p'] ?? ''}
+                        onChange={(e) => setCount(i.id + ':p', e.target.value.replace(/[^\d.]/g, ''))} aria-label={`${tr('حبة')}: ${itemNames(i, lang)[0]}`} /></label>
+                  </div>
+                  <span className="cell-sub" style={{ marginTop: 0 }}>{tr('الـ{u} فيه {n} حبة', { u: tr(i.unit || ''), n })}{tot != null ? ` · = ${qtyFmt(tot)} ${tr(i.unit || '')}` : ''}</span>
+                </div>
+              ) : (
               <input className="input num" style={{ width: 110, height: 46, fontSize: 17, fontWeight: 600 }} inputMode="decimal" placeholder="—" value={v}
-                onChange={(e) => setCount(i.id, e.target.value.replace(/[^\d.]/g, ''))} aria-label={`${tr('العدد الفعلي')}: ${itemNames(i, lang)[0]}`} />
+                onChange={(e) => setCount(i.id, e.target.value.replace(/[^\d.]/g, ''))} aria-label={`${tr('العدد الفعلي')}: ${itemNames(i, lang)[0]}`} />)}
             </div>
           )
         })}

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAccess } from '../../lib/access.jsx'
 import { useLang } from '../../lib/i18n.jsx'
-import { qtyFmt, loadLookups, invErr, itemNames } from '../../lib/inv'
+import { qtyFmt, loadLookups, invErr, itemNames, packPieces, packTotal } from '../../lib/inv'
 import Icon from '../../components/Icon.jsx'
 import ProductImage from '../../components/ProductImage.jsx'
 
@@ -48,7 +48,7 @@ export default function NewOrder() {
       const own = l.branches.find((b) => b.id === access.employee.branch_id && !b.is_central_kitchen)
       setBranch(own?.id || (anyBranch ? l.branches.find((b) => !b.is_central_kitchen)?.id : '') || '')
     })
-    supabase.from('inv_stock').select('id,name_ar,name_en,unit,category_id,category,active').eq('active', true).order('name_ar').then(({ data }) => setItems(data || []))
+    supabase.from('inv_stock').select('id,name_ar,name_en,unit,unit_pieces,category_id,category,active').eq('active', true).order('name_ar').then(({ data }) => setItems(data || []))
   }, [access.employee.branch_id, anyBranch])
 
   const loadBranch = useCallback(() => {
@@ -74,8 +74,11 @@ export default function NewOrder() {
     const cur = ls[id] || {}
     const next = { ...cur, ...patch }
     // counted what's on hand and has a normal quantity: suggest the difference
-    if ('on_hand' in patch && !cur.touched && favs[id] != null && num(patch.on_hand) != null) {
-      next.qty = String(Math.max(0, Math.round((Number(favs[id]) - Number(patch.on_hand)) * 1000) / 1000))
+    // carton items: on_hand = cartons + loose pieces
+    const oh = packTotal(next.on_hand_c ?? next.on_hand ?? '', next.on_hand_p ?? '', packPieces(byId[id]))
+    if ('on_hand_c' in patch || 'on_hand_p' in patch) next.on_hand = oh == null ? '' : String(oh)
+    if (('on_hand' in patch || 'on_hand_c' in patch || 'on_hand_p' in patch) && !cur.touched && favs[id] != null && num(next.on_hand) != null) {
+      next.qty = String(Math.max(0, Math.round((Number(favs[id]) - Number(next.on_hand)) * 1000) / 1000))
     }
     if ('qty' in patch) next.touched = true
     return { ...ls, [id]: next }
@@ -134,8 +137,17 @@ export default function NewOrder() {
         ) : (
           <div className="order-inputs">
             <div className="field"><span className="lbl" style={{ fontSize: 12 }}>{tr('عندكم الحين')}</span>
+              {packPieces(i) ? (<>
+                <div className="row" style={{ gap: 6 }}>
+                  <input className="input num" style={{ height: 44, minWidth: 0 }} inputMode="decimal" placeholder={tr(i.unit || '')} value={l.on_hand_c ?? ''}
+                    onChange={(e) => setLine(i.id, { on_hand_c: e.target.value.replace(/[^\d.]/g, '') })} aria-label={`${tr('عندكم الحين')} (${tr(i.unit || '')}): ${itemNames(i, lang)[0]}`} />
+                  <input className="input num" style={{ height: 44, minWidth: 0 }} inputMode="decimal" placeholder={tr('حبة')} value={l.on_hand_p ?? ''}
+                    onChange={(e) => setLine(i.id, { on_hand_p: e.target.value.replace(/[^\d.]/g, '') })} aria-label={`${tr('عندكم الحين')} (${tr('حبة')}): ${itemNames(i, lang)[0]}`} />
+                </div>
+                <span className="cell-sub" style={{ marginTop: 2 }}>{tr('الـ{u} فيه {n} حبة', { u: tr(i.unit || ''), n: packPieces(i) })}{num(l.on_hand) != null ? ` · = ${qtyFmt(l.on_hand)} ${tr(i.unit || '')}` : ''}</span>
+              </>) : (
               <input className="input num" style={{ height: 44 }} inputMode="decimal" placeholder="—" value={l.on_hand ?? ''}
-                onChange={(e) => setLine(i.id, { on_hand: e.target.value.replace(/[^\d.]/g, '') })} aria-label={`${tr('عندكم الحين')}: ${itemNames(i, lang)[0]}`} /></div>
+                onChange={(e) => setLine(i.id, { on_hand: e.target.value.replace(/[^\d.]/g, '') })} aria-label={`${tr('عندكم الحين')}: ${itemNames(i, lang)[0]}`} />)}</div>
             <div className="field"><span className="lbl" style={{ fontSize: 12 }}>{tr('تطلبون')}</span>
               <Stepper tr={tr} value={l.qty} onChange={(v) => setLine(i.id, { qty: v })} label={`${tr('تطلبون')}: ${itemNames(i, lang)[0]}`} /></div>
           </div>

@@ -124,3 +124,11 @@ export function nutSource(src) {
   if (s.startsWith('ملصق')) return { label: 'من الليبل', cls: 'ok' }
   return null
 }
+
+// Items stocked by the carton/pack whose content is a known number of pieces (drinks: 30 cans a carton).
+// Branches often count loose pieces: they enter cartons and pieces, and the system stores cartons.
+export const packPieces = (i) => (i && i.unit !== 'حبة' && Number(i.unit_pieces) > 1 ? Number(i.unit_pieces) : 0)
+export const packTotal = (whole, pieces, n) => {
+  if ((whole === '' || whole == null) && (pieces === '' || pieces == null)) return null
+  return Math.round(((Number(whole) || 0) + (n ? (Number(pieces) || 0) / n : 0)) * 1000) / 1000
+}
