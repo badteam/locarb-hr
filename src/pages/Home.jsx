@@ -73,7 +73,9 @@ export default function Home() {
     setBusy(true); setMsg(null)
     try {
       if (open) {
-        const { error } = await supabase.rpc('check_out')
+        const pos = await getPosition()
+        if (pos.err) { setMsg({ ok: false, text: t(pos.err) }); setBusy(false); return }
+        const { error } = await supabase.rpc('check_out', { p_lat: pos.lat, p_lng: pos.lng })
         if (error) throw error
         setMsg({ ok: true, text: t('checked_out_ok') })
       } else {

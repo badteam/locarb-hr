@@ -24,7 +24,7 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
     civil_id: emp?.civil_id || '', nationality: emp?.nationality || '',
     name_ar: emp?.name_ar || '', name_en: emp?.name_en || '', birth_date: emp?.birth_date || '', gender: emp?.gender || '', passport_no: emp?.passport_no || '', address: emp?.address || '',
     work_mode: emp?.work_mode || 'flexible', official_start: emp?.official_start?.slice(0, 5) || '', official_end: emp?.official_end?.slice(0, 5) || '', is_driver: emp?.is_driver || false,
-    punch_mode: emp?.punch_mode || 'any', bio_pin: emp?.bio_pin || '',
+    punch_mode: emp?.punch_mode || 'any', bio_pin: emp?.bio_pin || '', location_mode: emp?.location_mode || 'branch',
   })
   // personal 4-digit code for the branch iPad
   const [kcode, setKcode] = useState(undefined)
@@ -280,6 +280,14 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
                   </div></div>)}
             </div>
             <div className="sub">على الآيباد يكتب رقم جواله ثم هذا الكود. وإذا اخترت "جهاز البصمة" أو "آيباد الفرع" ما يقدر يبصم من جواله.</div>
+            <span className="lbl" style={{ fontSize: 14, fontWeight: 600 }}>مكان البصمة من الجوال</span>
+            <div className="chips">
+              <button type="button" className={'chip' + (f.location_mode === 'branch' ? ' on' : '')} onClick={() => setF({ ...f, location_mode: 'branch' })}>فرعه فقط</button>
+              <button type="button" className={'chip' + (f.location_mode === 'flex' ? ' on' : '')} onClick={() => setF({ ...f, location_mode: 'flex' })}>مرن (أي فرع)</button>
+            </div>
+            <div className="sub">{f.location_mode === 'flex'
+              ? 'يبصم حضور وانصراف من أي فرع، وتنحسب البصمة على الفرع اللي بصم منه بدون تنبيه. يوصلك تنبيه بس إذا بصم وهو برا كل الفروع.'
+              : 'إذا بصم من فرع ثاني أو من برا فرعه يوصلك تنبيه.'}</div>
           </div>
           <div className="field"><label htmlFor="em">الإيميل (اختياري، للتنبيهات)</label><input id="em" type="email" className="input ltr" style={{ textAlign: 'right' }} value={f.email} onChange={set('email')} /></div>
           <label className="check"><input type="checkbox" checked={f.active} onChange={set('active')} /> الموظف على رأس عمله</label>

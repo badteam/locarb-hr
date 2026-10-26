@@ -80,7 +80,7 @@ export default function Attendance() {
 
   useEffect(() => {
     supabase.from('branches').select('id,name').order('name').then(({ data }) => setBranches(data || []))
-    supabase.from('employees').select('id,full_name,job_title,branch_id').then(({ data }) => setEmps(Object.fromEntries((data || []).map((e) => [e.id, e]))))
+    supabase.from('employees').select('id,full_name,job_title,branch_id,location_mode').then(({ data }) => setEmps(Object.fromEntries((data || []).map((e) => [e.id, e]))))
   }, [])
 
   useEffect(() => {
@@ -129,10 +129,13 @@ export default function Attendance() {
               {rows.map((a) => (
                 <tr key={a.id}>
                   <td style={{ fontWeight: 500 }}>{emps[a.employee_id]?.full_name}</td>
-                  <td>{bName[a.branch_id] || '—'}</td>
+                  <td>{bName[a.branch_id] || '—'}{emps[a.employee_id]?.location_mode === 'flex' && <div className="cell-sub">مرن</div>}</td>
                   <td>{fmtDate(a.work_date)}</td>
                   <td>{fmtTime(a.check_in_at)}</td>
-                  <td>{fmtTime(a.check_out_at)}</td>
+                  <td>{fmtTime(a.check_out_at)}
+                    {a.check_out_at && a.check_out_lat != null && (a.check_out_inside === false
+                      ? <div><span className="pill red">برا الفرع</span></div>
+                      : a.check_out_branch_id && a.check_out_branch_id !== a.branch_id ? <div className="cell-sub">من {bName[a.check_out_branch_id]}</div> : null)}</td>
                   <td>{hours(a)}</td>
                   <td>{(() => { const o = ot[a.employee_id + a.work_date]; if (!o) return '—'; const m = o.status === 'approved' ? o.approved_minutes : o.minutes; return <span className={'pill ' + (o.status === 'approved' ? 'ok' : 'amber')}>{(m / 60).toFixed(1)} س{o.status === 'pending' ? ' · ينتظر' : ''}</span> })()}</td>
                   <td>

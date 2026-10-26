@@ -1,0 +1,4 @@
+-- Flexible employees (location_mode = 'flex'): may punch in/out at any branch without "other branch" alerts;
+-- only punching outside every branch is reported. Check-out now records the phone's location and the branch it happened at.
+-- Applied as migration flexible_location_employees: employees.location_mode, attendance.check_out_lat/lng/branch_id/inside,
+-- private.branch_at(), private.punch_alert(), check_in() rewritten, new check_out(p_lat, p_lng) (old check_out() kept for open pages).
