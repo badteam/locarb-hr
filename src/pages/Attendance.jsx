@@ -21,6 +21,10 @@ function EditSheet({ row, emps, branches, onClose, onSaved }) {
     let outTs = toTs(date, tout)
     const inTs = toTs(date, tin)
     if (inTs && outTs && outTs < inTs) outTs = new Date(new Date(outTs).getTime() + 86400000).toISOString()
+    setErr('')
+    if (date > todayKuwait()) { setErr('ما تقدر تختار تاريخ بعد اليوم'); return }
+    if ((inTs && new Date(inTs) > new Date()) || (outTs && new Date(outTs) > new Date())) { setErr('ما تقدر تختار وقت بعد الوقت الحالي'); return }
+    if (inTs && outTs && outTs === inTs) { setErr('وقت الانصراف لازم يكون بعد الحضور'); return }
     const emp = emps[empId]
     const data = { employee_id: empId, work_date: date, check_in_at: inTs, check_out_at: outTs, late_minutes: Number(late) || 0, note: note || null, method: 'manual', branch_id: branchId || row.branch_id || emp?.branch_id || null }
     const { error } = isNew ? await supabase.from('attendance').insert(data) : await supabase.from('attendance').update(data).eq('id', row.id)
@@ -40,7 +44,7 @@ function EditSheet({ row, emps, branches, onClose, onSaved }) {
             <option value="">اختار…</option>{branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
           {empId && branchId && emps[empId]?.branch_id && branchId !== emps[empId].branch_id && <div className="sub">هذي البصمة بتنحسب على هالفرع. فرع الموظف الأساسي في ملفه ما يتغيّر.</div>}</div>
-        <div className="field"><label htmlFor="ed">التاريخ</label><input id="ed" type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} required /></div>
+        <div className="field"><label htmlFor="ed">التاريخ</label><input id="ed" type="date" className="input" max={todayKuwait()} value={date} onChange={(e) => setDate(e.target.value)} required /></div>
         <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
           <div className="field"><label htmlFor="ei">الحضور</label><input id="ei" type="time" className="input" value={tin} onChange={(e) => setTin(e.target.value)} required /></div>
           <div className="field"><label htmlFor="eo">الانصراف</label><input id="eo" type="time" className="input" value={tout} onChange={(e) => setTout(e.target.value)} /></div>

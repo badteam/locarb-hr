@@ -7,6 +7,7 @@ import ReviewSheet from '../components/ReviewSheet.jsx'
 import Avatar, { squarePhoto } from '../components/Avatar.jsx'
 import { uploadAttachment, readFile, readError, copyFile, ACCEPT } from '../lib/ai'
 import EmployeesIO from '../components/EmployeesIO.jsx'
+import EmployeeDocs from '../components/EmployeeDocs.jsx'
 
 export const PUNCH_MODES = [['any', 'أي طريقة'], ['mobile', 'جواله الشخصي'], ['kiosk', 'آيباد الفرع'], ['device', 'جهاز البصمة']]
 const DAYS = [['saturday','السبت'],['sunday','الأحد'],['monday','الاثنين'],['tuesday','الثلاثاء'],['wednesday','الأربعاء'],['thursday','الخميس'],['friday','الجمعة']]
@@ -21,6 +22,7 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
     weekly_holidays: emp?.weekly_holidays || [], leave_balance: emp?.leave_balance ?? 0,
     ot_mode: emp?.ot_mode || '', ot_rate: emp?.ot_rate ?? '', ot_multiplier: emp?.ot_multiplier ?? '',
     civil_id: emp?.civil_id || '', nationality: emp?.nationality || '',
+    name_ar: emp?.name_ar || '', name_en: emp?.name_en || '', birth_date: emp?.birth_date || '', gender: emp?.gender || '', passport_no: emp?.passport_no || '', address: emp?.address || '',
     work_mode: emp?.work_mode || 'flexible', official_start: emp?.official_start?.slice(0, 5) || '', official_end: emp?.official_end?.slice(0, 5) || '', is_driver: emp?.is_driver || false,
     punch_mode: emp?.punch_mode || 'any', bio_pin: emp?.bio_pin || '',
   })
@@ -47,7 +49,9 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
       if (!r.ok) { setScanMsg({ ok: false, t: readError(r) }); setScanning(false); return }
       const d = r.data
       setIdScan({ path, data: d })
-      setF((x) => ({ ...x, full_name: x.full_name || d.full_name_en || d.full_name_ar || '', civil_id: d.civil_id || x.civil_id, nationality: d.nationality || x.nationality }))
+      setF((x) => ({ ...x, full_name: x.full_name || d.full_name_en || d.full_name_ar || '', civil_id: d.civil_id || x.civil_id, nationality: d.nationality || x.nationality,
+        name_ar: d.full_name_ar || x.name_ar, name_en: d.full_name_en || x.name_en, birth_date: d.birth_date || x.birth_date, gender: d.gender || x.gender,
+        passport_no: d.passport_no || x.passport_no, address: d.address || x.address }))
       const other = r.match?.employee && r.match.employee.id !== emp?.id ? r.match.employee : null
       setScanMsg(other ? { ok: false, t: `انتبه: هالبطاقة شكلها لموظف موجود (${other.name}).` }
         : { ok: true, t: `قرا البطاقة: ${[d.full_name_en, d.full_name_ar].filter(Boolean).join(' / ')}${d.expiry_date ? ` · تنتهي ${d.expiry_date}` : ''}. البطاقة بتنحفظ في مستنداته مع تنبيه الانتهاء.` })
@@ -104,6 +108,7 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
         working_hours: f.working_hours === '' ? null : Number(f.working_hours), annual_leave_days: Number(f.annual_leave_days) || 0, leave_balance: Number(f.leave_balance) || 0,
         ot_mode: f.ot_mode || null, ot_rate: f.ot_mode === 'fixed' && f.ot_rate !== '' ? Number(f.ot_rate) : null, ot_multiplier: f.ot_mode === 'multiplier' && f.ot_multiplier !== '' ? Number(f.ot_multiplier) : null,
         civil_id: f.civil_id.replace(/\D/g, '') || null, nationality: f.nationality || null,
+        name_ar: f.name_ar.trim() || null, name_en: f.name_en.trim() || null, birth_date: f.birth_date || null, gender: f.gender || null, passport_no: f.passport_no.trim() || null, address: f.address.trim() || null,
         bio_pin: String(f.bio_pin).replace(/\D/g, '') || null }
       if (!access.is_owner) delete row.role_id
       if (!canPay) { delete row.leave_balance; delete row.ot_mode; delete row.ot_rate; delete row.ot_multiplier }
@@ -162,6 +167,7 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
           </div>
           <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose}><Icon name="x" /></button>
         </div>
+        {emp && <EmployeeDocs employee={emp} canManage={can('manage_documents')} />}
         <fieldset disabled={!editable || (isOwnerRow && !access.is_owner)} style={{ border: 0, padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
           {editable && (
             <label className="upload" style={{ height: 76 }}>
@@ -174,6 +180,22 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
             <div className="field"><label htmlFor="cid">الرقم المدني</label><input id="cid" className="input ltr" style={{ textAlign: 'right' }} inputMode="numeric" value={f.civil_id} onChange={set('civil_id')} /></div>
             <div className="field"><label htmlFor="nat">الجنسية</label><input id="nat" className="input" value={f.nationality} onChange={set('nationality')} /></div>
           </div>
+          <details className="card" style={{ padding: '10px 14px' }} open={!!(f.name_ar || f.name_en)}>
+            <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: 14 }}>بيانات البطاقة المدنية</summary>
+            <div className="form" style={{ gap: 12, marginTop: 10 }}>
+              <div className="field"><label htmlFor="nar">الاسم بالعربي (مثل البطاقة)</label><input id="nar" className="input" value={f.name_ar} onChange={set('name_ar')} /></div>
+              <div className="field"><label htmlFor="nen">الاسم بالإنجليزي (مثل البطاقة)</label><input id="nen" className="input ltr" style={{ textAlign: 'left' }} value={f.name_en} onChange={set('name_en')} /></div>
+              <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                <div className="field"><label htmlFor="bd">تاريخ الميلاد</label><input id="bd" type="date" className="input" value={f.birth_date} onChange={set('birth_date')} /></div>
+                <div className="field"><label htmlFor="gd">الجنس</label><select id="gd" className="input" value={f.gender} onChange={set('gender')}><option value="">—</option><option value="male">ذكر</option><option value="female">أنثى</option></select></div>
+              </div>
+              <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                <div className="field"><label htmlFor="pp">رقم الجواز</label><input id="pp" className="input ltr" style={{ textAlign: 'right' }} value={f.passport_no} onChange={set('passport_no')} /></div>
+                <div className="field"><label htmlFor="ad">العنوان</label><input id="ad" className="input" value={f.address} onChange={set('address')} /></div>
+              </div>
+              <div className="sub">تتعبى بروحها لما تنعتمد البطاقة المدنية أو الجواز.</div>
+            </div>
+          </details>
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
             <div className="field"><label htmlFor="p">رقم الهاتف</label><input id="p" className="input ltr" style={{ textAlign: 'right' }} inputMode="tel" value={f.phone} onChange={set('phone')} /></div>
             <div className="field"><label htmlFor="j">الوظيفة</label><input id="j" className="input" placeholder="شيف، كاشير، سايق…" value={f.job_title} onChange={set('job_title')} /></div>
@@ -358,9 +380,12 @@ export default function Employees() {
   const [editing, setEditing] = useState(undefined)
   const [docFor, setDocFor] = useState(null)
   const [reviewId, setReviewId] = useState(null)
+  const [missing, setMissing] = useState({})
+  const [onlyMissing, setOnlyMissing] = useState(false)
 
   const load = useCallback(() => {
     supabase.from('employees').select('*').order('full_name').then(({ data }) => setEmps(data || []))
+    supabase.from('employee_missing_docs').select('*').then(({ data }) => setMissing(Object.fromEntries((data || []).map((x) => [x.employee_id, x.missing]))))
   }, [])
   useEffect(() => {
     load()
@@ -373,7 +398,9 @@ export default function Employees() {
   const rName = Object.fromEntries(roles.map((r) => [r.id, r.name]))
   const q = search.trim().toLowerCase()
   const shown = emps.filter((e) => (showInactive || e.active) && (!branch || e.branch_id === branch) &&
-    (!q || e.full_name.toLowerCase().includes(q) || (e.phone || '').includes(q) || (e.job_title || '').toLowerCase().includes(q)))
+    (!onlyMissing || missing[e.id]) &&
+    (!q || [e.full_name, e.name_ar, e.name_en, e.job_title].some((x) => (x || '').toLowerCase().includes(q)) || (e.phone || '').includes(q) || (e.civil_id || '').includes(q)))
+  const missingCount = emps.filter((e) => e.active && missing[e.id]).length
 
   return (
     <div>
@@ -385,10 +412,11 @@ export default function Employees() {
       {can('manage_employees') && <ChangeRequests branches={branches} shifts={shifts} onDone={load} />}
       <EmployeesIO branches={branches} shifts={shifts} roles={roles} onDone={load} />
       <div className="row" style={{ flexWrap: 'wrap', marginBottom: 12 }}>
-        <input className="input" style={{ maxWidth: 280, height: 42 }} placeholder="بحث بالاسم أو الرقم أو الوظيفة…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <input className="input" style={{ maxWidth: 280, height: 42 }} placeholder="بحث بالاسم، الهاتف، الرقم المدني أو الوظيفة…" value={search} onChange={(e) => setSearch(e.target.value)} />
         <select className="input" style={{ maxWidth: 200, height: 42 }} value={branch} onChange={(e) => setBranch(e.target.value)}>
           <option value="">كل الفروع</option>{branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
+        {missingCount > 0 && <button className={'chip' + (onlyMissing ? ' on' : '')} onClick={() => setOnlyMissing(!onlyMissing)}>مستندات ناقصة ({missingCount})</button>}
         <label className="check"><input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} /> عرض الموقوفين</label>
       </div>
       <div className="card list" style={{ padding: '4px 14px' }}>
@@ -398,8 +426,9 @@ export default function Employees() {
             <Avatar name={e.full_name} path={e.personal_pic_path} size={40} />
             <button className="grow" style={{ background: 'none', border: 0, textAlign: 'right', cursor: 'pointer', padding: 0 }} onClick={() => setEditing(e)}>
               <div style={{ fontWeight: 600 }}>{e.full_name} {!e.active && <span className="pill gray">موقوف</span>}</div>
-              <div className="sub">{[e.job_title, bName[e.branch_id], e.app_role === 'admin' ? 'المالك' : rName[e.role_id], `رصيد الإجازات: ${Number(e.leave_balance)} يوم`].filter(Boolean).join(' · ')}</div>
+              <div className="sub">{[e.civil_id && `مدني ${e.civil_id}`, e.nationality, e.job_title, bName[e.branch_id], e.app_role === 'admin' ? 'المالك' : rName[e.role_id], `رصيد الإجازات: ${Number(e.leave_balance)} يوم`].filter(Boolean).join(' · ')}</div>
             </button>
+            {missing[e.id] && <span className="pill red" title={'ناقص: ' + missing[e.id].join('، ')}>ناقص {missing[e.id].length}</span>}
             {!e.user_id && <span className="pill gray">بدون دخول</span>}
             {can('manage_documents') && <button className="btn" style={{ minHeight: 38 }} onClick={() => setDocFor(e)}>+ مستند</button>}
           </div>

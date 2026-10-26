@@ -20,10 +20,10 @@ function Upload({ label, file, onPick }) {
 
 // Upload an employee document: photo only, the AI reads the dates, HR approves.
 // doc = the document being renewed (approved) or re-sent (pending / rejected). onRead(id) is called for admins to open the review.
-export default function DocumentForm({ employeeId, doc, onClose, onSaved, onRead, admin }) {
+export default function DocumentForm({ employeeId, doc, typeId: presetType, onClose, onSaved, onRead, admin }) {
   const { t, tn, dir } = useT(admin)
   const [types, setTypes] = useState([])
-  const [typeId, setTypeId] = useState(doc?.document_type_id || '')
+  const [typeId, setTypeId] = useState(doc?.document_type_id || presetType || '')
   const [front, setFront] = useState(null)
   const [back, setBack] = useState(null)
   const [err, setErr] = useState('')

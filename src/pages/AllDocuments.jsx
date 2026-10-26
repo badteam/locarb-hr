@@ -8,7 +8,9 @@ import DocumentForm from '../components/DocumentForm.jsx'
 import ReviewSheet from '../components/ReviewSheet.jsx'
 import Icon from '../components/Icon.jsx'
 
-const FILTERS = [{ k: 'review', t: 'بانتظار المراجعة' }, { k: 'attention', t: 'تحتاج انتباه' }, { k: 'expired', t: 'منتهي' }, { k: 'expiring', t: 'قرب ينتهي' }, { k: 'all', t: 'الكل' }]
+const FILTERS = [{ k: 'attention', t: 'تحتاج انتباه' }, { k: 'review', t: 'بانتظار المراجعة' }, { k: 'all', t: 'الكل' }]
+// what needs HR to act: expired first, then waiting for review, then about to expire (nearest first)
+const RANK = { expired: 0, review: 1, expiring: 2 }
 const SEARCH_KEYS = ['employee_name', 'document_type_name', 'document_number', 'holder_name', 'extracted_text', 'employee_phone', 'job_title']
 
 export default function AllDocuments() {
@@ -26,9 +28,12 @@ export default function AllDocuments() {
   useEffect(() => { supabase.from('employees').select('id,full_name').eq('active', true).order('full_name').then(({ data }) => setEmps(data || [])) }, [])
   const reviewCount = docs.filter((d) => d.status === 'review').length
 
+  const tab = FILTERS.some((x) => x.k === f) ? f : 'attention'
   const shown = docs.filter((d) =>
-    (f === 'all' || (f === 'attention' ? ['expired', 'expiring'].includes(d.status) : d.status === f)) &&
+    (tab === 'all' || (tab === 'attention' ? d.status in RANK : d.status === tab)) &&
     (!search || matches(d, search, SEARCH_KEYS)))
+  if (tab === 'attention') shown.sort((a, b) => RANK[a.status] - RANK[b.status] || (a.days_left ?? 0) - (b.days_left ?? 0))
+  const attentionCount = docs.filter((d) => d.status in RANK).length
 
   return (
     <div>
@@ -38,10 +43,10 @@ export default function AllDocuments() {
       </div>
       <DocCounts docs={docs} admin />
       <div className="row" style={{ flexWrap: 'wrap', marginBottom: 12 }}>
-        <div className="chips">{FILTERS.map((x) => <button key={x.k} className={'chip' + (f === x.k ? ' on' : '')} onClick={() => setF(x.k)}>{x.t}{x.k === 'review' && reviewCount ? <span className="badge" style={{ marginInlineStart: 6 }}>{reviewCount}</span> : null}</button>)}</div>
+        <div className="chips">{FILTERS.map((x) => <button key={x.k} className={'chip' + (tab === x.k ? ' on' : '')} onClick={() => setF(x.k)}>{x.t}{x.k === 'attention' && attentionCount ? <span className="badge" style={{ marginInlineStart: 6 }}>{attentionCount}</span> : null}{x.k === 'review' && reviewCount ? <span className="badge" style={{ marginInlineStart: 6 }}>{reviewCount}</span> : null}</button>)}</div>
         <input className="input" style={{ maxWidth: 300, height: 42 }} placeholder="بحث بالاسم، الرقم، أو أي كلمة في المستند…" value={search} onChange={(e) => setSearch(e.target.value)} />
       </div>
-      {f === 'review' && reviewCount > 0 && <div className="sub" style={{ marginBottom: 8 }}>افتح كل مستند، طابق البيانات مع الصورة، واعتمده. الخانات الملوّنة هي اللي الذكاء الاصطناعي مو متأكد منها.</div>}
+      {tab === 'review' && reviewCount > 0 && <div className="sub" style={{ marginBottom: 8 }}>افتح كل مستند، طابق البيانات مع الصورة، واعتمده. الخانات الملوّنة هي اللي الذكاء الاصطناعي مو متأكد منها.</div>}
       <DocumentList docs={shown} showEmployee onOpen={(d) => setOpen(d.id)} admin />
 
       {picking && (

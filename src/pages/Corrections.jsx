@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { supabase, fmtDate, errMsg } from '../lib/supabase'
+import { supabase, fmtDate, errMsg, todayKuwait } from '../lib/supabase'
 import { useAccess } from '../lib/access.jsx'
 import { MedicalPicker, attachMedical, MedicalCheck } from '../components/Medical.jsx'
 import Icon from '../components/Icon.jsx'
@@ -28,7 +28,14 @@ function RequestForm({ date, defaultKind, onClose, onSaved }) {
   const { access: acc } = useAccess()
 
   const save = async (e) => {
-    e.preventDefault(); setBusy(true); setErr('')
+    e.preventDefault(); setErr('')
+    const at = (hm, plusDay) => hm ? new Date(`${d}T${hm}:00+03:00`).getTime() + (plusDay ? 86400000 : 0) : null
+    const tIn = kind === 'attended' ? at(tin) : null
+    const tOut = ['attended', 'missed_checkout'].includes(kind) ? at(tout, kind === 'attended' && tin && tout < tin) : null
+    if (d > todayKuwait()) { setErr('ما تقدر تختار تاريخ بعد اليوم'); return }
+    if ((tIn && tIn > Date.now()) || (tOut && tOut > Date.now())) { setErr('ما تقدر تختار وقت بعد الوقت الحالي'); return }
+    if (tIn && tOut && tIn === tOut) { setErr('وقت الانصراف لازم يكون بعد الحضور'); return }
+    setBusy(true)
     const { data: req, error } = await supabase.rpc('request_punch_correction', {
       p_date: d, p_kind: kind, p_in: kind === 'attended' ? tin : null, p_out: ['attended', 'missed_checkout'].includes(kind) ? tout : null, p_reason: reason || null,
     })
@@ -43,7 +50,7 @@ function RequestForm({ date, defaultKind, onClose, onSaved }) {
       <form className="sheet form" onSubmit={save}>
         <div className="sheet-head"><h2 style={{ fontSize: 20 }}>{t('corr_form')}</h2>
           <button type="button" className="icon-btn" aria-label={t('close')} onClick={onClose}><Icon name="x" /></button></div>
-        <div className="field"><label htmlFor="cd">{t('date')}</label><input id="cd" type="date" className="input" value={d} onChange={(e) => setD(e.target.value)} required /></div>
+        <div className="field"><label htmlFor="cd">{t('date')}</label><input id="cd" type="date" className="input" max={todayKuwait()} value={d} onChange={(e) => setD(e.target.value)} required /></div>
         <div className="field"><span className="lbl">{t('what_happened')}</span>
           <div className="chips">{KINDS.map((x) => <button type="button" key={x.k} className={'chip' + (kind === x.k ? ' on' : '')} onClick={() => setKind(x.k)}>{t('k_' + x.k)}</button>)}</div>
         </div>

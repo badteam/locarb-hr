@@ -44,7 +44,8 @@ const PURPOSES: Record<string, { prompt: string; props: Record<string, unknown> 
   civil_id: {
     prompt: "This should be a Kuwaiti civil ID card (front and/or back) or a passport / residency.",
     props: { full_name_en: S("Name in English"), full_name_ar: S("Name in Arabic"), civil_id: S("12-digit civil ID number"),
-      nationality: S("Nationality in Arabic"), birth_date: DATE("Birth date"), expiry_date: DATE("Card expiry date"),
+      nationality: S("Nationality as a country name in Arabic, e.g. الهند، نيبال، مصر"), birth_date: DATE("Birth date"), expiry_date: DATE("Card expiry date"),
+      gender: { type: "string", enum: ["male", "female"] }, passport_no: S("Passport number if printed"), address: S("Address if printed (back of the civil ID)"),
       document_type: { type: "string", enum: ["البطاقة المدنية", "جواز السفر", "الإقامة", "other"] } },
   },
   supplier: {

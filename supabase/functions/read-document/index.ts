@@ -32,6 +32,20 @@ const TOOL = {
       expiry_confident: { type: "boolean", description: "true only if the expiry date is clearly labelled (e.g. 'تاريخ الانتهاء' / 'Expiry' / 'صالحة حتى') and fully legible" },
       holder_matches: { type: "boolean", description: "Whether the holder matches the expected owner given in the prompt (ignore spelling/transliteration differences)" },
       uncertain_fields: { type: "array", items: { type: "string", enum: FIELDS }, description: "Fields you are not sure about" },
+      person: {
+        type: "object",
+        description: "Only for a person's ID paper (civil ID card, passport, residency, driving licence, health card): the personal data exactly as printed. Leave out what is not printed.",
+        properties: {
+          name_ar: { type: "string", description: "Full name in Arabic exactly as printed" },
+          name_en: { type: "string", description: "Full name in English exactly as printed (Latin letters)" },
+          civil_id: { type: "string", description: "12-digit Kuwaiti civil ID number, digits only" },
+          nationality: { type: "string", description: "Nationality as a country name in Arabic, e.g. الهند، نيبال، مصر، الكويت، الفلبين، بنغلاديش" },
+          birth_date: { type: "string", description: "Gregorian YYYY-MM-DD" },
+          gender: { type: "string", enum: ["male", "female"] },
+          passport_no: { type: "string", description: "Passport number if printed" },
+          address: { type: "string", description: "Address if printed (back of the civil ID), one line" },
+        },
+      },
       summary_ar: { type: "string", description: "One short Arabic sentence describing the document" },
       full_text: { type: "string", description: "All readable text on the document in its original language(s), line by line" },
     },
@@ -74,7 +88,7 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "method" }, 405);
 
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-  const { kind, id, debug_token } = await req.json().catch(() => ({}));
+  const { kind, id, debug_token, refresh } = await req.json().catch(() => ({}));
   // support: a short-lived token lets the developer re-run a reading and see the exact error
   const debug = debug_token ? (await admin.rpc("check_debug_token", { t: debug_token })).data === true : false;
   const db = debug ? admin : createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
@@ -86,15 +100,18 @@ Deno.serve(async (req) => {
   const bucket = kind === "employee" ? "employee-docs" : "branch-docs";
   const { data: doc } = await db.from(table).select("*").eq("id", id).maybeSingle();
   if (!doc) return json({ error: "not found" }, 404);
-  if (doc.review_status === "approved") return json({ error: "already approved" }, 409);
+  // refresh: re-read an approved document only to fill the personal data (status, dates and number stay as approved)
+  if (doc.review_status === "approved" && !refresh) return json({ error: "already approved" }, 409);
+  const onlyPerson = doc.review_status === "approved";
 
   const paths: string[] = kind === "employee" ? [doc.front_image_path, doc.back_image_path].filter(Boolean) : doc.file_paths ?? [];
   const setDoc = (patch: Record<string, unknown>) => db.from(table).update(patch).eq("id", id);
-  if (!paths.length) { await setDoc({ ai_status: "failed", ai_error: "no_file", review_status: "pending" }); return json({ error: "no_file" }, 400); }
+  if (!paths.length) { if (onlyPerson) return json({ error: "no_file" }, 400); await setDoc({ ai_status: "failed", ai_error: "no_file", review_status: "pending" }); return json({ error: "no_file" }, 400); }
 
   const { data: saved } = await admin.rpc("get_app_secret", { p_key: "anthropic_api_key" });
   const key = (saved as string | null) || Deno.env.get("ANTHROPIC_API_KEY");
   if (!key) {
+    if (onlyPerson) return json({ ok: false, error: "not_configured" });
     await setDoc({ ai_status: "no_key", ai_error: null, review_status: "pending", review_fields: ["expiry_date"] });
     return json({ ok: false, error: "not_configured" });
   }
@@ -111,7 +128,7 @@ Deno.serve(async (req) => {
   }
   const chosen = types?.find((t) => t.id === doc.document_type_id)?.name;
 
-  await setDoc({ ai_status: "reading", ai_error: null });
+  if (!onlyPerson) await setDoc({ ai_status: "reading", ai_error: null });
   try {
     const content: unknown[] = [];
     for (const p of paths) {
@@ -148,11 +165,17 @@ Answer only by calling the save_document tool once.`,
       let detail = t;
       try { detail = JSON.parse(t)?.error?.message ?? t; } catch { /* keep text */ }
       const reason = res.status === 401 ? "invalid_key" : /credit|balance|billing/i.test(t) ? "no_credit" : `reader error ${res.status}: ${detail}`.slice(0, 400);
-      await setDoc({ ai_status: "failed", ai_error: reason, review_status: "pending" });
+      if (!onlyPerson) await setDoc({ ai_status: "failed", ai_error: reason, review_status: "pending" });
       return json({ ok: false, error: reason }, 502);
     }
     const out = await res.json();
     const r = out.content?.find((c: any) => c.type === "tool_use")?.input ?? fromText(out.content);
+    if (onlyPerson) {
+      if (!r || r.unreadable || !r.person) return json({ ok: false, error: "unreadable" });
+      const { error: e2 } = await setDoc({ ai_data: { ...(doc.ai_data ?? {}), person: r.person, person_read_at: new Date().toISOString() } });
+      if (e2) throw new Error(e2.message);
+      return json({ ok: true, person: r.person });
+    }
     if (!r || r.unreadable) {
       await setDoc({ ai_status: "failed", ai_error: "unreadable", review_status: "pending", ai_data: r ?? null, extracted_text: r?.full_text || null });
       return json({ ok: false, error: "unreadable" });
@@ -188,7 +211,7 @@ Answer only by calling the save_document tool once.`,
     if (upErr) throw new Error(upErr.message);
     return json({ ok: true, review_fields: [...flags], expiry_date: patch.expiry_date, summary: r.summary_ar ?? null });
   } catch (e) {
-    await setDoc({ ai_status: "failed", ai_error: String(e).slice(0, 300), review_status: "pending" });
+    if (!onlyPerson) await setDoc({ ai_status: "failed", ai_error: String(e).slice(0, 300), review_status: "pending" });
     return json({ ok: false, error: String(e) }, 500);
   }
 });

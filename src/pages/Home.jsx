@@ -109,6 +109,7 @@ export default function Home() {
         <div className="grow">
           <h1 style={{ fontSize: 20 }}>{isMorning() ? t('good_morning') : t('good_evening')}, {emp.full_name.split(' ')[0]}</h1>
           <div className="sub">{[tn(emp.job_title), access.branch_name && `${t('branch')}: ${tn(access.branch_name)}`].filter(Boolean).join(' · ')}</div>
+          {(emp.civil_id || emp.nationality) && <div className="sub">{[emp.civil_id && <span key="c">{tr('الرقم المدني')}: <span className="ltr num">{emp.civil_id}</span></span>, emp.nationality && <span key="n">{tr('الجنسية')}: {tn(emp.nationality)}</span>].filter(Boolean).reduce((a, x, i) => (i ? [...a, ' · ', x] : [x]), [])}</div>}
         </div>
       </div>
       {photoMsg && <div className={photoMsg.ok ? 'notice' : 'error'}>{photoMsg.t}</div>}

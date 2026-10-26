@@ -246,6 +246,7 @@ const D = {
   nk_doc_expired: { ar: 'مستندك منتهي', en: 'Your document has expired', ne: 'तपाईंको कागजात समाप्त भयो', hi: 'आपका दस्तावेज़ समाप्त हो गया' },
   nk_doc_approved: { ar: 'تم اعتماد مستندك', en: 'Your document was approved', ne: 'तपाईंको कागजात स्वीकृत भयो', hi: 'आपका दस्तावेज़ स्वीकृत हुआ' },
   nk_doc_rejected: { ar: 'مستندك مرفوض، ارفعه من جديد', en: 'Your document was rejected, please upload it again', ne: 'तपाईंको कागजात अस्वीकृत भयो, फेरि अपलोड गर्नुहोस्', hi: 'आपका दस्तावेज़ अस्वीकृत हुआ, कृपया फिर से अपलोड करें' },
+  nk_doc_missing: { ar: 'ارفع مستندك الناقص', en: 'Please upload your missing document', ne: 'कृपया बाँकी कागजात अपलोड गर्नुहोस्', hi: 'कृपया अपना बाकी दस्तावेज़ अपलोड करें' },
   nk_doc_review_b: { ar: '{doc}', en: '{doc}', ne: '{doc}', hi: '{doc}' },
   nk_doc_expired_b: { ar: '{doc} انتهت بتاريخ {date}', en: '{doc} expired on {date}', ne: '{doc} {date} मा समाप्त भयो', hi: '{doc} {date} को समाप्त हुआ' },
   nk_missed_no_punch: { ar: 'نسيت تبصم؟', en: 'Did you forget to punch?', ne: 'हाजिरी गर्न बिर्सनुभयो?', hi: 'क्या आप हाज़िरी लगाना भूल गए?' },
