@@ -97,11 +97,12 @@ export function ItemForm({ item, lookups, onClose, onSaved, presetName }) {
           return <UnitContent unit={un} grams={content.grams} pieces={content.pieces} measure={content.measure}
             required={un !== 'حبة' && !NONFOOD_CATS.includes(cn)} onChange={setContent} />
         })()}
-        <div className="field"><label htmlFor="pg">بروتين يراقبه النظام</label>
+        <div className="field"><label htmlFor="pg">نوع البروتين (لمراقبة اللحم والدجاج والسمك)</label>
           <select id="pg" className="input" value={prot.value} onChange={(e) => setProt({ ...prot, value: e.target.value })}>
             <option value="">{item?.id ? 'لا' : 'يتحدد تلقائي من الاسم'}</option>
             {prot.groups.map((g) => <option key={g.key} value={g.key}>{g.name_ar}</option>)}
-          </select></div>
+          </select>
+          <div className="sub">بس للحوم والدواجن والسمك. المراقب بيقارن كام كيلو خرج من المخزون من النوع ده بكام كيلو اتباع في فودكس، وينبهك لو فيه فرق. أي حاجة تانية (خبز، بهارات، تغليف) خليها «لا».</div></div>
         <div className="field"><span className="lbl">القيمة الغذائية لكل ١٠٠ جرام</span>
           <div className="grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
             {[['kcal_100', 'سعرات'], ['protein_100', 'بروتين'], ['carbs_100', 'كارب'], ['fat_100', 'دهون']].map(([k, l]) => (
