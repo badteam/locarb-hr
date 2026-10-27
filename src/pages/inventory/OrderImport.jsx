@@ -116,9 +116,21 @@ export default function OrderImport() {
     setAi('running')
     const chunks = []
     for (let i = 0; i < todo.length; i += 40) chunks.push(todo.slice(i, i + 40))
-    const res = await Promise.all(chunks.map((c) => supabase.functions.invoke('match-order-items', { body: { lines: c.map((l) => ({ name: l.name, unit: l.unit })) } })
-      .then(({ data, error }) => (error || !data?.ok ? { fail: data?.error || 'network' } : data)).catch(() => ({ fail: 'network' }))))
-    const next = {}
+    // a few at a time (many at once get refused), and a failed batch is tried once more
+    const call = (c) => supabase.functions.invoke('match-order-items', { body: { lines: c.map((l) => ({ name: l.name, unit: l.unit })) } })
+      .then(({ data, error }) => (error || !data?.ok ? { fail: data?.error || 'network' } : data)).catch(() => ({ fail: 'network' }))
+    const res = new Array(chunks.length)
+    let next = 0
+    const worker = async () => {
+      while (next < chunks.length) {
+        const i = next++
+        let r = await call(chunks[i])
+        if (r.fail && !['not_configured', 'invalid_key', 'no_credit'].includes(r.fail)) r = await call(chunks[i])
+        res[i] = r
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(4, chunks.length) }, worker))
+    const found = {}
     let failed = ''
     res.forEach((r, ci) => {
       const chunk = chunks[ci]
@@ -126,15 +138,15 @@ export default function OrderImport() {
       const got = Object.fromEntries((r.matches || []).map((x) => [x.line, x]))
       chunk.forEach((l, i) => {
         const x = got[i]
-        if (x?.item_id) next[l.mkey] = { item_id: x.item_id, factor: null, src: x.confidence, note: x.note }
+        if (x?.item_id) found[l.mkey] = { item_id: x.item_id, factor: null, src: x.confidence, note: x.note }
         else {
           // the AI found nothing (or couldn't run): offer the closest name if it is close enough
           const [best] = bestMatches(l.name, items, 1)
-          if (best && best[1] >= 0.8) next[l.mkey] = { item_id: best[0].id, factor: null, src: 'guess', note: r.fail ? '' : x?.note }
+          if (best && best[1] >= 0.8) found[l.mkey] = { item_id: best[0].id, factor: null, src: 'guess', note: r.fail ? '' : x?.note }
         }
       })
     })
-    setMaps((m) => (again ? { ...m, ...Object.fromEntries(Object.entries(next).filter(([k]) => !['saved', 'manual'].includes(m[k]?.src))) } : { ...next, ...m }))
+    setMaps((m) => (again ? { ...m, ...Object.fromEntries(Object.entries(found).filter(([k]) => !['saved', 'manual'].includes(m[k]?.src))) } : { ...found, ...m }))
     setAi(failed ? 'error:' + failed : 'done')
   }
 

@@ -5,6 +5,7 @@ import { useAccess } from '../lib/access.jsx'
 import { useLang, LangPicker } from '../lib/i18n.jsx'
 import Icon from '../components/Icon.jsx'
 import PunchCode from '../components/PunchCode.jsx'
+import AiBalanceCard from '../components/AiBalanceCard.jsx'
 import Avatar, { squarePhoto } from '../components/Avatar.jsx'
 
 // the phone's location is required to punch; tells apart "not allowed" from "couldn't get it"
@@ -133,6 +134,7 @@ export default function Home() {
           {(emp.civil_id || emp.nationality) && <div className="sub">{[emp.civil_id && <span key="c">{tr('الرقم المدني')}: <span className="ltr num">{emp.civil_id}</span></span>, emp.nationality && <span key="n">{tr('الجنسية')}: {tn(emp.nationality)}</span>].filter(Boolean).reduce((a, x, i) => (i ? [...a, ' · ', x] : [x]), [])}</div>}
         </div>
       </div>
+      {access.is_owner && <AiBalanceCard />}
       {photoMsg && <div className={photoMsg.ok ? 'notice' : 'error'}>{photoMsg.t}</div>}
       {!photoMsg && emp.pending_pic_path && <div className="notice">{t('photo_pending')}</div>}
       {!photoMsg && !emp.pending_pic_path && emp.pic_note && <div className="warn">{t('photo_rejected_note', { note: emp.pic_note })}</div>}
