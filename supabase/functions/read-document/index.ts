@@ -1,6 +1,15 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
+// every AI call is written down so the owner sees spend and a finished balance on the home page
+async function logAi(db: any, fn: string, status: number, errText: string | null, out: any) {
+  try {
+    await db.from("ai_calls").insert({ fn, ok: status < 300, status, error: errText ? String(errText).slice(0, 300) : null, model: out?.model ?? null,
+      input_tokens: out?.usage?.input_tokens ?? null, output_tokens: out?.usage?.output_tokens ?? null });
+  } catch { /* logging never blocks the work */ }
+}
+
+
 // Reads an uploaded employee or branch document with Claude: type, number, holder, issue/expiry dates and the full text.
 // Runs with the caller's own permissions (RLS). It never approves: the document stays "pending" for HR / the PRO to confirm.
 // The API key is the same one the owner saved on the settings page.
@@ -162,6 +171,7 @@ Answer only by calling the save_document tool once.`,
     });
     if (!res.ok) {
       const t = await res.text();
+      await logAi(admin, "read-document", res.status, t, null);
       let detail = t;
       try { detail = JSON.parse(t)?.error?.message ?? t; } catch { /* keep text */ }
       const reason = res.status === 401 ? "invalid_key" : /credit|balance|billing/i.test(t) ? "no_credit" : `reader error ${res.status}: ${detail}`.slice(0, 400);
@@ -169,6 +179,7 @@ Answer only by calling the save_document tool once.`,
       return json({ ok: false, error: reason }, 502);
     }
     const out = await res.json();
+    await logAi(admin, "read-document", res.status, null, out);
     const r = out.content?.find((c: any) => c.type === "tool_use")?.input ?? fromText(out.content);
     if (onlyPerson) {
       if (!r || r.unreadable || !r.person) return json({ ok: false, error: "unreadable" });

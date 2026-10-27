@@ -1,6 +1,15 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
+// every AI call is written down so the owner sees spend and a finished balance on the home page
+async function logAi(db: any, fn: string, status: number, errText: string | null, out: any) {
+  try {
+    await db.from("ai_calls").insert({ fn, ok: status < 300, status, error: errText ? String(errText).slice(0, 300) : null, model: out?.model ?? null,
+      input_tokens: out?.usage?.input_tokens ?? null, output_tokens: out?.usage?.output_tokens ?? null });
+  } catch { /* logging never blocks the work */ }
+}
+
+
 // Fills calories / macros for one inventory item:
 //  mode "label":    reads the nutrition label photo (saved one, or new photos just uploaded)
 //  mode "estimate": typical values for that kind of food, clearly marked as an estimate
@@ -85,9 +94,11 @@ Deno.serve(async (req) => {
     });
     if (!res.ok) {
       const t = await res.text();
+      await logAi(admin, "item-nutrition", res.status, t, null);
       return json({ error: res.status === 401 ? "invalid_key" : /credit|balance|billing/i.test(t) ? "no_credit" : `reader error ${res.status}` }, 502);
     }
     const out = await res.json();
+    await logAi(admin, "item-nutrition", res.status, null, out);
     r = out.content?.find((c: any) => c.type === "tool_use")?.input ?? null;
   }
   if (!r || !r.found || num(r.kcal) == null) return json({ ok: false, error: mode === "label" ? "no_table" : "not_food", note: r?.note ?? null });

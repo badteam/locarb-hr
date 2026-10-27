@@ -1,6 +1,15 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
+// every AI call is written down so the owner sees spend and a finished balance on the home page
+async function logAi(db: any, fn: string, status: number, errText: string | null, out: any) {
+  try {
+    await db.from("ai_calls").insert({ fn, ok: status < 300, status, error: errText ? String(errText).slice(0, 300) : null, model: out?.model ?? null,
+      input_tokens: out?.usage?.input_tokens ?? null, output_tokens: out?.usage?.output_tokens ?? null });
+  } catch { /* logging never blocks the work */ }
+}
+
+
 // General AI reader for any uploaded paper: government receipts, maintenance invoices, medical reports,
 // civil ID cards, supplier licences, or "what is this?" (smart upload). It reads, matches the paper to
 // employees / branches / suppliers / documents, and returns the result for the screen to fill in.
@@ -153,10 +162,12 @@ Answer only by calling the save_reading tool once.` });
     });
     if (!res.ok) {
       const t = await res.text();
+      await logAi(admin, "read-file", res.status, t, null);
       let detail = t; try { detail = JSON.parse(t)?.error?.message ?? t; } catch { /* keep */ }
       return json({ ok: false, error: res.status === 401 ? "invalid_key" : /credit|balance|billing/i.test(t) ? "no_credit" : `reader error ${res.status}: ${detail}`.slice(0, 300) });
     }
     const out = await res.json();
+    await logAi(admin, "read-file", res.status, null, out);
     const r: any = out.content?.find((c: any) => c.type === "tool_use")?.input ?? fromText(out.content);
     if (!r) return json({ ok: false, error: "unreadable" });
     for (const k of Object.keys(r)) if (/date|expiry|_from|_to|appointment|next_visit/.test(k) && typeof r[k] === "string") r[k] = okDate(r[k]);
