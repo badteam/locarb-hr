@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import readXlsxFile from 'read-excel-file/browser'
 import { supabase } from '../../lib/supabase'
 import { kwd, qtyFmt, loadLookups, invErr } from '../../lib/inv'
-import { parseSheet, guessBranch, normName, normUnit, unitFactor, bestMatches, kwDay, fileHash, contentUnits, contentFactor } from '../../lib/orderSheet'
+import { parseSheet, parseDate, guessBranch, normName, normUnit, unitFactor, bestMatches, kwDay, fileHash, contentUnits, contentFactor } from '../../lib/orderSheet'
 import ProductImage from '../../components/ProductImage.jsx'
 import Icon from '../../components/Icon.jsx'
 import ItemSearchSheet from '../../components/ItemSearchSheet.jsx'
@@ -24,7 +24,7 @@ export default function OrderImport() {
   const [lookups, setLookups] = useState(null)
   const [items, setItems] = useState([])
   const [aliases, setAliases] = useState({})
-  const [file, setFile] = useState(null)          // { name, hash }
+  const [files, setFiles] = useState([])         // [{ name, hash }]
   const [sheets, setSheets] = useState([])
   const [maps, setMaps] = useState({})            // name|unit -> { item_id, factor, src, note }
   const [ov, setOv] = useState({})                // line id -> { ignore, kitchen, branch }
@@ -56,39 +56,49 @@ export default function OrderImport() {
   const branchOpts = (lookups?.branches || []).filter((b) => !b.is_central_kitchen)
 
   // ---------- reading the file
-  const readFile = async (f) => {
-    if (!f) return
-    if (!/\.xlsx$/i.test(f.name)) { setErr('الملف لازم يكون إكسل (.xlsx)'); return }
-    setErr(''); setMsg(''); setBusy('read'); setSheets([]); setMaps({}); setOv({}); setDone({}); setActive(0)
+  const readFiles = async (list) => {
+    const fl = [...(list || [])].filter(Boolean)
+    if (!fl.length) return
+    const bad = fl.filter((f) => !/\.xlsx$/i.test(f.name))
+    if (bad.length === fl.length) { setErr('الملف لازم يكون إكسل (.xlsx)'); return }
+    setErr(''); setMsg(bad.length ? `اتجاهلت ${bad.length} ملف مش إكسل.` : ''); setBusy('read'); setSheets([]); setMaps({}); setOv({}); setDone({}); setActive(0)
     try {
-      const [wb, hash] = await Promise.all([readXlsxFile(f), fileHash(f)])
-      const out = []
-      for (const s of wb) {
-        const p = parseSheet(s.data)
-        const lines = p.blocks.flatMap((b, bi) => b.lines.map((l) => ({ ...l, id: `${s.sheet}#${bi}#${l.row}`, block: b.title || (bi ? 'طلب إضافي' : 'الطلب'), extra: bi > 0, mkey: `${normName(l.name)}|${normUnit(l.unit)}` })))
-        if (!lines.length) continue
-        const saved = lsGet(branchKey(s.sheet))
-        const branch = branchOpts.some((b) => b.id === saved) ? saved : guessBranch([s.sheet, p.title, ...p.blocks.map((b) => b.title)], branchOpts)
-        out.push({ key: s.sheet, name: s.sheet.trim(), title: p.title, date: p.date || '', branch, lines })
+      const out = [], got = [], allOv = {}
+      for (const f of fl.filter((x) => /\.xlsx$/i.test(x.name))) {
+        const [wb, hash] = await Promise.all([readXlsxFile(f), fileHash(f)])
+        if (got.some((g) => g.hash === hash)) continue // the same file chosen twice
+        got.push({ name: f.name, hash })
+        let draft = {}
+        try { draft = JSON.parse(lsGet(draftKey(hash)) || '{}') } catch { draft = {} }
+        Object.assign(allOv, draft.ov || {})
+        for (const sh of wb) {
+          const p = parseSheet(sh.data)
+          const key = `${hash}::${sh.sheet}`
+          const lines = p.blocks.flatMap((b, bi) => b.lines.map((l) => ({ ...l, id: `${key}#${bi}#${l.row}`, block: b.title || (bi ? 'طلب إضافي' : 'الطلب'), extra: bi > 0, mkey: `${normName(l.name)}|${normUnit(l.unit)}` })))
+          if (!lines.length) continue
+          const saved = lsGet(branchKey(sh.sheet))
+          let branch = branchOpts.some((b) => b.id === saved) ? saved : guessBranch([sh.sheet, p.title, ...p.blocks.map((b) => b.title), f.name], branchOpts)
+          let date = p.date || parseDate(sh.sheet) || parseDate(f.name.replace(/\.xlsx$/i, '')) || ''
+          // same file opened again: bring back what was chosen last time (branch, date, skipped lines, ticks)
+          const d = draft.sheets?.[sh.sheet] || draft.sheets?.[key]
+          if (d?.branch && branchOpts.some((b) => b.id === d.branch)) branch = d.branch
+          if (d?.date) date = d.date
+          out.push({ key, sheet: sh.sheet, name: sh.sheet.trim(), fname: f.name, fhash: hash, title: p.title, date, branch, lines })
+        }
       }
-      // same file opened again: bring back what was chosen last time (branch, date, skipped lines, ticks)
-      let draft = {}
-      try { draft = JSON.parse(lsGet(draftKey(hash)) || '{}') } catch { draft = {} }
-      for (const s of out) {
-        const d = draft.sheets?.[s.key]
-        if (d?.branch && branchOpts.some((b) => b.id === d.branch)) s.branch = d.branch
-        if (d?.date) s.date = d.date
-      }
-      if (!out.length) { setErr('ما لقيت أصناف في الملف. لازم يكون فيه عمود اسم الصنف (ITEM NAME) وعمود الكمية (QTY).'); setBusy(''); return }
-      setFile({ name: f.name, hash })
+      if (!out.length) { setErr('ما لقيت أصناف في الملفات. لازم يكون فيه عمود اسم الصنف (ITEM NAME) وعمود الكمية (QTY).'); setBusy(''); return }
+      // by branch, then by day, so the same branch's days sit next to each other
+      const bname = (id) => branchOpts.find((b) => b.id === id)?.name || 'zzz'
+      out.sort((a, b) => bname(a.branch).localeCompare(bname(b.branch), 'ar') || String(a.date).localeCompare(String(b.date)) || a.name.localeCompare(b.name))
+      setFiles(got)
       setSheets(out)
-      setOv(draft.ov || {})
-      const { data: prev } = await supabase.from('order_imports').select('*').eq('file_hash', hash).eq('status', 'posted')
-      setDone(Object.fromEntries((prev || []).map((x) => [x.sheet_name, x])))
-      // links: saved ones first
+      setOv(allOv)
+      const { data: prev } = await supabase.from('order_imports').select('*').in('file_hash', got.map((g) => g.hash)).eq('status', 'posted')
+      setDone(Object.fromEntries((prev || []).map((x) => [`${x.file_hash}::${x.sheet_name}`, x])))
+      // links: saved ones first. A name is linked once for all files and days.
       const m = {}
       const todo = []
-      for (const l of out.flatMap((s) => s.lines)) {
+      for (const l of out.flatMap((x) => x.lines)) {
         if (m[l.mkey] || todo.some((t) => t.mkey === l.mkey)) continue
         const a = aliases[l.mkey]
         if (a && byId[a.item_id]) m[l.mkey] = { item_id: a.item_id, factor: a.content_qty != null ? String(a.content_qty) : a.factor != null ? String(a.factor) : null, fu: a.content_qty != null ? a.content_unit : null, src: 'saved' }
@@ -145,10 +155,13 @@ export default function OrderImport() {
 
   // remember choices for this file in this browser, and warn before leaving with sheets not posted
   useEffect(() => {
-    if (!file) return
-    lsSet(draftKey(file.hash), JSON.stringify({ ov, sheets: Object.fromEntries(sheets.map((s) => [s.key, { branch: s.branch, date: s.date }])) }))
-  }, [file, ov, sheets])
-  const pending = !!file && sheets.some((s) => !done[s.key])
+    for (const f of files) {
+      const mine = sheets.filter((x) => x.fhash === f.hash)
+      lsSet(draftKey(f.hash), JSON.stringify({ ov: Object.fromEntries(Object.entries(ov).filter(([k]) => k.startsWith(f.hash + '::'))),
+        sheets: Object.fromEntries(mine.map((x) => [x.sheet, { branch: x.branch, date: x.date }])) }))
+    }
+  }, [files, ov, sheets])
+  const pending = files.length > 0 && sheets.some((s) => !done[s.key])
   useEffect(() => {
     if (!pending) return
     const warn = (e) => { e.preventDefault(); e.returnValue = '' }
@@ -216,29 +229,55 @@ export default function OrderImport() {
   }
 
   // ---------- posting one sheet
-  const post = async (force = false) => {
-    const s = sheet
-    setBusy('post'); setErr('')
-    const lines = s.lines.map((l) => [l, work(s, l)]).filter(([, w]) => w.state !== 'ignored').map(([l, w]) => ({
-      item_id: w.item.id, qty: w.stock, kitchen: w.k, branch: w.b,
-      note: [l.extra ? l.block : '', `${l.name} ${qtyFmt(l.qty)} ${l.unit}`.trim(), !w.k ? 'ما انخصم من المطبخ: ' + (w.kSkip || 'باختيارك') : '', !w.b ? 'ما انضاف للفرع: ' + (w.bSkip || 'باختيارك') : ''].filter(Boolean).join(' · '),
-      alias: normName(l.name), unit: normUnit(l.unit), factor: w.factor,
-      content_qty: w.m?.factor != null && w.m.factor !== '' ? Number(w.m.factor) : null, content_unit: w.m?.factor != null && w.m.factor !== '' ? (w.m.fu || w.item.unit) : null,
-    }))
-    const { data, error } = await supabase.rpc('post_order_import', { p_branch: s.branch, p_date: s.date, p_file_name: file.name, p_file_hash: file.hash, p_sheet: s.key, p_lines: lines, p_force: force })
-    setBusy('')
-    if (error) {
-      if (/already imported/.test(error.message)) { setConfirm({ again: true }); return }
-      setErr(/future/.test(error.message) ? 'تاريخ الطلبية في المستقبل' : /not allowed to import/.test(error.message) ? 'ما عندك صلاحية' : invErr(error)); setConfirm(null); return
-    }
-    setConfirm(null)
+  const linesFor = (s) => s.lines.map((l) => [l, work(s, l)]).filter(([, w]) => w.state !== 'ignored').map(([l, w]) => ({
+    item_id: w.item.id, qty: w.stock, kitchen: w.k, branch: w.b,
+    note: [l.extra ? l.block : '', `${l.name} ${qtyFmt(l.qty)} ${l.unit}`.trim(), !w.k ? 'ما انخصم من المطبخ: ' + (w.kSkip || 'باختيارك') : '', !w.b ? 'ما انضاف للفرع: ' + (w.bSkip || 'باختيارك') : ''].filter(Boolean).join(' · '),
+    alias: normName(l.name), unit: normUnit(l.unit), factor: w.factor,
+    content_qty: w.m?.factor != null && w.m.factor !== '' ? Number(w.m.factor) : null, content_unit: w.m?.factor != null && w.m.factor !== '' ? (w.m.fu || w.item.unit) : null,
+  }))
+  // one sheet into stock; returns the import row or throws
+  const postSheet = async (s, force) => {
+    const lines = linesFor(s)
+    const { data, error } = await supabase.rpc('post_order_import', { p_branch: s.branch, p_date: s.date, p_file_name: s.fname, p_file_hash: s.fhash, p_sheet: s.sheet, p_lines: lines, p_force: force })
+    if (error) throw error
     setDone((d) => ({ ...d, [s.key]: { ...data, id: data.id, request_id: data.request_id } }))
-    setMsg(`اتسجلت طلبية ${s.name}: ${data.lines} صنف بقيمة ${kwd(data.value)} د.ك. انخصم من المطبخ ${data.kitchen} صنف، وانضاف للفرع ${data.branch} صنف.`)
     // the links just saved count as saved links from now on
     setAliases((a) => ({ ...a, ...Object.fromEntries(lines.map((x) => [`${x.alias}|${x.unit}`, { alias: x.alias, unit: x.unit, item_id: x.item_id, factor: x.factor, content_qty: x.content_qty, content_unit: x.content_unit }])) }))
     setMaps((m) => Object.fromEntries(Object.entries(m).map(([k, v]) => [k, lines.some((x) => `${x.alias}|${x.unit}` === k) ? { ...v, src: 'saved' } : v])))
-    loadHistory()
-    const nextOpen = sheets.findIndex((x, i) => i !== active && !done[x.key])
+    return data
+  }
+  const postErr = (e) => (/future/.test(e.message) ? 'تاريخ الطلبية في المستقبل' : /not allowed to import/.test(e.message) ? 'ما عندك صلاحية' : invErr(e))
+  const post = async (force = false) => {
+    const s = sheet
+    setBusy('post'); setErr('')
+    try {
+      const data = await postSheet(s, force)
+      setConfirm(null)
+      setMsg(`اتسجلت طلبية ${s.name} (${fmtDay(s.date)}): ${data.lines} صنف بقيمة ${kwd(data.value)} د.ك. انخصم من المطبخ ${data.kitchen} صنف، وانضاف للفرع ${data.branch} صنف.`)
+      loadHistory()
+      const nextOpen = sheets.findIndex((x, i) => i !== active && !done[x.key])
+      if (nextOpen >= 0) { setActive(nextOpen); setFilter('todo') }
+    } catch (e) {
+      if (/already imported/.test(e.message)) setConfirm({ again: true })
+      else { setErr(postErr(e)); setConfirm(null) }
+    }
+    setBusy('')
+  }
+  // every sheet that is ready (branch, date, nothing to review) in one go, oldest day first
+  const readySheets = sheets.filter((x) => { if (done[x.key] || !x.branch || !x.date) return false; const tt = tally(x); return !(tt.item + tt.factor + tt.review) && tt.ok > 0 })
+  const postAll = async () => {
+    setBusy('postall'); setErr(''); setMsg('')
+    const list = [...readySheets].sort((a, b) => String(a.date).localeCompare(String(b.date)))
+    let ok = 0, lines = 0, value = 0
+    const skipped = [], failed = []
+    for (const x of list) {
+      try { const d = await postSheet(x, false); ok++; lines += d.lines; value += Number(d.value) || 0 }
+      catch (e) { if (/already imported/.test(e.message)) skipped.push(`${x.name} ${fmtDay(x.date)}`); else failed.push(`${x.name} ${fmtDay(x.date)}: ${postErr(e)}`) }
+    }
+    setBusy(''); setConfirm(null); loadHistory()
+    setMsg(`اتسجل ${ok} شيت (${lines} سطر بقيمة ${kwd(value)} د.ك).${skipped.length ? ` ما سجلتش ${skipped.length} عشان اترفعوا قبل كده: ${skipped.join('، ')}.` : ''}`)
+    if (failed.length) setErr('ما اتسجلش: ' + failed.join(' — '))
+    const nextOpen = sheets.findIndex((x) => !done[x.key] && !list.includes(x))
     if (nextOpen >= 0) { setActive(nextOpen); setFilter('todo') }
   }
   const undo = async (row) => {
@@ -268,11 +307,11 @@ export default function OrderImport() {
       </div>
 
       <label className={'card drop' + (drag ? ' on' : '')} onDragOver={(e) => { e.preventDefault(); setDrag(true) }} onDragLeave={() => setDrag(false)}
-        onDrop={(e) => { e.preventDefault(); setDrag(false); readFile(e.dataTransfer.files[0]) }}>
-        <input type="file" accept=".xlsx" style={{ display: 'none' }} onChange={(e) => { readFile(e.target.files[0]); e.target.value = '' }} />
+        onDrop={(e) => { e.preventDefault(); setDrag(false); readFiles(e.dataTransfer.files) }}>
+        <input type="file" accept=".xlsx" multiple style={{ display: 'none' }} onChange={(e) => { readFiles(e.target.files); e.target.value = '' }} />
         {busy === 'read' ? <span className="spinner" /> : <Icon name="download" size={26} />}
-        <div><strong>{file ? file.name : 'اسحب ملف الإكسل هنا'}</strong>
-          <div className="sub">{file ? 'اسحب ملف تاني أو اضغط عشان تغيّره' : 'أو اضغط واختار الملف من جهازك'}</div></div>
+        <div><strong>{files.length > 1 ? `${files.length} ملفات: ${files.map((f) => f.name).join('، ')}` : files.length ? files[0].name : 'اسحب ملفات الإكسل هنا (كل الأيام مرة واحدة)'}</strong>
+          <div className="sub">{files.length ? 'اسحب ملفات تانية أو اضغط عشان تغيّرها' : 'أو اضغط واختار ملف أو أكتر من جهازك. أي اسم صنف تربطه مرة، بيتربط في كل الملفات والأيام.'}</div></div>
       </label>
 
       {ai === 'running' && <div className="notice row" style={{ gap: 10, marginTop: 12 }}><span className="spinner" /> الذكاء بيربط أسامي الأصناف بالمخزن… ممكن ياخد دقيقة.</div>}
@@ -287,15 +326,20 @@ export default function OrderImport() {
               const tt = tally(s)
               const n = tt.item + tt.factor + tt.review
               return <button key={s.key} className={'chip' + (i === active ? ' on' : '')} onClick={() => { setActive(i); setFilter('todo'); setStick(new Set()) }}>
-                {s.name} {done[s.key] ? <span className="pill ok" style={{ marginInlineStart: 6 }}>اتسجل ✓</span>
+                {s.name}{s.date ? <span className="sub" style={{ marginInlineStart: 4 }}>{fmtDay(s.date).slice(0, 5)}</span> : null} {done[s.key] ? <span className="pill ok" style={{ marginInlineStart: 6 }}>اتسجل ✓</span>
                   : !s.branch ? <span className="pill red" style={{ marginInlineStart: 6 }}>بدون فرع</span>
                   : n ? <span className="badge" style={{ marginInlineStart: 6 }}>{n}</span> : <span className="pill ok" style={{ marginInlineStart: 6 }}>جاهز</span>}</button>
             })}
           </div>
 
+          {sheets.length > 1 && <div className="card row" style={{ gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+            <span className="grow sub">{sheets.length} شيت · اتسجل {sheets.filter((x) => done[x.key]).length} · جاهز {readySheets.length} · محتاج مراجعة {sheets.filter((x) => !done[x.key] && !readySheets.includes(x)).length}</span>
+            <button className="btn primary" disabled={!readySheets.length || !!busy} onClick={() => setConfirm({ all: true })}>{busy === 'postall' ? <span className="spinner" /> : <Icon name="check" size={16} />} اعتماد كل الجاهز ({readySheets.length})</button>
+          </div>}
+
           <div className="card" style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom: 12 }}>
             <div className="field"><label htmlFor="ib">الفرع</label>
-              <select id="ib" className="input" value={sheet.branch} disabled={!!isDone} onChange={(e) => { setSheet({ branch: e.target.value }); lsSet(branchKey(sheet.key), e.target.value) }}>
+              <select id="ib" className="input" value={sheet.branch} disabled={!!isDone} onChange={(e) => { setSheet({ branch: e.target.value }); lsSet(branchKey(sheet.sheet), e.target.value) }}>
                 <option value="">— اختار الفرع —</option>{branchOpts.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select></div>
             <div className="field"><label htmlFor="id">تاريخ الطلبية</label>
@@ -420,7 +464,22 @@ export default function OrderImport() {
         </div>
       )}
 
-      {confirm && sheet && (
+      {confirm?.all && (
+        <div className="overlay" onClick={(e) => e.target === e.currentTarget && !busy && setConfirm(null)}>
+          <div className="sheet form">
+            <div className="sheet-head"><h2 style={{ fontSize: 20 }}>اعتماد كل الشيتات الجاهزة</h2>
+              <button type="button" className="icon-btn" aria-label="إغلاق" onClick={() => setConfirm(null)}><Icon name="x" /></button></div>
+            <div className="sub">كل شيت بيتسجل بتاريخه، من الأقدم للأحدث. بينخصم من المطبخ وبينضاف للفرع، إلا الأصناف اللي اتجردت بعد التاريخ ده.</div>
+            <div className="list" style={{ maxHeight: 300, overflow: 'auto' }}>
+              {[...readySheets].sort((a, b) => String(a.date).localeCompare(String(b.date))).map((x) => (
+                <div key={x.key} className="list-item"><span className="grow">{branchOpts.find((b) => b.id === x.branch)?.name} · {fmtDay(x.date)}</span><span className="sub">{tally(x).ok} صنف</span></div>))}
+            </div>
+            <button className="btn primary block" disabled={!!busy} onClick={postAll}>{busy ? <span className="spinner" /> : null} اعتماد {readySheets.length} شيت</button>
+          </div>
+        </div>
+      )}
+
+      {confirm && !confirm.all && sheet && (
         <div className="overlay" onClick={(e) => e.target === e.currentTarget && !busy && setConfirm(null)}>
           <div className="sheet form">
             <div className="sheet-head"><h2 style={{ fontSize: 20 }}>اعتماد طلبية {branchOpts.find((b) => b.id === sheet.branch)?.name}</h2>
