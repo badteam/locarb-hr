@@ -3,6 +3,18 @@
 
 export const normName = (s) => String(s ?? '').toLowerCase().replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d))
   .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/[^\p{L}\p{N}.]+/gu, ' ').replace(/\s+/g, ' ').trim()
+// How a name sounds, so the many ways staff spell the same thing land together:
+// "sabon" / "saboon" / "sabun", "chicken scrap" / "chiken scrape" -> same key. Very short keys are not merged.
+export function spell(s) {
+  let t = normName(s).replace(/^ال/, '').replace(/ ال/g, ' ')
+  t = t.replace(/ph/g, 'f').replace(/ck/g, 'k').replace(/[cq]/g, 'k').replace(/z/g, 's').replace(/w/g, 'u')
+  t = t.split(' ').filter(Boolean).map((w) => (/^[a-z]+$/.test(w) ? w[0] + w.slice(1).replace(/[aeiouy]/g, '') : w)).join('')
+  t = t.replace(/(.)\1+/g, '$1')
+  if (/[a-z]s$/.test(t) && t.length >= 3) t = t.slice(0, -1)
+  return t
+}
+export const spellKey = (name, unit) => { const k = spell(name); return k.length >= 3 ? `~${k}|${normUnit(unit)}` : `${normName(name)}|${normUnit(unit)}` }
+
 export const normUnit = (u) => {
   const s = String(u ?? '').toLowerCase().replace(/[^a-z؀-ۿ]/g, '')
   return s === '0' ? '' : s

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import readXlsxFile from 'read-excel-file/browser'
 import { supabase } from '../../lib/supabase'
 import { kwd, qtyFmt, loadLookups, invErr } from '../../lib/inv'
-import { parseSheet, parseDate, guessBranch, normName, normUnit, unitFactor, bestMatches, kwDay, fileHash, contentUnits, contentFactor } from '../../lib/orderSheet'
+import { parseSheet, parseDate, guessBranch, spellKey, normName, normUnit, unitFactor, bestMatches, kwDay, fileHash, contentUnits, contentFactor } from '../../lib/orderSheet'
 import ProductImage from '../../components/ProductImage.jsx'
 import Icon from '../../components/Icon.jsx'
 import ItemSearchSheet from '../../components/ItemSearchSheet.jsx'
@@ -76,7 +76,7 @@ export default function OrderImport() {
         for (const sh of wb) {
           const p = parseSheet(sh.data)
           const key = `${hash}::${sh.sheet}`
-          const lines = p.blocks.flatMap((b, bi) => b.lines.map((l) => ({ ...l, id: `${key}#${bi}#${l.row}`, block: b.title || (bi ? 'طلب إضافي' : 'الطلب'), extra: bi > 0, mkey: `${normName(l.name)}|${normUnit(l.unit)}` })))
+          const lines = p.blocks.flatMap((b, bi) => b.lines.map((l) => ({ ...l, id: `${key}#${bi}#${l.row}`, block: b.title || (bi ? 'طلب إضافي' : 'الطلب'), extra: bi > 0, mkey: `${normName(l.name)}|${normUnit(l.unit)}`, skey: spellKey(l.name, l.unit) })))
           if (!lines.length) continue
           const saved = lsGet(branchKey(sh.sheet))
           let branch = branchOpts.some((b) => b.id === saved) ? saved : guessBranch([sh.sheet, p.title, ...p.blocks.map((b) => b.title), f.name], branchOpts)
@@ -100,19 +100,25 @@ export default function OrderImport() {
       // links: saved ones first. A name is linked once for all files and days.
       const m = {}
       const todo = []
+      // a saved link also counts for the same name spelled another way ("sabon" = "saboon")
+      const bySpell = {}
+      for (const a of Object.values(aliases)) bySpell[spellKey(a.alias, a.unit)] ||= a
       for (const l of out.flatMap((x) => x.lines)) {
         if (m[l.mkey] || todo.some((t) => t.mkey === l.mkey)) continue
-        const a = aliases[l.mkey]
+        const a = aliases[l.mkey] || bySpell[l.skey]
         if (a && byId[a.item_id]) m[l.mkey] = { item_id: a.item_id, factor: a.content_qty != null ? String(a.content_qty) : a.factor != null ? String(a.factor) : null, fu: a.content_qty != null ? a.content_unit : null, src: 'saved' }
         else todo.push(l)
       }
       setMaps(m)
       setBusy('')
-      if (todo.length) matchWithAi(todo)
+      if (todo.length) matchWithAi(todo, false, out.flatMap((x) => x.lines))
     } catch (e) { setErr('ما قدرت أقرا الملف: ' + (e.message || e)); setBusy('') }
   }
 
-  const matchWithAi = async (todo, again = false) => {
+  const matchWithAi = async (allTodo, again = false, allLines = null) => {
+    // one question per spelling group: "sabon", "saboon" and "sabun" are asked once
+    const seenS = new Set()
+    const todo = allTodo.filter((l) => !seenS.has(l.skey) && seenS.add(l.skey))
     setAi('running')
     const chunks = []
     for (let i = 0; i < todo.length; i += 40) chunks.push(todo.slice(i, i + 40))
@@ -146,6 +152,11 @@ export default function OrderImport() {
         }
       })
     })
+    // the answer for one spelling goes to every spelling of it
+    const lines = allLines || sheets.flatMap((x) => x.lines)
+    const bySkey = {}
+    for (const l of todo) if (found[l.mkey]) bySkey[l.skey] = found[l.mkey]
+    for (const l of [...allTodo, ...lines]) if (!found[l.mkey] && bySkey[l.skey]) found[l.mkey] = { ...bySkey[l.skey] }
     setMaps((m) => (again ? { ...m, ...Object.fromEntries(Object.entries(found).filter(([k]) => !['saved', 'manual'].includes(m[k]?.src))) } : { ...found, ...m }))
     setAi(failed ? 'error:' + failed : 'done')
   }
@@ -224,8 +235,12 @@ export default function OrderImport() {
       if (done[x.key]) continue
       for (const l of x.lines) {
         const w = work(x, l)
-        const r = (by[l.mkey] ||= { mkey: l.mkey, name: l.name, units: new Set(), days: [], ids: [], w: null, qty: 0, stock: 0, skipK: 0, skipB: 0, ignored: 0 })
-        r.units.add(l.unit || ''); r.ids.push(l.id); r.w = r.w || w
+        const r = (by[l.skey] ||= { mkey: l.mkey, mkeys: [], names: [], name: l.name, units: new Set(), days: [], ids: [], w: null, qty: 0, stock: 0, skipK: 0, skipB: 0, ignored: 0 })
+        if (!r.mkeys.includes(l.mkey)) r.mkeys.push(l.mkey)
+        if (!r.names.includes(l.name.trim())) r.names.push(l.name.trim())
+        r.units.add(l.unit || ''); r.ids.push(l.id)
+        // the row shows the spelling that still needs work first
+        if (!r.w || (['item', 'factor', 'review'].includes(w.state) && !['item', 'factor', 'review'].includes(r.w.state))) { r.w = w; r.mkey = l.mkey }
         if (w.state === 'ignored') { r.ignored++; continue }
         r.days.push({ date: x.date, qty: l.qty, unit: l.unit, extra: l.extra })
         r.qty += Number(l.qty) || 0; r.stock += w.stock || 0
@@ -432,7 +447,7 @@ export default function OrderImport() {
             </div>
             {grpRows.some((r) => r.state === 'review') && filter !== 'ok' && <div className="row" style={{ justifyContent: 'space-between', marginBottom: 10, gap: 10, flexWrap: 'wrap' }}>
               <span className="sub">الأصفر: الذكاء مش متأكد. بص عليهم، غيّر الغلط، وبعدين أكّد الباقي.</span>
-              <button className="btn" style={{ minHeight: 38 }} onClick={() => { const next = {}; for (const r of grpRows) if (r.state === 'review') next[r.mkey] = { ...maps[r.mkey], src: 'manual' }; setMaps((m) => ({ ...m, ...next })); Object.entries(next).forEach(([k, m]) => saveLink(k, m)) }}>
+              <button className="btn" style={{ minHeight: 38 }} onClick={() => { const next = {}; for (const r of grpRows) if (r.state === 'review') for (const k of r.mkeys) if (maps[k]) next[k] = { ...maps[k], src: 'manual' }; setMaps((m) => ({ ...m, ...next })); Object.entries(next).forEach(([k, m]) => saveLink(k, m)) }}>
                 <Icon name="check" size={16} /> أكّد كل الأصفر ({grpRows.filter((r) => r.state === 'review').length})</button></div>}
 
             <div className="order-list">
@@ -444,7 +459,8 @@ export default function OrderImport() {
                   <div key={r.mkey} className={'order-row imp ' + tone} onPointerDownCapture={() => !stick.has(r.mkey) && setStick((x) => new Set(x).add(r.mkey))}>
                     <div className="row" style={{ gap: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
                       <div style={{ minWidth: 150, flex: '1 1 180px' }}>
-                        <div style={{ fontWeight: 700, direction: 'ltr', textAlign: 'right' }}>{r.name}</div>
+                        <div style={{ fontWeight: 700, direction: 'ltr', textAlign: 'right' }}>{r.names[0]}</div>
+                        {r.names.length > 1 && <div className="cell-sub" style={{ direction: 'ltr', textAlign: 'right' }}>مكتوب كمان: {r.names.slice(1).join(' · ')}</div>}
                         <div className="row" style={{ gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
                           {r.days.map((d, i) => <span key={i} className="pill gray" style={{ fontSize: 11 }}>{fmtDay(d.date).slice(0, 5)}: {qtyFmt(d.qty)}{r.units.size > 1 ? ` ${d.unit || ''}` : ''}{d.extra ? ' +' : ''}</span>)}
                         </div>
@@ -452,17 +468,17 @@ export default function OrderImport() {
                       </div>
                       <div className="grow" style={{ flex: '2 1 240px' }}>
                         {w.item ? (
-                          <button type="button" className="pick" onClick={() => setPicking(r.mkey)}>
+                          <button type="button" className="pick" onClick={() => setPicking(r.mkeys)}>
                             <ProductImage itemId={w.item.id} size={40} />
                             <span className="grow" style={{ textAlign: 'start' }}><span style={{ fontWeight: 600 }}>{w.item.name_ar}</span>
                               <span className="cell-sub" style={{ display: 'block' }}>{w.item.name_en}{w.item.unit ? ` · ${w.item.unit}` : ''}</span></span>
                             <span className="sub" style={{ fontSize: 12 }}>تغيير</span>
                           </button>
-                        ) : <button type="button" className="btn primary" style={{ width: '100%' }} onClick={() => setPicking(r.mkey)} disabled={st === 'ignored'}><Icon name="search" size={16} /> اختار الصنف</button>}
+                        ) : <button type="button" className="btn primary" style={{ width: '100%' }} onClick={() => setPicking(r.mkeys)} disabled={st === 'ignored'}><Icon name="search" size={16} /> اختار الصنف</button>}
                         <div className="row" style={{ gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
                           {w.m?.src && CONF[w.m.src] && <span className={'pill ' + CONF[w.m.src][0]}>{CONF[w.m.src][1]}</span>}
                           {w.m?.note && st === 'review' && <span className="sub" style={{ fontSize: 12 }}>{w.m.note}</span>}
-                          {st === 'review' && <button className="btn" style={{ minHeight: 30, padding: '0 10px', fontSize: 13 }} onClick={() => linkChange(r.mkey, { src: 'manual' })}>✓ صح</button>}
+                          {st === 'review' && <button className="btn" style={{ minHeight: 30, padding: '0 10px', fontSize: 13 }} onClick={() => r.mkeys.forEach((k) => linkChange(k, { src: 'manual' }))}>✓ صح</button>}
                         </div>
                       </div>
                     </div>
@@ -474,13 +490,15 @@ export default function OrderImport() {
                             <input className="input num" style={{ width: 90, height: 40 }} inputMode="decimal" placeholder="؟" aria-label={`كم في الـ ${unit}`}
                               value={w.m?.factor ?? (w.factor ?? '')} onChange={(e) => {
                                 const v = e.target.value.replace(/[^\d.]/g, '')
-                                const m = { ...(maps[r.mkey] || {}), factor: v === '' ? null : v }
-                                setMap(r.mkey, { factor: m.factor })
-                                clearTimeout(timers.current[r.mkey])
-                                timers.current[r.mkey] = setTimeout(() => saveLink(r.mkey, m), 800)
+                                for (const k of r.mkeys) {
+                                  const m = { ...(maps[k] || maps[r.mkey] || {}), factor: v === '' ? null : v }
+                                  setMap(k, { ...m })
+                                  clearTimeout(timers.current[k])
+                                  timers.current[k] = setTimeout(() => saveLink(k, m), 800)
+                                }
                               }} />
                             <select className="input" style={{ width: 'auto', height: 40, paddingInline: 10 }} aria-label="الوحدة" value={w.m?.fu || w.item.unit || ''}
-                              onChange={(e) => linkChange(r.mkey, { fu: e.target.value, factor: w.m?.factor ?? null })}>
+                              onChange={(e) => r.mkeys.forEach((k) => linkChange(k, { ...(maps[r.mkey] || {}), fu: e.target.value, factor: w.m?.factor ?? null }))}>
                               {contentUnits(w.item).map((u) => <option key={u} value={u}>{u}</option>)}
                             </select>
                           </div>)}
@@ -700,8 +718,8 @@ export default function OrderImport() {
         </div>
       )}
 
-      {picking && <ItemSearchSheet items={items} line={sheets.flatMap((s) => s.lines).find((l) => l.mkey === picking)} current={maps[picking]?.item_id}
-        onPick={(id) => { linkChange(picking, { item_id: id, factor: null, fu: null, src: 'manual', note: '' }); setPicking(null) }} onClose={() => setPicking(null)} />}
+      {picking && <ItemSearchSheet items={items} line={sheets.flatMap((s) => s.lines).find((l) => l.mkey === [].concat(picking)[0])} current={maps[[].concat(picking)[0]]?.item_id}
+        onPick={(id) => { [].concat(picking).forEach((k) => linkChange(k, { item_id: id, factor: null, fu: null, src: 'manual', note: '' })); setPicking(null) }} onClose={() => setPicking(null)} />}
     </div>
   )
 }
