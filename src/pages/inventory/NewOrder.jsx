@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { supabase } from '../../lib/supabase'
+import { supabase, selectAll } from '../../lib/supabase'
 import { useAccess } from '../../lib/access.jsx'
 import { useLang } from '../../lib/i18n.jsx'
 import { qtyFmt, loadLookups, invErr, itemNames, branchPieces, toPieces } from '../../lib/inv'
@@ -48,7 +48,7 @@ export default function NewOrder() {
       const own = l.branches.find((b) => b.id === access.employee.branch_id && !b.is_central_kitchen)
       setBranch(own?.id || (anyBranch ? l.branches.find((b) => !b.is_central_kitchen)?.id : '') || '')
     })
-    supabase.from('inv_stock').select('id,name_ar,name_en,unit,unit_pieces,branch_by_piece,category_id,category,active').eq('active', true).order('name_ar').then(({ data }) => setItems(data || []))
+    selectAll(() => supabase.from('inv_stock').select('id,name_ar,name_en,unit,unit_pieces,branch_by_piece,category_id,category,active').eq('active', true).order('name_ar').order('id')).then((data) => setItems(data || []))
   }, [access.employee.branch_id, anyBranch])
 
   const loadBranch = useCallback(() => {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import readXlsxFile from 'read-excel-file/browser'
-import { supabase } from '../../lib/supabase'
+import { supabase, selectAll } from '../../lib/supabase'
 import { kwd, qtyFmt, loadLookups, invErr } from '../../lib/inv'
 import { parseSheet, parseDate, guessBranch, spellKey, normName, normUnit, unitFactor, bestMatches, kwDay, fileHash, contentUnits, contentFactor } from '../../lib/orderSheet'
 import ProductImage from '../../components/ProductImage.jsx'
@@ -49,7 +49,7 @@ export default function OrderImport() {
     .then(({ data }) => setHistory(data || [])), [])
   useEffect(() => {
     loadLookups().then(setLookups)
-    supabase.from('inv_stock').select('id,name_ar,name_en,unit,category,unit_grams,unit_pieces,unit_measure,avg_cost').eq('active', true).order('name_ar').then(({ data }) => setItems(data || []))
+    selectAll(() => supabase.from('inv_stock').select('id,name_ar,name_en,unit,category,unit_grams,unit_pieces,unit_measure,avg_cost').eq('active', true).order('name_ar').order('id')).then((data) => setItems(data || []))
     supabase.from('order_aliases').select('alias,unit,item_id,factor,content_qty,content_unit').then(({ data }) => setAliases(Object.fromEntries((data || []).map((a) => [`${a.alias}|${a.unit}`, a]))))
     loadHistory()
   }, [loadHistory])

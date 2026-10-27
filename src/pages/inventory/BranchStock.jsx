@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { supabase } from '../../lib/supabase'
+import { supabase, selectAll } from '../../lib/supabase'
 import { useAccess } from '../../lib/access.jsx'
 import { useLang } from '../../lib/i18n.jsx'
 import { qtyFmt, kwd, loadLookups, invErr, MOVE_KIND, itemNames, branchPieces, toPieces } from '../../lib/inv'
@@ -101,7 +101,7 @@ export default function BranchStock() {
   const [waste, setWaste] = useState(false)
   const canCount = can('branch_count') || can('manage_inventory')
 
-  useEffect(() => { supabase.from('inv_stock').select('id,name_ar,name_en,unit,unit_pieces,branch_by_piece,category,avg_cost').eq('active', true).order('name_ar').then(({ data }) => setItems(data || [])) }, [])
+  useEffect(() => { selectAll(() => supabase.from('inv_stock').select('id,name_ar,name_en,unit,unit_pieces,branch_by_piece,category,avg_cost').eq('active', true).order('name_ar').order('id')).then((data) => setItems(data || [])) }, [])
   const load = useCallback(() => {
     if (!branch) return
     supabase.from('stock_levels').select('item_id,qty,updated_at').eq('branch_id', branch).then(({ data }) => setLevels(Object.fromEntries((data || []).map((x) => [x.item_id, x]))))

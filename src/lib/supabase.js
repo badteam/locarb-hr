@@ -39,3 +39,14 @@ export const errMsg = (e) => {
   if (/fetch|network|Failed to fetch|Load failed/i.test(m)) return 'صار خطأ، جرّب مرة ثانية'
   return m
 }
+
+// The server returns at most 1000 rows per request: fetch every page. `make` builds a fresh query each time.
+export async function selectAll(make, page = 1000) {
+  const out = []
+  for (let from = 0; ; from += page) {
+    const { data, error } = await make().range(from, from + page - 1)
+    if (error) throw error
+    out.push(...(data || []))
+    if (!data || data.length < page) return out
+  }
+}

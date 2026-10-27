@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import writeXlsxFile from 'write-excel-file/browser'
 import readXlsxFile from 'read-excel-file/browser'
-import { supabase, errMsg } from '../../lib/supabase'
+import { supabase, errMsg, selectAll } from '../../lib/supabase'
 import Icon from '../../components/Icon.jsx'
 
 const fold = (s) => String(s ?? '').toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').trim()
@@ -25,7 +25,7 @@ export default function Prices() {
   const [busy, setBusy] = useState('')
 
   const load = useCallback(() => {
-    supabase.from('inv_stock').select('id,name_ar,name_en,unit,category,last_price,avg_cost,total_qty').eq('active', true).order('name_ar').then(({ data }) => setItems(data || []))
+    selectAll(() => supabase.from('inv_stock').select('id,name_ar,name_en,unit,category,last_price,avg_cost,total_qty').eq('active', true).order('name_ar').order('id')).then((data) => setItems(data || []))
     supabase.from('item_price_suggestions').select('*').then(({ data }) => setSug(Object.fromEntries((data || []).map((x) => [x.item_id, x]))))
   }, [])
   useEffect(() => { load() }, [load])

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import writeXlsxFile from 'write-excel-file/browser'
 import readXlsxFile from 'read-excel-file/browser'
-import { supabase } from '../../lib/supabase'
+import { supabase, selectAll } from '../../lib/supabase'
 import { kwd, qtyFmt, loadLookups, invErr } from '../../lib/inv'
 import ProductImage from '../../components/ProductImage.jsx'
 import Icon from '../../components/Icon.jsx'
@@ -31,7 +31,7 @@ export default function OpeningBalance() {
 
   useEffect(() => {
     loadLookups(true).then((l) => { setLookups(l); setBranch(l.kitchen?.id || l.stockBranches[0]?.id || '') })
-    supabase.from('inv_stock').select('id,name_ar,name_en,unit,category_id,category,avg_cost,last_price').eq('active', true).order('name_ar').then(({ data }) => setItems(data || []))
+    selectAll(() => supabase.from('inv_stock').select('id,name_ar,name_en,unit,category_id,category,avg_cost,last_price').eq('active', true).order('name_ar').order('id')).then((data) => setItems(data || []))
   }, [])
   useEffect(() => {
     if (!branch) return
@@ -117,7 +117,7 @@ export default function OpeningBalance() {
     writeDraft(branch, {}); setVals({}); setOnlyFilled(false)
     setMsg(`انحفظ رصيد أول المدة: ${data.lines} صنف بقيمة ${kwd(data.value)} د.ك.`)
     supabase.from('stock_levels').select('item_id,qty').eq('branch_id', branch).then(({ data: d }) => setLevels(Object.fromEntries((d || []).map((x) => [x.item_id, Number(x.qty)]))))
-    supabase.from('inv_stock').select('id,name_ar,name_en,unit,category_id,category,avg_cost,last_price').eq('active', true).order('name_ar').then(({ data: d }) => setItems(d || []))
+    selectAll(() => supabase.from('inv_stock').select('id,name_ar,name_en,unit,category_id,category,avg_cost,last_price').eq('active', true).order('name_ar').order('id')).then((data) => setItems(data || []))
   }
 
   if (!lookups) return <div className="center sub" style={{ minHeight: 300 }}><span className="spinner" /></div>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
-import { supabase } from '../../lib/supabase'
+import { supabase, selectAll } from '../../lib/supabase'
 import { qtyFmt, kwd, invErr, itemNames, packPieces, packTotal, branchPieces, toPieces } from '../../lib/inv'
 import { useLang } from '../../lib/i18n.jsx'
 import { useAccess } from '../../lib/access.jsx'
@@ -39,7 +39,7 @@ export default function StockCount() {
   const [result, setResult] = useState(null)
 
   useEffect(() => { const b = params.get('branch'); if (b && bc.options.some((o) => o.id === b)) setBranch(b) }, [params, bc.options, setBranch])
-  useEffect(() => { supabase.from('inv_stock').select('id,name_ar,name_en,unit,unit_pieces,branch_by_piece,category_id,category,is_critical,avg_cost').eq('active', true).order('name_ar').then(({ data }) => setItems(data || [])) }, [])
+  useEffect(() => { selectAll(() => supabase.from('inv_stock').select('id,name_ar,name_en,unit,unit_pieces,branch_by_piece,category_id,category,is_critical,avg_cost').eq('active', true).order('name_ar').order('id')).then((data) => setItems(data || [])) }, [])
   useEffect(() => {
     if (!branch) return
     setCounts(readDraft(branch)); setResult(null)

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAccess } from '../../lib/access.jsx'
 import { kwd, qtyFmt, loadLookups, clearLookups, invErr, MOVE_KIND, nutSource, branchPieces, toPieces } from '../../lib/inv'
-import { fmtDate } from '../../lib/supabase'
+import { fmtDate, selectAll } from '../../lib/supabase'
 import Icon from '../../components/Icon.jsx'
 import ProductImage, { ProductPhotoLarge, refreshProductImages } from '../../components/ProductImage.jsx'
 import { loginEmail } from '../../lib/supabase'
@@ -354,7 +354,7 @@ function NamesSheet({ table, refCol, title, singular, onClose, onChanged }) {
   const [err, setErr] = useState('')
   const load = useCallback(() => {
     supabase.from(table).select('*').order(table === 'inv_categories' ? 'sort_order' : 'name').order('name').then(({ data }) => setRows(data || []))
-    supabase.from('inv_items').select(refCol).then(({ data }) => {
+    selectAll(() => supabase.from('inv_items').select(refCol).order('id')).then((data) => {
       const m = {}; (data || []).forEach((r) => { if (r[refCol]) m[r[refCol]] = (m[r[refCol]] || 0) + 1 }); setUsed(m)
     })
   }, [table, refCol])
@@ -495,7 +495,7 @@ export default function Inventory() {
   const [filling, setFilling] = useState(null)
 
   const load = useCallback(() => {
-    supabase.from('inv_stock').select('*').order('name_ar').then(({ data }) => setItems(data || []))
+    selectAll(() => supabase.from('inv_stock').select('*').order('name_ar').order('id')).then(setItems).catch(() => {})
     supabase.from('purchase_invoices').select('id', { count: 'exact', head: true }).eq('price_only', false).in('status', ['draft', 'reading', 'review', 'failed']).then(({ count }) => setPending(count || 0))
   }, [])
   useEffect(() => { load(); loadLookups(true).then(setLookups); refreshProductImages() }, [load])

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { supabase } from '../lib/supabase'
+import { supabase, selectAll } from '../lib/supabase'
 
 // Product photos (from the photo stock-take) shown next to item names.
 // Photos of all items are looked up once and signed in one request per batch.
@@ -11,7 +11,7 @@ const listeners = new Set()
 async function loadItemPaths() {
   if (itemPaths) return itemPaths
   if (!itemPathsPromise) {
-    itemPathsPromise = supabase.from('inv_items').select('id,image_path').not('image_path', 'is', null).then(async ({ data }) => {
+    itemPathsPromise = selectAll(() => supabase.from('inv_items').select('id,image_path').not('image_path', 'is', null).order('id')).then(async (data) => {
       const map = Object.fromEntries((data || []).map((x) => [x.id, x.image_path]))
       const paths = [...new Set(Object.values(map))].filter((p) => !urlCache.has(p))
       for (let i = 0; i < paths.length; i += 100) {

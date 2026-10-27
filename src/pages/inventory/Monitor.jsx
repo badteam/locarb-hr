@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { supabase, fmtDate } from '../../lib/supabase'
+import { supabase, fmtDate, selectAll } from '../../lib/supabase'
 import { useAccess } from '../../lib/access.jsx'
 import { invErr, kwd } from '../../lib/inv'
 import Icon from '../../components/Icon.jsx'
@@ -238,7 +238,7 @@ function Setup() {
   const load = useCallback(() => {
     supabase.from('protein_groups').select('*').order('sort_order').then(({ data }) => setGroups(data || []))
     supabase.from('foodics_protein_map').select('*').order('product_name').then(({ data }) => setMap(data || []))
-    supabase.from('inv_items').select('id,name_ar,protein_group,unit_grams,inv_units(name)').eq('active', true).order('name_ar').then(({ data }) => setItems(data || []))
+    selectAll(() => supabase.from('inv_items').select('id,name_ar,protein_group,unit_grams,inv_units(name)').eq('active', true).order('name_ar').order('id')).then((data) => setItems(data || []))
   }, [])
   useEffect(() => { load() }, [load])
   const saveGroup = async (g, patch) => { const r = await supabase.from('protein_groups').update(patch).eq('key', g.key); setMsg(r.error ? invErr(r.error) : 'انحفظ'); load() }

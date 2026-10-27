@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { supabase, fmtDate } from '../../lib/supabase'
+import { supabase, fmtDate, selectAll } from '../../lib/supabase'
 import { kwd, loadLookups } from '../../lib/inv'
 import { startRead, compress } from './Invoices.jsx'
 import { pdfToPages, isPdf } from '../../lib/pdfPages'
@@ -61,7 +61,7 @@ export default function PriceFill() {
   const started = useRef(new Set())
   useEffect(() => {
     loadLookups().then(setLk)
-    supabase.from('inv_stock').select('id,name_ar,name_en,unit,category').eq('active', true).order('name_ar').then(({ data }) => setItems(data || []))
+    selectAll(() => supabase.from('inv_stock').select('id,name_ar,name_en,unit,category').eq('active', true).order('name_ar').order('id')).then((data) => setItems(data || []))
   }, [])
   // invoices that were read but not finished (page closed, or an error): finish them now
   useEffect(() => {
