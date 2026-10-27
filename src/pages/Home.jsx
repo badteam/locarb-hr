@@ -17,6 +17,15 @@ const getPosition = () => new Promise((resolve) => {
   )
 })
 
+// which phone, and whether the page is open inside another app (WhatsApp, Instagram...) that never gives location
+const UA = typeof navigator !== 'undefined' ? navigator.userAgent : ''
+const PLATFORM = /iPhone|iPad|iPod/i.test(UA) ? 'ios' : /Android/i.test(UA) ? 'android' : 'other'
+const IN_APP = /FBAN|FBAV|Instagram|Line\/|WhatsApp|Snapchat|TikTok|MicroMessenger/i.test(UA)
+  || (PLATFORM === 'ios' && !/Safari\//.test(UA) && !navigator.standalone && !window.matchMedia?.('(display-mode: standalone)').matches)
+  || (PLATFORM === 'android' && /; wv\)/.test(UA))
+const locMessage = (err) => IN_APP ? (PLATFORM === 'android' ? 'loc_inapp_android' : 'loc_inapp_ios')
+  : err === 'loc_denied' ? (PLATFORM === 'ios' ? 'loc_denied_ios' : PLATFORM === 'android' ? 'loc_denied_android' : 'loc_denied') : err
+
 const isMorning = () => Number(new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: 'Asia/Kuwait' }).format(new Date())) < 12
 const hhmm = (x) => (x ? x.slice(0, 5) : '')
 
@@ -69,18 +78,26 @@ export default function Home() {
   const open = today && !today.check_out_at
   const done = today && today.check_out_at
 
+  // blocked for lack of location: explain how to fix it on this phone, and let HR see who is stuck
+  const locFailed = (err, action) => {
+    setMsg({ ok: false, text: t(locMessage(err)) }); setBusy(false)
+    supabase.rpc('log_punch_failure', { p_action: action, p_reason: IN_APP ? 'inapp' : err === 'loc_denied' ? 'denied' : 'unavailable', p_platform: PLATFORM, p_in_app: IN_APP })
+  }
+  const [copied, setCopied] = useState(false)
+  const copyLink = async () => { try { await navigator.clipboard.writeText(window.location.href); setCopied(true) } catch { setCopied(false) } }
+
   const act = async () => {
     setBusy(true); setMsg(null)
     try {
       if (open) {
         const pos = await getPosition()
-        if (pos.err) { setMsg({ ok: false, text: t(pos.err) }); setBusy(false); return }
+        if (pos.err) { locFailed(pos.err, 'out'); return }
         const { error } = await supabase.rpc('check_out', { p_lat: pos.lat, p_lng: pos.lng })
         if (error) throw error
         setMsg({ ok: true, text: t('checked_out_ok') })
       } else {
         const pos = await getPosition()
-        if (pos.err) { setMsg({ ok: false, text: t(pos.err) }); setBusy(false); return }
+        if (pos.err) { locFailed(pos.err, 'in'); return }
         const { data, error } = await supabase.rpc('check_in', { p_lat: pos.lat, p_lng: pos.lng, p_method: 'app' })
         if (error) throw error
         let text = t('checked_in_ok')
@@ -133,6 +150,13 @@ export default function Home() {
             : <div className="sub">{t('flexible_hours', { n: Number(access.daily_hours || 8) })}</div>}
       </div>
 
+      {IN_APP && !['device', 'kiosk'].includes(emp.punch_mode) && !done && (
+        <div className="warn" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+          <span>{t(locMessage('loc_denied'))}</span>
+          <button type="button" className="btn" onClick={copyLink}>{t('copy_link')}</button>
+          {copied && <span>{t('link_copied')}</span>}
+        </div>
+      )}
       <div style={{ padding: '18px 0', display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
         {['device', 'kiosk'].includes(emp.punch_mode) ? (
           <div className="notice" style={{ textAlign: 'center', display: 'flex', alignItems: 'center', gap: 10 }}><Icon name="finger" /> {t(emp.punch_mode === 'device' ? 'punch_device_only' : 'punch_kiosk_only')}</div>

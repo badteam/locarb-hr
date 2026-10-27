@@ -1,0 +1,2 @@
+-- Phone punches blocked for lack of location are logged (punch_failures) through log_punch_failure(),
+-- so HR sees who is stuck in the attendance log. Applied as migration punch_location_failures.

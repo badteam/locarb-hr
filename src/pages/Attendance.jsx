@@ -79,9 +79,14 @@ export default function Attendance() {
   const [rows, setRows] = useState([])
   const [ot, setOt] = useState({})
   const [emps, setEmps] = useState({})
+  const [fails, setFails] = useState([])
+  const [showFails, setShowFails] = useState(false)
 
   useEffect(() => {
     supabase.from('branches').select('id,name').order('name').then(({ data }) => setBranches(data || []))
+    // phone punches blocked for lack of location in the last 7 days, newest first
+    supabase.from('punch_failures').select('*').gte('created_at', new Date(Date.now() - 7 * 86400000).toISOString()).order('created_at', { ascending: false }).limit(1000)
+      .then(({ data }) => setFails(data || []))
     supabase.from('employees').select('id,full_name,job_title,branch_id,location_mode').then(({ data }) => setEmps(Object.fromEntries((data || []).map((e) => [e.id, e]))))
   }, [])
 
@@ -145,6 +150,37 @@ export default function Attendance() {
           </select>
         </div>
       </div>
+      {(() => {
+        // one line per employee: how many times, last time, why, which phone
+        const byEmp = {}
+        for (const f of fails) (byEmp[f.employee_id] ||= []).push(f)
+        const list = Object.entries(byEmp).map(([id, fs]) => ({ id, n: fs.length, last: fs[0] }))
+        if (!list.length) return null
+        const why = { denied: 'الموقع مقفول عن المتصفح', unavailable: 'الجوال ما حدد الموقع', inapp: 'فاتح الرابط من داخل واتساب أو تطبيق' }
+        const phone = { ios: 'آيفون', android: 'أندرويد' }
+        return (
+          <div className="card" style={{ marginBottom: 14, borderColor: '#F3DDA8', background: '#FFFBEB' }}>
+            <button type="button" className="row" style={{ width: '100%', background: 'none', border: 0, padding: 0, cursor: 'pointer', justifyContent: 'space-between', textAlign: 'right' }} onClick={() => setShowFails((x) => !x)}>
+              <strong>{list.length} موظف ما قدروا يبصمون بسبب الموقع (آخر 7 أيام)</strong>
+              <span className="sub">{showFails ? 'إخفاء' : 'عرض'}</span>
+            </button>
+            {showFails && (
+              <div className="table-wrap" style={{ marginTop: 10 }}><table>
+                <thead><tr><th>الموظف</th><th>الفرع</th><th>المحاولات</th><th>آخر محاولة</th><th>السبب</th><th>الجوال</th></tr></thead>
+                <tbody>{list.map((x) => (
+                  <tr key={x.id}>
+                    <td style={{ fontWeight: 500 }}>{emps[x.id]?.full_name || '—'}</td>
+                    <td>{bName[x.last.branch_id] || '—'}</td>
+                    <td className="num">{x.n}</td>
+                    <td>{fmtDate(x.last.created_at)} · {fmtTime(x.last.created_at)} <span className="sub">{x.last.action === 'out' ? '(انصراف)' : '(حضور)'}</span></td>
+                    <td>{why[x.last.reason] || x.last.reason}</td>
+                    <td>{phone[x.last.platform] || '—'}</td>
+                  </tr>))}</tbody>
+              </table></div>
+            )}
+          </div>
+        )
+      })()}
       {rows.length >= 1000 && <div className="warn" style={{ marginBottom: 12 }}>الصفحة تعرض أول 1000 بصمة. ملف Excel فيه كل بصمات الفترة.</div>}
       <div className="card table-wrap">
         {rows.length === 0 ? <div className="empty">ما فيه سجلات في هالفترة</div> : (
