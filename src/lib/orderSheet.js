@@ -79,10 +79,14 @@ export function parseSheet(rows) {
 const skel = (s) => String(s || '').toLowerCase().replace(/\b(al|el|branch|order|add|evening|morning|locarb|kw)\b/g, ' ')
   .replace(/[^a-z]/g, '').replace(/[aeiou]/g, '').replace(/(.)\1+/g, '$1')
 export function guessBranch(texts, branches) {
-  const want = texts.map(skel).filter((x) => x.length >= 3)
+  const names = (b) => [b.name_en, b.foodics_name].map(skel).filter((x) => x.length >= 2)
+  // the sheet name word by word, last word first: "QURAIN JOUEL" is Jouel (a place inside Qurain), "QURAIN KITCHEN" is Qurain
+  const words = String(texts[0] || '').split(/[\s_\-/]+/).map(skel).filter((x) => x.length >= 2).reverse()
+  for (const w of words) { const b = branches.find((x) => names(x).includes(w)); if (b) return b.id }
+  // short names (Jouel -> "jl") must match exactly; longer ones may be part of the text
+  const want = texts.map(skel).filter((x) => x.length >= 2)
   for (const b of branches) {
-    const names = [b.name_en, b.foodics_name].map(skel).filter((x) => x.length >= 3)
-    if (want.some((w) => names.some((n) => n === w || n.includes(w) || w.includes(n)))) return b.id
+    if (want.some((w) => names(b).some((n) => n === w || (n.length >= 3 && w.length >= 3 && (n.includes(w) || w.includes(n)))))) return b.id
   }
   for (const b of branches) if (texts.some((t) => String(t || '').includes(String(b.name || '').trim()))) return b.id
   return ''
