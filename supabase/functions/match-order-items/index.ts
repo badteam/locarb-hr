@@ -1,6 +1,15 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
+// every AI call is written down so the owner sees spend and a finished balance on the home page
+async function logAi(db: any, fn: string, status: number, errText: string | null, out: any) {
+  try {
+    await db.from("ai_calls").insert({ fn, ok: status < 300, status, error: errText ? String(errText).slice(0, 300) : null, model: out?.model ?? null,
+      input_tokens: out?.usage?.input_tokens ?? null, output_tokens: out?.usage?.output_tokens ?? null });
+  } catch { /* logging never blocks the work */ }
+}
+
+
 // Matches item names typed by branch staff in an order sheet ("Plan tenderloin", "Rebay", "Smoke tarki", "Sabon")
 // to the company's inventory items. It only suggests; the manager confirms every match on screen. Writes nothing.
 const MODEL = Deno.env.get("DOCUMENT_MODEL") ?? "claude-sonnet-5-5";
@@ -59,17 +68,22 @@ Answer only by calling save_matches once, with one entry per line.`;
     });
     if (!res.ok) {
       const t = await res.text();
+      await logAi(admin, "match-order-items", res.status, t, null);
       console.error("match-order-items", res.status, t.slice(0, 500));
       return json({ ok: false, error: res.status === 401 ? "invalid_key" : /credit|balance|billing/i.test(t) ? "no_credit" : `reader error ${res.status}: ${t.slice(0, 200)}` });
     }
     const out = await res.json();
+    await logAi(admin, "match-order-items", res.status, null, out);
     r = out.content?.find((c: any) => c.type === "tool_use" && c.name === "save_matches")?.input ?? null;
+    // the model sometimes sends the list as a JSON string instead of an array
+    if (r && typeof r.matches === "string") { try { r.matches = JSON.parse(r.matches); } catch { r = null; } }
+    if (r && r.matches && !Array.isArray(r.matches)) r = Array.isArray(r.matches.matches) ? r.matches : null;
     lastText = (out.content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join(" ");
     if (!r?.matches) {
       // sometimes the answer comes as JSON text instead of a tool call
       const a = lastText.indexOf("{"), b = lastText.lastIndexOf("}");
       try { if (a >= 0 && b > a) r = JSON.parse(lastText.slice(a, b + 1)); } catch { r = null; }
-      if (!r?.matches) r = null;
+      if (!Array.isArray(r?.matches)) r = null;
     }
   }
   if (!r) { console.error("match-order-items unreadable", lastText.slice(0, 300)); return json({ ok: false, error: "unreadable" }); }

@@ -1,6 +1,15 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
+// every AI call is written down so the owner sees spend and a finished balance on the home page
+async function logAi(db: any, fn: string, status: number, errText: string | null, out: any) {
+  try {
+    await db.from("ai_calls").insert({ fn, ok: status < 300, status, error: errText ? String(errText).slice(0, 300) : null, model: out?.model ?? null,
+      input_tokens: out?.usage?.input_tokens ?? null, output_tokens: out?.usage?.output_tokens ?? null });
+  } catch { /* logging never blocks the work */ }
+}
+
+
 // Reads a supplier invoice photo with Claude and fills the invoice lines for review.
 // Runs with the caller's own permissions (RLS); only the API key lives here.
 const MODEL = Deno.env.get("INVOICE_MODEL") ?? "claude-sonnet-5-5";
@@ -99,8 +108,9 @@ Deno.serve(async (req) => {
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({ model: MODEL, max_tokens: 5, messages: [{ role: "user", content: "ok" }] }),
     });
-    if (r.ok) return json({ ok: true });
+    if (r.ok) { await logAi(admin, "key-check", r.status, null, await r.json().catch(() => null)); return json({ ok: true }); }
     const t = await r.text();
+    await logAi(admin, "key-check", r.status, t, null);
     const reason = r.status === 401 ? "invalid_key" : /credit|balance|billing/i.test(t) ? "no_credit" : `error_${r.status}`;
     return json({ ok: false, error: reason, detail: t.slice(0, 200) });
   }
@@ -151,9 +161,11 @@ Deno.serve(async (req) => {
     });
     if (!res.ok) {
       const t = await res.text();
+      await logAi(admin, "read-invoice", res.status, t, null);
       return await fail(res.status === 401 ? "invalid_key" : /credit|balance|billing/i.test(t) ? "no_credit" : `reader error ${res.status}: ${(() => { try { return JSON.parse(t)?.error?.message ?? t; } catch { return t; } })().slice(0, 300)}`, 502);
     }
     const out = await res.json();
+    await logAi(admin, "read-invoice", res.status, null, out);
     const r = out.content?.find((c: any) => c.type === "tool_use")?.input ?? fromText(out.content);
     if (!r || r.unreadable || !Array.isArray(r.lines) || !r.lines.length) return await fail("unreadable", 422);
 

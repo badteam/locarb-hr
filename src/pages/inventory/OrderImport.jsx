@@ -32,6 +32,8 @@ export default function OrderImport() {
   const [done, setDone] = useState({})            // sheet key -> import row
   const [active, setActive] = useState(0)
   const [filter, setFilter] = useState('todo')
+  const [mode, setMode] = useState('branch')     // 'branch' = all days of a branch together, 'day' = one sheet at a time
+  const [gsel, setGsel] = useState('')            // chosen branch group
   const [picking, setPicking] = useState(null)    // mkey
   const [ai, setAi] = useState('')
   const [busy, setBusy] = useState('')
@@ -194,6 +196,56 @@ export default function OrderImport() {
     return { m, item, factor, k, b, kSkip, bSkip, state, stock: factor > 0 ? r3(l.qty * factor) : null }
   }
   const sheet = sheets[active]
+  // ---------- branch view: every day of one branch on one screen
+  const gkey = (x) => x.branch || 'name:' + normName(x.name).replace(/[^a-z\u0600-\u06ff]+/g, ' ').trim()
+  const groups = useMemo(() => {
+    const g = {}
+    for (const x of sheets) { const k = gkey(x); (g[k] ||= { key: k, branch: x.branch, label: x.branch ? branchOpts.find((b) => b.id === x.branch)?.name || x.name : x.name, sheets: [] }).sheets.push(x) }
+    return Object.values(g).map((v) => ({ ...v, sheets: v.sheets.sort((a, b) => String(a.date).localeCompare(String(b.date))) }))
+  }, [sheets, lookups]) // eslint-disable-line react-hooks/exhaustive-deps
+  const grp = groups.find((x) => x.key === gsel) || groups[0]
+  // same written name in all the open days of the branch, summed
+  const grpRows = useMemo(() => {
+    if (!grp) return []
+    const by = {}
+    for (const x of grp.sheets) {
+      if (done[x.key]) continue
+      for (const l of x.lines) {
+        const w = work(x, l)
+        const r = (by[l.mkey] ||= { mkey: l.mkey, name: l.name, units: new Set(), days: [], ids: [], w: null, qty: 0, stock: 0, skipK: 0, skipB: 0, ignored: 0 })
+        r.units.add(l.unit || ''); r.ids.push(l.id); r.w = r.w || w
+        if (w.state === 'ignored') { r.ignored++; continue }
+        r.days.push({ date: x.date, qty: l.qty, unit: l.unit, extra: l.extra })
+        r.qty += Number(l.qty) || 0; r.stock += w.stock || 0
+        if (w.item && !w.k) r.skipK++
+        if (w.item && !w.b) r.skipB++
+      }
+    }
+    return Object.values(by).map((r) => ({ ...r, allIgnored: r.ignored === r.ids.length, state: r.ignored === r.ids.length ? 'ignored' : r.w.state }))
+      .sort((a, b) => ({ item: 0, factor: 1, review: 2, ok: 3, ignored: 4 }[a.state] - { item: 0, factor: 1, review: 2, ok: 3, ignored: 4 }[b.state]) || a.name.localeCompare(b.name))
+  }, [grp, maps, ov, counts, byId, done]) // eslint-disable-line react-hooks/exhaustive-deps
+  const setGroupBranch = (g, branchId) => {
+    setSheets((all) => all.map((x) => (g.sheets.some((y) => y.key === x.key) && !done[x.key] ? { ...x, branch: branchId } : x)))
+    for (const x of g.sheets) lsSet(branchKey(x.sheet), branchId)
+    if (branchId) setGsel(branchId)
+  }
+  const setSheetDate = (key, date) => setSheets((all) => all.map((x) => (x.key === key ? { ...x, date } : x)))
+  const ignoreName = (r, on) => setOv((o) => ({ ...o, ...Object.fromEntries(r.ids.map((id) => [id, { ...(o[id] || {}), ignore: on }])) }))
+  const postGroup = async (g) => {
+    const list = g.sheets.filter((x) => readySheets.includes(x))
+    setBusy('postall'); setErr(''); setMsg('')
+    let ok = 0, n = 0, value = 0
+    const bad = []
+    for (const x of list) {
+      try { const d = await postSheet(x, false); ok++; n += d.lines; value += Number(d.value) || 0 }
+      catch (e) { bad.push(`${fmtDay(x.date)}: ${/already imported/.test(e.message) ? 'اترفع قبل كده' : postErr(e)}`) }
+    }
+    setBusy(''); setConfirm(null); loadHistory()
+    setMsg(`${g.label}: اتسجل ${ok} يوم (${n} سطر بقيمة ${kwd(value)} د.ك)، كل يوم بتاريخه.`)
+    if (bad.length) setErr('ما اتسجلش: ' + bad.join(' — '))
+    const next = groups.find((x) => x.key !== g.key && x.sheets.some((y) => !done[y.key] && !list.includes(y)))
+    if (next) setGsel(next.key)
+  }
   const rows = useMemo(() => (sheet ? sheet.lines.map((l) => ({ l, w: work(sheet, l) })) : []), [sheet, maps, ov, counts, byId]) // eslint-disable-line react-hooks/exhaustive-deps
   const tally = (s) => {
     const t = { item: 0, factor: 0, review: 0, ok: 0, ignored: 0, skipK: 0, skipB: 0 }
@@ -320,6 +372,130 @@ export default function OrderImport() {
       {err && <div className="error" style={{ marginTop: 12 }}>{err}</div>}
 
       {sheets.length > 0 && (
+        <div className="seg" style={{ maxWidth: 420, marginTop: 14 }}>
+          {[['branch', 'كل أيام الفرع مع بعض'], ['day', 'يوم يوم']].map(([k, lb]) =>
+            <a key={k} href={'#' + k} className={mode === k ? 'on' : ''} onClick={(e) => { e.preventDefault(); setMode(k) }}>{lb}</a>)}
+        </div>)}
+
+      {sheets.length > 0 && mode === 'branch' && grp && (() => {
+        const gReady = grp.sheets.filter((x) => readySheets.includes(x))
+        const gOpen = grp.sheets.filter((x) => !done[x.key])
+        const need = grpRows.filter((r) => ['item', 'factor', 'review'].includes(r.state)).length
+        const value = grpRows.reduce((a, r) => a + (r.state === 'ok' || r.state === 'review' ? r.stock * Number(r.w.item?.avg_cost || 0) : 0), 0)
+        const shownRows = grpRows.filter((r) => filter === 'all' || stick.has(r.mkey) || (filter === 'todo' ? ['item', 'factor', 'review'].includes(r.state) : filter === 'ok' ? r.state === 'ok' : r.state === filter))
+        return <>
+          <div className="chips" style={{ margin: '12px 0' }}>
+            {groups.map((g) => {
+              const open = g.sheets.filter((x) => !done[x.key])
+              const n = open.reduce((a, x) => { const t = tally(x); return a + t.item + t.factor + t.review }, 0)
+              return <button key={g.key} className={'chip' + (g.key === grp.key ? ' on' : '')} onClick={() => { setGsel(g.key); setFilter('todo'); setStick(new Set()) }}>
+                {g.label} <span className="sub" style={{ marginInlineStart: 4 }}>{g.sheets.length} يوم</span>
+                {!open.length ? <span className="pill ok" style={{ marginInlineStart: 6 }}>اتسجل ✓</span>
+                  : !g.branch ? <span className="pill red" style={{ marginInlineStart: 6 }}>بدون فرع</span>
+                  : n ? <span className="badge" style={{ marginInlineStart: 6 }}>{n}</span> : <span className="pill ok" style={{ marginInlineStart: 6 }}>جاهز</span>}</button>
+            })}
+          </div>
+
+          <div className="card form" style={{ gap: 10, marginBottom: 12 }}>
+            <div className="field"><label htmlFor="gb">الفرع (لكل الأيام)</label>
+              <select id="gb" className="input" value={grp.branch || ''} disabled={!gOpen.length} onChange={(e) => setGroupBranch(grp, e.target.value)}>
+                <option value="">— اختار الفرع —</option>{branchOpts.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select></div>
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+              {grp.sheets.map((x) => (
+                <span key={x.key} className="row" style={{ gap: 4, border: '1px solid var(--line)', borderRadius: 10, padding: '4px 8px' }}>
+                  <span className="sub" style={{ fontSize: 12 }}>{x.name}</span>
+                  {done[x.key] ? <span className="pill ok">{fmtDay(x.date)} ✓</span>
+                    : <input type="date" className="input" style={{ height: 34, width: 150 }} value={x.date} max={kwDay(Date.now())} onChange={(e) => setSheetDate(x.key, e.target.value)} aria-label="تاريخ اليوم" />}
+                </span>))}
+            </div>
+            {!grp.branch && <div className="warn"><Icon name="warn" /> "{grp.label}" مش لاقي له فرع في السيستم. اختاره من فوق (بيتطبق على كل الأيام)، ولو الفرع مش موجود ضيفه من صفحة الفروع الأول.</div>}
+            <div className="sub">كل اسم بيظهر مرة واحدة ومعاه كمية كل يوم والإجمالي. بتربطه مرة، وكل يوم بيتسجل بتاريخه.</div>
+          </div>
+
+          {gOpen.length > 0 && <>
+            <div className="seg" style={{ maxWidth: 520 }}>
+              {[['todo', `محتاج مراجعة (${need})`], ['ok', `جاهز (${grpRows.filter((r) => r.state === 'ok').length})`], ['all', `الكل (${grpRows.length})`]].map(([k, lb]) =>
+                <a key={k} href={'#' + k} className={filter === k ? 'on' : ''} onClick={(e) => { e.preventDefault(); setFilter(k); setStick(new Set()) }}>{lb}</a>)}
+            </div>
+            {grpRows.some((r) => r.state === 'review') && filter !== 'ok' && <div className="row" style={{ justifyContent: 'space-between', marginBottom: 10, gap: 10, flexWrap: 'wrap' }}>
+              <span className="sub">الأصفر: الذكاء مش متأكد. بص عليهم، غيّر الغلط، وبعدين أكّد الباقي.</span>
+              <button className="btn" style={{ minHeight: 38 }} onClick={() => { const next = {}; for (const r of grpRows) if (r.state === 'review') next[r.mkey] = { ...maps[r.mkey], src: 'manual' }; setMaps((m) => ({ ...m, ...next })); Object.entries(next).forEach(([k, m]) => saveLink(k, m)) }}>
+                <Icon name="check" size={16} /> أكّد كل الأصفر ({grpRows.filter((r) => r.state === 'review').length})</button></div>}
+
+            <div className="order-list">
+              {shownRows.map((r) => {
+                const w = r.w, st = r.state
+                const tone = st === 'ignored' ? 'gray' : st === 'item' || st === 'factor' ? 'red' : st === 'review' ? 'amber' : 'ok'
+                const unit = r.units.size === 1 ? [...r.units][0] : ''
+                return (
+                  <div key={r.mkey} className={'order-row imp ' + tone} onPointerDownCapture={() => !stick.has(r.mkey) && setStick((x) => new Set(x).add(r.mkey))}>
+                    <div className="row" style={{ gap: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                      <div style={{ minWidth: 150, flex: '1 1 180px' }}>
+                        <div style={{ fontWeight: 700, direction: 'ltr', textAlign: 'right' }}>{r.name}</div>
+                        <div className="row" style={{ gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
+                          {r.days.map((d, i) => <span key={i} className="pill gray" style={{ fontSize: 11 }}>{fmtDay(d.date).slice(0, 5)}: {qtyFmt(d.qty)}{r.units.size > 1 ? ` ${d.unit || ''}` : ''}{d.extra ? ' +' : ''}</span>)}
+                        </div>
+                        <div className="num" style={{ fontWeight: 700, marginTop: 4 }}>الإجمالي: {qtyFmt(r.qty)} {unit}</div>
+                      </div>
+                      <div className="grow" style={{ flex: '2 1 240px' }}>
+                        {w.item ? (
+                          <button type="button" className="pick" onClick={() => setPicking(r.mkey)}>
+                            <ProductImage itemId={w.item.id} size={40} />
+                            <span className="grow" style={{ textAlign: 'start' }}><span style={{ fontWeight: 600 }}>{w.item.name_ar}</span>
+                              <span className="cell-sub" style={{ display: 'block' }}>{w.item.name_en}{w.item.unit ? ` · ${w.item.unit}` : ''}</span></span>
+                            <span className="sub" style={{ fontSize: 12 }}>تغيير</span>
+                          </button>
+                        ) : <button type="button" className="btn primary" style={{ width: '100%' }} onClick={() => setPicking(r.mkey)} disabled={st === 'ignored'}><Icon name="search" size={16} /> اختار الصنف</button>}
+                        <div className="row" style={{ gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                          {w.m?.src && CONF[w.m.src] && <span className={'pill ' + CONF[w.m.src][0]}>{CONF[w.m.src][1]}</span>}
+                          {w.m?.note && st === 'review' && <span className="sub" style={{ fontSize: 12 }}>{w.m.note}</span>}
+                          {st === 'review' && <button className="btn" style={{ minHeight: 30, padding: '0 10px', fontSize: 13 }} onClick={() => linkChange(r.mkey, { src: 'manual' })}>✓ صح</button>}
+                        </div>
+                      </div>
+                    </div>
+                    {w.item && st !== 'ignored' && (
+                      <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                        {(w.factor !== 1 || st === 'factor' || w.m?.factor != null) && (
+                          <div className="row" style={{ gap: 6, alignItems: 'center' }}>
+                            <span className="sub">1 {unit || 'وحدة'} =</span>
+                            <input className="input num" style={{ width: 90, height: 40 }} inputMode="decimal" placeholder="؟" aria-label={`كم في الـ ${unit}`}
+                              value={w.m?.factor ?? (w.factor ?? '')} onChange={(e) => {
+                                const v = e.target.value.replace(/[^\d.]/g, '')
+                                const m = { ...(maps[r.mkey] || {}), factor: v === '' ? null : v }
+                                setMap(r.mkey, { factor: m.factor })
+                                clearTimeout(timers.current[r.mkey])
+                                timers.current[r.mkey] = setTimeout(() => saveLink(r.mkey, m), 800)
+                              }} />
+                            <select className="input" style={{ width: 'auto', height: 40, paddingInline: 10 }} aria-label="الوحدة" value={w.m?.fu || w.item.unit || ''}
+                              onChange={(e) => linkChange(r.mkey, { fu: e.target.value, factor: w.m?.factor ?? null })}>
+                              {contentUnits(w.item).map((u) => <option key={u} value={u}>{u}</option>)}
+                            </select>
+                          </div>)}
+                        <span className="grow" />
+                        <span style={{ fontWeight: 700 }} className="num">{st === 'factor' ? '—' : `${qtyFmt(r.stock)} ${w.item.unit || ''}`}</span>
+                      </div>)}
+                    {st === 'factor' && <div className="sub" style={{ color: 'var(--red)', fontSize: 13 }}>الشيت بالـ "{unit}" والصنف في المخزن بالـ "{w.item.unit}". اكتب الـ {unit} الواحد فيه كام. بيتحفظ للمرات الجاية.</div>}
+                    {(r.skipK > 0 || r.skipB > 0) && st !== 'ignored' && <div className="sub" style={{ fontSize: 12, color: 'var(--amber)' }}>
+                      {r.skipK ? `${r.skipK} يوم ما هيتخصمش من المطبخ (اتجرد بعدها) ` : ''}{r.skipB ? `· ${r.skipB} يوم ما هيتضافش للفرع (اتجرد بعدها)` : ''}</div>}
+                    <div className="row" style={{ justifyContent: 'flex-end' }}>
+                      <button className="btn" style={{ minHeight: 30, padding: '0 10px', fontSize: 13 }} onClick={() => ignoreName(r, !r.allIgnored)}>
+                        {r.allIgnored ? 'رجّع الصنف ده' : 'تجاهل الصنف ده في كل الأيام'}</button>
+                    </div>
+                  </div>)
+              })}
+              {shownRows.length === 0 && <div className="card empty">{filter === 'todo' ? 'كله تمام في الفرع ده ✓' : 'ما فيه حاجة هنا'}</div>}
+            </div>
+          </>}
+          {gOpen.length > 0 && <div className="order-bar">
+            <div className="grow"><strong>{grp.label}</strong> · {gOpen.length} يوم · <span className="num">{kwd(value)}</span> د.ك
+              {need ? <span className="sub"> · باقي {need} صنف محتاج مراجعة</span> : gReady.length < gOpen.length ? <span className="sub"> · {gOpen.length - gReady.length} يوم ناقص فرع أو تاريخ</span> : null}</div>
+            <button className="btn primary" disabled={!gReady.length || !!busy} onClick={() => setConfirm({ group: grp.key })}>اعتماد {grp.label} ({gReady.length} يوم)</button>
+          </div>}
+        </>
+      })()}
+
+      {sheets.length > 0 && mode === 'day' && (
         <>
           <div className="chips" style={{ margin: '16px 0 12px' }}>
             {sheets.map((s, i) => {
@@ -456,11 +632,23 @@ export default function OrderImport() {
         </div>
       )}
 
-      {sheet && !isDone && (
+      {mode === 'day' && sheet && !isDone && (
         <div className="order-bar">
           <div className="grow"><strong>{sheet.name}</strong> · {t.ok + t.review} صنف · <span className="num">{kwd(total)}</span> د.ك
             {blocking ? <span className="sub"> · باقي {blocking} سطر محتاج مراجعة</span> : null}</div>
           <button className="btn primary" disabled={!canPost || !!busy} onClick={() => setConfirm({})}>اعتماد الشيت</button>
+        </div>
+      )}
+
+      {confirm?.group && grp && (
+        <div className="overlay" onClick={(e) => e.target === e.currentTarget && !busy && setConfirm(null)}>
+          <div className="sheet form">
+            <div className="sheet-head"><h2 style={{ fontSize: 20 }}>اعتماد {grp.label}</h2>
+              <button type="button" className="icon-btn" aria-label="إغلاق" onClick={() => setConfirm(null)}><Icon name="x" /></button></div>
+            <div className="sub">كل يوم بيتسجل بتاريخه (عشان التقارير تطلع يوم يوم)، بينخصم من المطبخ وبينضاف للفرع، إلا الأصناف اللي اتجردت بعد اليوم ده.</div>
+            <div className="list">{grp.sheets.filter((x) => readySheets.includes(x)).map((x) => <div key={x.key} className="list-item"><span className="grow">{fmtDay(x.date)}</span><span className="sub">{tally(x).ok} صنف</span></div>)}</div>
+            <button className="btn primary block" disabled={!!busy} onClick={() => postGroup(grp)}>{busy ? <span className="spinner" /> : null} اعتماد</button>
+          </div>
         </div>
       )}
 
@@ -479,7 +667,7 @@ export default function OrderImport() {
         </div>
       )}
 
-      {confirm && !confirm.all && sheet && (
+      {confirm && !confirm.all && !confirm.group && sheet && (
         <div className="overlay" onClick={(e) => e.target === e.currentTarget && !busy && setConfirm(null)}>
           <div className="sheet form">
             <div className="sheet-head"><h2 style={{ fontSize: 20 }}>اعتماد طلبية {branchOpts.find((b) => b.id === sheet.branch)?.name}</h2>
