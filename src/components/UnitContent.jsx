@@ -45,35 +45,49 @@ export const fmtContent = (grams, measure = 'g') => {
 }
 
 // "How much is in one carton/bag/…": weight or volume, plus how many pieces.
+// "How much is in one carton/bag/…": how many pieces, and/or the weight (of the whole unit or of one piece).
+// Either one is enough to save: pieces let the meal cost price a piece, weight lets it price a kilo / 100 g.
 export default function UnitContent({ unit, grams, pieces, measure, onChange, required, compact }) {
-  const toState = (g, ms) => {
-    const n = Number(g)
-    if (!n) return { amt: '', mu: ms === 'ml' ? 'l' : 'kg' }
+  const toState = (g, ms, per = 'all') => {
+    let n = Number(g)
+    if (n && per === 'one' && Number(pieces) > 1) n = n / Number(pieces)
+    if (!n) return { amt: '', mu: ms === 'ml' ? 'l' : 'kg', per }
     const big = n >= 1000 && n % 10 === 0
-    return { amt: String(+(big ? n / 1000 : n).toFixed(3)), mu: ms === 'ml' ? (big ? 'l' : 'ml') : big ? 'kg' : 'g' }
+    return { amt: String(+(big ? n / 1000 : n).toFixed(3)), mu: ms === 'ml' ? (big ? 'l' : 'ml') : big ? 'kg' : 'g', per }
   }
   const [st, setSt] = useState(() => toState(grams, measure))
-  useEffect(() => { setSt((s) => (Number(grams) === toGrams(s) ? s : toState(grams, measure))) }, [grams, measure])
+  const total = (s, pcs) => { const g = toGrams(s); return s.per === 'one' && Number(pcs) > 1 ? g * Number(pcs) : g }
+  useEffect(() => { setSt((s) => (Number(grams || 0) === total(s, pieces) ? s : toState(grams, measure, s.per))) }, [grams, measure]) // eslint-disable-line react-hooks/exhaustive-deps
   const emit = (next, pcs = pieces) => {
     setSt(next)
-    onChange({ grams: toGrams(next) || null, measure: next.mu === 'l' || next.mu === 'ml' ? 'ml' : 'g', pieces: pcs })
+    onChange({ grams: Math.round(total(next, pcs) * 1000) / 1000 || null, measure: next.mu === 'l' || next.mu === 'ml' ? 'ml' : 'g', pieces: pcs })
   }
   const u = unit || 'الوحدة'
+  const ok = toGrams(st) > 0 || Number(pieces) > 1
+  const g = total(st, pieces), pcs = Number(pieces) || 0
   return (
-    <div className="form" style={{ gap: 6, background: required && !toGrams(st) ? '#FFFBEB' : '#F7F9F5', borderRadius: 10, padding: compact ? 8 : 10 }}>
+    <div className="form" style={{ gap: 8, background: required && !ok ? '#FFFBEB' : '#F7F9F5', borderRadius: 10, padding: compact ? 8 : 10 }}>
       <span className="lbl" style={{ fontSize: compact ? 13 : undefined }}>الـ{u} الواحد فيه كام؟{required ? ' (مهم لحساب الكوست)' : ''}</span>
       <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-        <input className="input num" style={{ width: 110 }} type="number" step="any" min="0" value={st.amt} placeholder="مثلاً 10"
-          onChange={(e) => emit({ ...st, amt: e.target.value })} aria-label={`الـ${u} فيه كام`} />
+        <span className="sub" style={{ minWidth: 70 }}>عدد الحبات</span>
+        <input className="input num" style={{ width: 90 }} type="number" step="1" min="0" value={pieces ?? ''} placeholder="مثلاً 6"
+          onChange={(e) => emit(st, e.target.value === '' ? null : Number(e.target.value))} aria-label="عدد الحبات" />
+        <span className="sub">حبة</span>
+      </div>
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+        <span className="sub" style={{ minWidth: 70 }}>الوزن</span>
+        <input className="input num" style={{ width: 90 }} type="number" step="any" min="0" value={st.amt} placeholder={pcs > 1 ? 'اختياري' : 'مثلاً 10'}
+          onChange={(e) => emit({ ...st, amt: e.target.value })} aria-label={`وزن الـ${u}`} />
         <select className="input" style={{ width: 'auto' }} value={st.mu} onChange={(e) => emit({ ...st, mu: e.target.value })} aria-label="كيلو أو جرام أو لتر">
           <option value="kg">كيلو</option><option value="g">جرام</option><option value="l">لتر</option><option value="ml">مل</option>
         </select>
-        <span className="sub">وفيه</span>
-        <input className="input num" style={{ width: 80 }} type="number" step="1" min="0" value={pieces ?? ''} placeholder="1"
-          onChange={(e) => emit(st, e.target.value === '' ? null : Number(e.target.value))} aria-label="عدد الحبات" />
-        <span className="sub">حبة / كيس</span>
+        {pcs > 1 && <select className="input" style={{ width: 'auto' }} value={st.per} onChange={(e) => emit({ ...st, per: e.target.value })} aria-label="وزن مين">
+          <option value="all">للـ{u} كله</option><option value="one">للحبة الواحدة</option>
+        </select>}
       </div>
-      {!compact && <div className="sub">مثلاً كرتونة جمبري 10 أكياس × 1 كيلو: اكتب 10 كيلو و10 حبة. كده السيستم يعرف سعر الكيلو والـ100 جرام في كوست الوجبة.</div>}
+      {(g > 0 || pcs > 1) && <div className="sub" style={{ fontSize: 12 }}>
+        = الـ{u} فيه {pcs > 1 ? `${pcs} حبة` : ''}{pcs > 1 && g > 0 ? ' · ' : ''}{g > 0 ? fmtContent(g, st.mu === 'l' || st.mu === 'ml' ? 'ml' : 'g') : ''}{pcs > 1 && g > 0 ? ` (الحبة ${fmtContent(g / pcs, st.mu === 'l' || st.mu === 'ml' ? 'ml' : 'g')})` : ''}</div>}
+      {!compact && <div className="sub">اكتب عدد الحبات لو بتستخدمه بالحبة (كيس خبز فيه 6 حبات)، والوزن لو بتستخدمه بالجرام (كرتونة جمبري 10 كيلو). لو تعرف الاتنين اكتبهم، عشان السعرات تتحسب صح.</div>}
     </div>
   )
 }

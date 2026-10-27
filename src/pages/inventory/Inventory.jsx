@@ -11,7 +11,7 @@ import { compress } from './Invoices.jsx'
 import UnitContent, { isMeasureUnit, NONFOOD_CATS, MEASURE_UNITS, fmtContent } from '../../components/UnitContent.jsx'
 
 // a food item counted in cartons/bags/packs whose weight is unknown cannot be costed per gram
-const needsContent = (i) => i.active && !i.nonfood && i.unit && !isMeasureUnit(i.unit) && i.unit !== 'حبة' && !Number(i.unit_grams)
+const needsContent = (i) => i.active && !i.nonfood && i.unit && !isMeasureUnit(i.unit) && i.unit !== 'حبة' && !Number(i.unit_grams) && !(Number(i.unit_pieces) > 1)
 
 const PAGE = 100
 
@@ -42,7 +42,7 @@ export function ItemForm({ item, lookups, onClose, onSaved, presetName }) {
     const unitName = lookups.units.find((u) => u.id === f.unit_id)?.name
     const catName = lookups.categories.find((c) => c.id === f.category_id)?.name
     const needContent = f.unit_id && !isMeasureUnit(unitName) && unitName !== 'حبة' && !NONFOOD_CATS.includes(catName) && f.active
-    if (needContent && !Number(content.grams)) { setErr(`اكتب الـ${unitName} فيه كام كيلو أو جرام أو لتر، عشان السيستم يحسب سعر الكيلو في كوست الوجبات`); return }
+    if (needContent && !Number(content.grams) && !(Number(content.pieces) > 1)) { setErr(`اكتب الـ${unitName} فيه كام حبة، أو وزنه بالكيلو أو الجرام أو اللتر، عشان السيستم يحسب الكوست`); return }
     setBusy(true)
     let category_id = f.category_id || null
     if (category_id === '__new') {
@@ -261,7 +261,7 @@ function PriceBreakdown({ item, onFix }) {
       {pcs > 1 && price > 0 && row('سعر الحبة', `${kwd(price / pcs)} د.ك`)}
       {pcs > 1 && grams > 0 && row('وزن الحبة', fmtContent(grams / pcs, ml ? 'ml' : 'g'))}
       {Number(item.avg_cost) > 0 && grams > 0 && Math.abs(Number(item.avg_cost) - price) > 0.0005 && row(`متوسط التكلفة لـ${big}`, `${kwd(Number(item.avg_cost) / grams * 1000)} د.ك`)}
-      {!grams && item.unit !== 'حبة' && <div className="warn"><Icon name="warn" /> الـ{item.unit} فيه كام كيلو أو لتر؟ مش متسجل، فكوست الوجبات ما يقدرش يحسب سعر الكيلو.
+      {!grams && !(pcs > 1) && item.unit !== 'حبة' && <div className="warn"><Icon name="warn" /> الـ{item.unit} فيه كام كيلو أو لتر؟ مش متسجل، فكوست الوجبات ما يقدرش يحسب سعر الكيلو.
         {onFix && <button className="chip" style={{ minHeight: 28, marginInlineStart: 6 }} onClick={onFix}>اكتبها</button>}</div>}
       {!price && <div className="warn"><Icon name="warn" /> الصنف ما لوش سعر. ارفع فاتورة قديمة من «تسعير من فواتير قديمة».</div>}
     </div>
@@ -587,8 +587,8 @@ export default function Inventory() {
                     <div><div style={{ fontWeight: 500 }}>{i.name_ar}</div><div className="cell-sub ltr">{i.name_en}</div>
                       {i.kcal_100 != null ? <div className="cell-sub">{Math.round(i.kcal_100)} سعرة/١٠٠غ · ب {Number(i.protein_100 ?? 0).toFixed(0)} · ك {Number(i.carbs_100 ?? 0).toFixed(0)} · د {Number(i.fat_100 ?? 0).toFixed(0)}{nutSource(i.nutrition_source) ? <> · <span className={'pill ' + nutSource(i.nutrition_source).cls} style={{ fontSize: 11, padding: '0 6px' }}>{nutSource(i.nutrition_source).label}</span></> : null}</div>
                         : <div className="cell-sub" style={{ color: 'var(--amber)' }}>بدون سعرات</div>}
-                      {needsContent(i) ? <div className="cell-sub" style={{ color: 'var(--amber)' }}>الـ{i.unit} فيه كام كيلو؟ ناقص</div>
-                        : i.unit_grams && !isMeasureUnit(i.unit) ? <div className="cell-sub">الـ{i.unit} = {fmtContent(i.unit_grams, i.unit_measure)}{Number(i.unit_pieces) > 1 ? ` · ${Number(i.unit_pieces)} حبة` : ''}</div> : null}</div></div></td>
+                      {needsContent(i) ? <div className="cell-sub" style={{ color: 'var(--amber)' }}>الـ{i.unit} فيه كام حبة أو كيلو؟ ناقص</div>
+                        : (i.unit_grams || Number(i.unit_pieces) > 1) && !isMeasureUnit(i.unit) ? <div className="cell-sub">الـ{i.unit} = {[Number(i.unit_pieces) > 1 && `${Number(i.unit_pieces)} حبة`, i.unit_grams && fmtContent(i.unit_grams, i.unit_measure)].filter(Boolean).join(' · ')}</div> : null}</div></div></td>
                   <td className="sub">{i.category}</td>
                   <td><span className="num" style={{ fontWeight: 600 }}>{qtyFmt(i.kitchen_qty)}</span> <span className="sub">{i.unit}</span></td>
                   <td className="num sub">{Number(i.min_qty) ? qtyFmt(i.min_qty) : '—'}</td>

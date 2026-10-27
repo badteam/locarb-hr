@@ -58,13 +58,13 @@ function PackHint({ line, info, editable, onFactor, onSaved }) {
   }
 
   // weight of the stock unit is unknown: ask once, it is saved on the item
-  if (!mu && unit !== 'حبة' && !Number(info.unit_grams)) {
+  if (!mu && unit !== 'حبة' && !Number(info.unit_grams) && !(Number(info.unit_pieces) > 1)) {
     if (!editable) return box(<div>الـ{unit} فيه كام كيلو؟ ناقص في الصنف، والكوست ما يقدر يحسب سعر الكيلو.</div>)
     const v = c || { grams: null, pieces: info.unit_pieces, measure: info.unit_measure || 'g' }
     return box(<>
       <UnitContent unit={unit} grams={v.grams} pieces={v.pieces} measure={v.measure} required compact onChange={setC} />
-      <div><button type="button" className="btn primary" style={{ minHeight: 34 }} disabled={busy || !Number(v.grams)}
-        onClick={() => save({ unit_grams: Number(v.grams), unit_measure: v.measure, unit_pieces: v.pieces == null ? null : Number(v.pieces) })}>احفظ في الصنف</button></div></>)
+      <div><button type="button" className="btn primary" style={{ minHeight: 34 }} disabled={busy || !(Number(v.grams) || Number(v.pieces) > 1)}
+        onClick={() => save({ unit_grams: Number(v.grams) || null, unit_measure: v.measure, unit_pieces: v.pieces == null ? null : Number(v.pieces) })}>احفظ في الصنف</button></div></>)
   }
   return null
 }
