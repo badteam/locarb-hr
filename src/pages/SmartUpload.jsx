@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { supabase, errMsg, fmtDate, todayKuwait } from '../lib/supabase'
 import { useAccess } from '../lib/access.jsx'
 import { uploadAttachment, readFile, readError, copyFile, openFile, ACCEPT } from '../lib/ai'
@@ -17,7 +17,6 @@ const ext = (p) => (p.endsWith('.pdf') ? 'pdf' : 'jpg')
 const findType = (types, name) => types.find((t) => fold(t.name) === fold(name)) || types.find((t) => name && (fold(t.name).includes(fold(name)) || fold(name).includes(fold(t.name))))
 
 function Card({ item, lk, onUpdate, onReview, saveAllTick }) {
-  const nav = useNavigate()
   const d = item.data || {}, m = item.match || {}
   const [cat, setCat] = useState(d.category || 'other')
   const [emp, setEmp] = useState(m.employee?.id || '')
@@ -58,8 +57,8 @@ function Card({ item, lk, onUpdate, onReview, saveAllTick }) {
         if (error) throw error
         const p = await copyFile('attachments', item.path, 'invoices', `${inv.id}/1-${Date.now()}.${ext(item.path)}`)
         await supabase.from('purchase_invoices').update({ image_paths: [p] }).eq('id', inv.id)
-        startRead(inv.id)
-        nav(`/inventory/invoices/${inv.id}`)
+        startRead(inv.id) // the reading carries on by itself; the other papers stay here
+        onUpdate({ done: 'انحفظت فاتورة المورد، وقاعد يقرا أصنافها', invoiceId: inv.id })
       } else if (cat === 'maintenance_invoice') {
         if (!maint) throw new Error('اختار بند الصيانة')
         const it = lk.maint.find((x) => x.id === maint)
@@ -87,7 +86,7 @@ function Card({ item, lk, onUpdate, onReview, saveAllTick }) {
   }
 
   // "save all": every paper whose place is already known (supplier invoices open their own page, so they stay manual)
-  const ready = !!item.data && !item.done && ((cat === 'employee_document' && emp) || (cat === 'branch_document' && branch) || (cat === 'maintenance_invoice' && maint)
+  const ready = !!item.data && !item.done && ((cat === 'employee_document' && emp) || (cat === 'branch_document' && branch) || (cat === 'maintenance_invoice' && maint) || (cat === 'supplier_invoice' && branch)
     || cat === 'government_receipt' || (cat === 'supplier_document' && sup))
   const seenTick = useRef(saveAllTick) // only a press made while this card is on screen
   useEffect(() => { if (saveAllTick !== seenTick.current) { seenTick.current = saveAllTick; if (ready && !busy) go(true) } }, [saveAllTick]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -100,7 +99,8 @@ function Card({ item, lk, onUpdate, onReview, saveAllTick }) {
         {item.path && <button className="chip" style={{ minHeight: 30 }} onClick={() => openFile('attachments', item.path)}>فتح</button>}
       </div>
       {item.error && <div className="warn">{item.error}</div>}
-      {item.done ? <div className="notice">✓ {item.done}</div> : item.data && (
+      {item.done ? <div className="notice row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}><span>✓ {item.done}</span>
+        {item.invoiceId && <Link className="btn" style={{ minHeight: 34 }} to={`/inventory/invoices/${item.invoiceId}`}>افتح الفاتورة</Link>}</div> : item.data && (
         <>
           <div className="sub">{[d.document_type, d.document_number && `رقم ${d.document_number}`, d.holder_name, d.expiry_date && `ينتهي ${fmtDate(d.expiry_date)}`,
             d.total ? `${Number(d.total).toFixed(3)} د.ك` : null, d.date && fmtDate(d.date)].filter(Boolean).join(' · ')}</div>
@@ -130,7 +130,11 @@ function Card({ item, lk, onUpdate, onReview, saveAllTick }) {
 
 export default function SmartUpload() {
   const { access, can } = useAccess()
-  const [items, setItems] = useState([])
+  // the list survives leaving the page (e.g. opening one invoice and coming back)
+  const [items, setItems] = useState(() => {
+    try { return (JSON.parse(sessionStorage.getItem('smart-upload') || '[]')).filter((x) => x.data || x.done || x.error) } catch { return [] }
+  })
+  useEffect(() => { try { sessionStorage.setItem('smart-upload', JSON.stringify(items.slice(0, 60))) } catch { /* private mode */ } }, [items])
   const [lk, setLk] = useState(null)
   const [review, setReview] = useState(null)
 
@@ -170,6 +174,7 @@ export default function SmartUpload() {
     }
   }
   const readyCount = items.filter((x) => x.data && !x.done).length
+  const savedInvoices = items.filter((x) => x.invoiceId)
 
   return (
     <div style={{ maxWidth: 900 }}>
@@ -182,8 +187,14 @@ export default function SmartUpload() {
       {!lk ? <div className="center sub"><span className="spinner" /></div> : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {readyCount > 1 && <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-            <span className="sub">{readyCount} ورقة جاهزة. «احفظ الكل» يحفظ اللي عرف مكانها، والباقي يبقى لك تختار.</span>
+            <span className="sub">{readyCount} ورقة جاهزة. «احفظ الكل» يحفظ كل ورقة عرف مكانها (والفواتير تنفتح كل وحدة لحالها للمراجعة)، والباقي يبقى لك تختار.</span>
             <button className="btn primary" onClick={() => setSaveAllTick((n) => n + 1)}><Icon name="check" /> احفظ الكل</button></div>}
+          {savedInvoices.length > 0 && <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+              <strong>الفواتير اللي انحفظت ({savedInvoices.length}) · افتحها وراجعها</strong>
+              <button className="chip" onClick={() => setItems((l) => l.filter((x) => !x.done))}>امسح المحفوظ من القائمة</button></div>
+            <div className="chips">{savedInvoices.map((x, n) => <Link key={x.key} className="chip" to={`/inventory/invoices/${x.invoiceId}`}>{n + 1}. {x.name}{x.pagesLabel ? ` · ${x.pagesLabel}` : ''}</Link>)}</div>
+          </div>}
           {items.map((x) => <Card key={x.key + (x.data ? '1' : '0')} item={x} lk={lk} onUpdate={(p) => update(x.key, p)} onReview={setReview} saveAllTick={saveAllTick} />)}
         </div>)}
       {review && <ReviewSheet kind={review.kind} docId={review.id} onClose={() => setReview(null)} />}
