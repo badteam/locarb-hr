@@ -42,6 +42,13 @@ const TOOL = {
             unit: { type: "string", description: "Unit as printed: kg, pcs, ctn, box, pkt, bag..." },
             unit_price: { type: "number" },
             line_total: { type: "number" },
+            item_no: { type: "integer", description: "Number of the matching item in the company's stock list (same product, any language), 0 if none clearly matches" },
+            item_sure: { type: "boolean", description: "true only if it is clearly the same product" },
+            pack_note: { type: "string", description: "The printed words that tell what is inside one invoice unit, e.g. 'Shad6', '24x400g', '2*20 kg', 'شدة 6', 'dozen'. Empty if nothing printed" },
+            pack_count: { type: "number", description: "How many pieces are inside ONE invoice unit as printed (Shad6 / شدة 6 = 6, dozen / درزن = 12, 24x400g = 24). 1 if the unit is itself one piece or sold by weight" },
+            piece_size: { type: "string", description: "Size of one piece if printed, e.g. '400g', '20kg', '1L'" },
+            stock_qty_per_unit: { type: "number", description: "How many of the matched stock item's unit (shown in the stock list) are in ONE invoice unit. E.g. invoice unit ctn 'Shad6', stock unit حبة/علبة -> 6; bag '2*20 kg', stock unit كغ -> 40; stock unit is the carton itself -> 1. 0 if no item matched or you cannot tell" },
+            factor_sure: { type: "boolean", description: "true only if stock_qty_per_unit comes from something printed on the invoice (or is obviously 1)" },
           },
           required: ["name", "qty", "unit_price"],
         },
@@ -59,6 +66,8 @@ Read every product line. Rules:
 - If only a line total is shown, compute unit_price = line_total / qty.
 - Skip subtotal, VAT and payment lines. Put any delivery/transport charge in delivery_charge, not in lines.
 - Numbers: use "." for decimals; convert Arabic-Indic digits.
+- Match each line to the company's stock list below by meaning, not by spelling: "Olive Slice Egyptian Black" is black sliced olives (زيتون أسود شرائح), not Egyptian rice. A shared word like a country name is not a match. If nothing is the same product, item_no = 0.
+- Read what one invoice unit contains (Shad6, 24x400g, 2*20kg, dozen...) and convert it to the matched item's stock unit in stock_qty_per_unit.
 Answer only by calling the save_invoice tool once.`;
 
 // if the model answered in text instead of calling the tool, take the JSON from the text
@@ -149,13 +158,17 @@ Deno.serve(async (req) => {
         ? { type: "document", source: { type: "base64", media_type: type, data } }
         : { type: "image", source: { type: "base64", media_type: type, data } });
     }
-    content.push({ type: "text", text: PROMPT });
+    // the company's stock list, so the reader can link each line to the right item (Arabic or English names)
+    const { data: stock } = await db.from("inv_stock").select("id,name_ar,name_en,unit,unit_grams,unit_pieces,category").eq("active", true).order("category").limit(3000);
+    const items = stock ?? [];
+    const catalog = items.map((x: any, n: number) => `${n + 1}|${x.name_ar}|${x.name_en ?? ""}|${x.unit ?? ""}${x.unit_grams ? ` ${x.unit_grams}g` : ""}${x.unit_pieces > 1 ? ` ${x.unit_pieces}pc` : ""}|${x.category ?? ""}`).join("\n");
+    content.push({ type: "text", text: `${PROMPT}\n\nCompany stock list (number|Arabic name|English name|stock unit and size|category):\n${catalog}` });
 
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({
-        model: MODEL, max_tokens: 8000, tools: [TOOL], tool_choice: { type: "auto" },
+        model: MODEL, max_tokens: 12000, tools: [TOOL], tool_choice: { type: "auto" },
         messages: [{ role: "user", content }],
       }),
     });
@@ -185,8 +198,14 @@ Deno.serve(async (req) => {
       let price = Number(l.unit_price) || 0;
       const total = l.line_total != null ? Number(l.line_total) : null;
       if (!price && total && qty) price = total / qty;
+      const it = Number(l.item_no) > 0 ? items[Number(l.item_no) - 1] : null;
+      const f = Number(l.stock_qty_per_unit);
+      const factor = it && f > 0 && f < 100000 ? Math.round(f * 1000) / 1000 : 1;
+      const read = (l.pack_note || Number(l.pack_count) > 1 || l.piece_size) ? { note: l.pack_note || null, count: Number(l.pack_count) || null, size: l.piece_size || null, sure: l.factor_sure !== false } : null;
       return { invoice_id, line_no: i + 1, raw_name: String(l.name ?? "").trim(), qty, unit_text: l.unit ?? null,
-        unit_price: Math.round(price * 1000) / 1000, line_total: total };
+        unit_price: Math.round(price * 1000) / 1000, line_total: total,
+        item_id: it?.id ?? null, match_score: it ? (l.item_sure ? 0.9 : 0.6) : null,
+        pack_factor: factor, pack_source: it && factor !== 1 ? "invoice" : null, pack_read: read };
     });
     const { error: lErr } = await db.from("purchase_invoice_lines").insert(lines);
     if (lErr) return await fail(lErr.message);

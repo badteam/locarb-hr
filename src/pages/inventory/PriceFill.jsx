@@ -131,7 +131,7 @@ export default function PriceFill() {
   const apply = async (key, id) => {
     try {
       const { data: inv } = await supabase.from('purchase_invoices')
-        .select('id,invoice_no,invoice_date,supplier_id,total_read,supplier_name_read,suppliers(name),purchase_invoice_lines(id,line_no,raw_name,qty,unit_text,unit_price,item_id,match_score,inv_items!purchase_invoice_lines_item_id_fkey(id,name_ar,last_price,avg_cost,alert_base_price,unit_grams,unit_measure,inv_units(name)))')
+        .select('id,invoice_no,invoice_date,supplier_id,total_read,supplier_name_read,suppliers(name),purchase_invoice_lines(id,line_no,raw_name,qty,unit_text,unit_price,item_id,match_score,pack_factor,inv_items!purchase_invoice_lines_item_id_fkey(id,name_ar,last_price,avg_cost,alert_base_price,unit_grams,unit_measure,inv_units(name)))')
         .eq('id', id).single()
       if (!inv) throw new Error('ما قدرتش أفتح الفاتورة بعد القراءة')
       const head = { supplier: inv.suppliers?.name || inv.supplier_name_read || 'مورد غير معروف', supplier_id: inv.supplier_id, no: inv.invoice_no, date: inv.invoice_date, total: inv.total_read }
@@ -161,7 +161,7 @@ export default function PriceFill() {
       for (const l of inv.purchase_invoice_lines.sort((a, b) => a.line_no - b.line_no)) {
         const it = l.inv_items
         if (!it) { rows.push({ l, st: 'none' }); continue }
-        const sp = stockPrice(l, it, pf[it.id])
+        const sp = stockPrice(l, it, pf[it.id] || (Number(l.pack_factor) > 1 ? l.pack_factor : null))
         if (sp.skip) { rows.push({ l, it, st: 'skip', how: sp.skip }); continue }
         const p = Math.round(sp.price * 1000) / 1000
         if (!p) { rows.push({ l, it, st: 'zero' }); continue }

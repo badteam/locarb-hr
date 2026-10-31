@@ -13,6 +13,26 @@ import UnitContent, { parsePack, isMeasureUnit, NONFOOD_CATS, MEASURE_UNITS, fmt
 const CARTON_RE = /^(ctn|ctns|carton|cartons|box|bx|cs|case|كرتون|كرتونة|كرتونه|صندوق)$/i
 
 // Makes sure the system knows what is inside one unit, so the meal cost can price a kilo / 100 g.
+// where the "1 carton = N" number came from, so a wrong one is easy to spot
+const packCheck = (l) => l.pack_source !== 'manual' && !!l.pack_read && (l.pack_read.conflict || l.pack_read.sure === false)
+function PackSource({ line: l, editable, onUse }) {
+  const r = l.pack_read
+  const f = Number(l.pack_factor) || 1
+  const parts = []
+  if (r?.note || r?.count > 1) parts.push(<span key="r">مكتوب بالفاتورة: <b className="ltr">{r.note || `${r.count}`}</b>{r.size ? <> · الحبة <span className="ltr">{r.size}</span></> : null}</span>)
+  if (l.pack_source === 'supplier') parts.push(<span key="s">الرقم من آخر فاتورة لهالمورد</span>)
+  if (l.pack_source === 'invoice') parts.push(<span key="i">الرقم محسوب من الفاتورة</span>)
+  if (!parts.length) return null
+  const warn = packCheck(l)
+  return (
+    <div className="sub row" style={{ gap: 6, flexWrap: 'wrap', color: warn ? '#B45309' : undefined }}>
+      {warn && <span className="pill amber">تأكد</span>}
+      {parts.reduce((a, x, k) => (k ? [...a, ' · ', x] : [x]), [])}
+      {r?.conflict && <span>· الفاتورة تقول {r.read_factor}، وآخر مرة كانت {f}</span>}
+      {editable && r?.count > 1 && r.count !== f && l.pack_source !== 'manual' && <button type="button" className="chip" style={{ minHeight: 28 }} onClick={() => onUse(r.count)}>خلّها {r.count}</button>}
+    </div>)
+}
+
 function PackHint({ line, info, editable, onFactor, onSaved }) {
   const [c, setC] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -274,7 +294,7 @@ export default function InvoiceDetail() {
       ...(l.id ? { id: l.id } : {}), invoice_id: id, line_no: i + 1, raw_name: l.raw_name || null, item_id: l.item?.id || null,
       qty: Number(l.qty) || 0, unit_price: Number(l.unit_price) || 0, unit_text: l.unit_text || null,
       line_total: Math.round((Number(l.qty) || 0) * (Number(l.unit_price) || 0) * 1000) / 1000, match_score: l.match_score ?? null,
-      issue: l.issue || 'none', issue_note: l.issue_note || null, pack_factor: Number(l.pack_factor) > 0 ? Number(l.pack_factor) : 1,
+      issue: l.issue || 'none', issue_note: l.issue_note || null, pack_factor: Number(l.pack_factor) > 0 ? Number(l.pack_factor) : 1, pack_source: l.pack_source || null,
       received_qty: l.issue && l.issue !== 'none' && l.received_qty !== '' ? Number(l.received_qty) || 0 : null,
       charge_price: l.issue === 'free' ? 0 : l.issue === 'discount' && l.charge_price !== '' ? Number(l.charge_price) || 0 : null,
     }))
@@ -445,7 +465,7 @@ export default function InvoiceDetail() {
                   {editable && <button className="icon-btn" style={{ width: 36, height: 36 }} aria-label="حذف السطر" onClick={() => delLine(i)}><Icon name="trash" size={16} /></button>}
                 </div>
                 <ItemPicker line={l} supplierId={head.supplier_id} disabled={!editable} canCreate={can('manage_inventory')} lookups={lookups}
-                  onPick={(it) => setL(i, { item: it, auto: false, match_score: null })} />
+                  onPick={(it) => setL(i, { item: it, auto: false, match_score: null, ...(l.pack_source !== 'manual' && Number(l.posted_qty) === 0 ? { pack_factor: 1, pack_source: null } : {}) })} />
                 <div className="grid" style={{ gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
                   <div className="field"><span className="lbl" style={{ fontSize: 12 }}>الكمية بالفاتورة</span>
                     <input className="input num" type="number" step="any" min="0" value={l.qty} disabled={!editable} onChange={(e) => setL(i, { qty: e.target.value })} aria-label="الكمية" /></div>
@@ -476,12 +496,13 @@ export default function InvoiceDetail() {
                 {l.item && (editable || f !== 1) && (
                   <div className="row sub" style={{ gap: 6, flexWrap: 'wrap' }}>
                     <span>١ {l.unit_text || 'وحدة الفاتورة'} =</span>
-                    <input className="input num" style={{ width: 80, minHeight: 34, padding: '4px 8px' }} type="number" step="any" min="0" value={l.pack_factor ?? 1} disabled={!editable}
-                      onChange={(e) => setL(i, { pack_factor: e.target.value })} aria-label="كم حبة في الوحدة" />
+                    <input className="input num" style={{ width: 80, minHeight: 34, padding: '4px 8px', ...(packCheck(l) ? { borderColor: '#B45309', background: '#FFFBEB' } : {}) }} type="number" step="any" min="0" value={l.pack_factor ?? 1} disabled={!editable}
+                      onChange={(e) => setL(i, { pack_factor: e.target.value, pack_source: 'manual' })} aria-label="كم حبة في الوحدة" />
                     <span>{l.item.unit || 'وحدة مخزون'}</span>
                     <span className="grow" />
                     <span>يدخل المخزون: <strong className="num">{qtyFmt(recv * f)}</strong> {l.item.unit || ''}</span>
                   </div>)}
+                {l.item && <PackSource line={l} editable={editable} onUse={(n) => setL(i, { pack_factor: n, pack_source: 'manual' })} />}
 
                 <PackHint line={l} info={l.item ? itemInfo[l.item.id] : null} editable={editable}
                   onFactor={(n) => setL(i, { pack_factor: n })}
