@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import writeXlsxFile from 'write-excel-file/browser'
 import readXlsxFile from 'read-excel-file/browser'
@@ -33,22 +33,46 @@ export default function OpeningBalance() {
     loadLookups(true).then((l) => { setLookups(l); setBranch(l.kitchen?.id || l.stockBranches[0]?.id || '') })
     selectAll(() => supabase.from('inv_stock').select('id,name_ar,name_en,unit,category_id,category,avg_cost,last_price').eq('active', true).order('name_ar').order('id')).then((data) => setItems(data || []))
   }, [])
+  // the draft lives on the server, so every computer and every user sees the same typed values
+  const pushTimer = useRef(null)
+  const [draftInfo, setDraftInfo] = useState(null)
+  const pushDraft = (b, v) => {
+    clearTimeout(pushTimer.current)
+    pushTimer.current = setTimeout(() => {
+      supabase.from('opening_drafts').upsert({ branch_id: b, vals: v, updated_at: new Date().toISOString() })
+        .then(({ error }) => { if (!error) { writeDraft(b, {}); setDraftInfo({ at: new Date().toISOString(), mine: true }) } })
+    }, 700)
+  }
   useEffect(() => {
     if (!branch) return
-    setVals(readDraft(branch))
+    let alive = true
+    const local = readDraft(branch)
+    setVals(local)
+    supabase.from('opening_drafts').select('vals,updated_at,updated_by').eq('branch_id', branch).maybeSingle().then(({ data }) => {
+      if (!alive) return
+      // what was typed on this computer before the draft moved to the server is added once, then sent up
+      const merged = { ...(data?.vals || {}), ...local }
+      setVals(merged)
+      setDraftInfo(data ? { at: data.updated_at } : null)
+      if (Object.keys(local).length) pushDraft(branch, merged)
+    })
     supabase.from('stock_levels').select('item_id,qty').eq('branch_id', branch).then(({ data }) => setLevels(Object.fromEntries((data || []).map((x) => [x.item_id, Number(x.qty)]))))
-  }, [branch])
+    return () => { alive = false }
+  }, [branch]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const setV = (id, k, v) => setVals((s) => {
     const n = { ...s, [id]: { ...(s[id] || {}), [k]: clean(v) } }
     if (!n[id].qty && !n[id].price) delete n[id]
     writeDraft(branch, n)
+    pushDraft(branch, n)
     return n
   })
 
   // an item has a price if it has a cost, or one is typed here
   const priced = (i) => Number(i.avg_cost) > 0 || Number(i.last_price) > 0 || (vals[i.id]?.price ?? '') !== ''
   const unpricedCount = items.filter((i) => !priced(i)).length
+  const dbUnpriced = items.filter((i) => !(Number(i.avg_cost) > 0 || Number(i.last_price) > 0)).length
+  const draftPrices = items.filter((i) => !(Number(i.avg_cost) > 0 || Number(i.last_price) > 0) && (vals[i.id]?.price ?? '') !== '').length
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase()
     const list = items.filter((i) => (!cat || i.category_id === cat) && (!onlyFilled || vals[i.id]) && (!noPriceOnly || !priced(i)) &&
@@ -114,7 +138,9 @@ export default function OpeningBalance() {
     const { data, error } = await supabase.rpc('set_opening_balance', { p_branch: branch, p_lines: lines })
     setBusy(''); setConfirm(false)
     if (error) { setErr(invErr(error)); return }
+    clearTimeout(pushTimer.current)
     writeDraft(branch, {}); setVals({}); setOnlyFilled(false)
+    await supabase.from('opening_drafts').upsert({ branch_id: branch, vals: {}, updated_at: new Date().toISOString() })
     setMsg(`انحفظ رصيد أول المدة: ${data.lines} صنف بقيمة ${kwd(data.value)} د.ك.`)
     supabase.from('stock_levels').select('item_id,qty').eq('branch_id', branch).then(({ data: d }) => setLevels(Object.fromEntries((d || []).map((x) => [x.item_id, Number(x.qty)]))))
     selectAll(() => supabase.from('inv_stock').select('id,name_ar,name_en,unit,category_id,category,avg_cost,last_price').eq('active', true).order('name_ar').order('id')).then((data) => setItems(data || []))
@@ -140,6 +166,9 @@ export default function OpeningBalance() {
       </div>
       {msg && <div className="notice" style={{ marginBottom: 12 }}>{msg}</div>}
       {err && <div className="error" style={{ marginBottom: 12 }}>{err}</div>}
+      {filled.length > 0 && <div className="warn" style={{ marginBottom: 12 }}><Icon name="warn" />
+        فيه مسودة لسه ما اتحفظتش: {filled.length} صنف مكتوب له كمية أو سعر{draftPrices ? ` (منهم ${draftPrices} سعر لأصناف ما لهاش سعر في السيستم)` : ''}.
+        المسودة بتظهر لكل اللي بيفتحوا الصفحة، بس ما بتدخلش المخزون إلا لما تضغط «حفظ».{draftInfo?.at ? ` آخر تعديل ${new Date(draftInfo.at).toLocaleString('ar-KW', { timeZone: 'Asia/Kuwait', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}.` : ''}</div>}
 
       <div className="toolbar">
         <div className="search"><Icon name="search" size={18} /><input className="input" placeholder="دوّر على صنف" value={q} onChange={(e) => { setQ(e.target.value); setLimit(120) }} /></div>
@@ -147,7 +176,7 @@ export default function OpeningBalance() {
           <option value="">كل التصنيفات</option>{lookups.categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <label className="check"><input type="checkbox" checked={onlyFilled} onChange={(e) => setOnlyFilled(e.target.checked)} /> اللي كتبت لها بس</label>
-        <label className="check"><input type="checkbox" checked={noPriceOnly} onChange={(e) => { setNoPriceOnly(e.target.checked); setLimit(120) }} /> بدون سعر بس ({unpricedCount})</label>
+        <label className="check"><input type="checkbox" checked={noPriceOnly} onChange={(e) => { setNoPriceOnly(e.target.checked); setLimit(120) }} /> بدون سعر بس ({unpricedCount}{draftPrices ? ` · في السيستم ${dbUnpriced}` : ''})</label>
       </div>
 
       <div className="order-list">
