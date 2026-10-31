@@ -110,6 +110,46 @@ const nameScore = (a: string, b: string) => {
   return s.filter((w) => l.includes(w)).length / s.length;
 };
 
+// "split": a multi-page PDF that may hold several separate papers (or several invoices) -> page ranges, one per paper.
+// The screen then cuts the PDF and reads each paper on its own.
+async function split(admin: any, db: any, body: any) {
+  const { bucket, paths, kind, pages } = body;
+  if (!BUCKETS.includes(bucket) || !Array.isArray(paths) || paths.length !== 1) return json({ ok: false, error: "bad files" }, 400);
+  const { data: saved } = await admin.rpc("get_app_secret", { p_key: "anthropic_api_key" });
+  const key = (saved as string | null) || Deno.env.get("ANTHROPIC_API_KEY");
+  if (!key) return json({ ok: false, error: "not_configured" });
+  const { data: file, error } = await db.storage.from(bucket).download(paths[0]);
+  if (error || !file) return json({ ok: false, error: "could not open file" }, 403);
+  const buf = await file.arrayBuffer();
+  if (sniff(new Uint8Array(buf.slice(0, 12))) !== "application/pdf") return json({ ok: false, error: "not a pdf" }, 400);
+  const what = kind === "invoices"
+    ? "This PDF is a scan of one or more supplier invoices / delivery notes of a food business in Kuwait. One paper = one invoice (one supplier and one invoice number). Continuation pages of the same invoice (more item lines, totals page) belong to that invoice. A blank or cover page belongs to the next invoice."
+    : "This PDF is a scan of one or more separate papers (civil ID cards, passports, health cards, licences, invoices, receipts, contracts, medical reports...). One paper = one document. The front and back of the same card are ONE paper. A multi-page licence, contract or invoice is ONE paper. A blank page belongs to the paper before it.";
+  const tool = { name: "save_split", description: "Save where each paper starts and ends.", input_schema: { type: "object", properties: {
+    papers: { type: "array", items: { type: "object", properties: {
+      first_page: { type: "integer", description: "1-based" }, last_page: { type: "integer", description: "1-based, inclusive" },
+      title_ar: { type: "string", description: "Very short Arabic name of the paper, e.g. 'بطاقة مدنية - أحمد' or 'فاتورة الوطنية رقم 123'" } },
+      required: ["first_page", "last_page"] } } }, required: ["papers"] } };
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify({ model: MODEL, max_tokens: 4000, tools: [tool], tool_choice: { type: "auto" }, messages: [{ role: "user", content: [
+      { type: "document", source: { type: "base64", media_type: "application/pdf", data: b64(buf) } },
+      { type: "text", text: `${what}\nThe PDF has ${pages ?? "several"} pages. List every paper in page order, covering every page exactly once. Answer only by calling save_split once.` },
+    ] }] }),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    await logAi(admin, "read-file:split", res.status, t, null);
+    return json({ ok: false, error: res.status === 401 ? "invalid_key" : /credit|balance|billing/i.test(t) ? "no_credit" : `reader error ${res.status}`.slice(0, 300) });
+  }
+  const out = await res.json();
+  await logAi(admin, "read-file:split", res.status, null, out);
+  const r: any = out.content?.find((c: any) => c.type === "tool_use")?.input ?? fromText(out.content);
+  if (!Array.isArray(r?.papers)) return json({ ok: false, error: "unreadable" });
+  return json({ ok: true, papers: r.papers });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "method" }, 405);
@@ -120,6 +160,7 @@ Deno.serve(async (req) => {
     global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } } });
 
   const { purpose, bucket, paths, target } = body;
+  if (purpose === "split") return await split(admin, db, body);
   const P = PURPOSES[purpose];
   if (!P) return json({ ok: false, error: "unknown purpose" }, 400);
   if (!BUCKETS.includes(bucket) || !Array.isArray(paths) || !paths.length || paths.length > 6) return json({ ok: false, error: "bad files" }, 400);

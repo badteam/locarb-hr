@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase, fmtDate, selectAll } from '../../lib/supabase'
 import { kwd, loadLookups } from '../../lib/inv'
+import { useAccess } from '../../lib/access.jsx'
 import { startRead, compress } from './Invoices.jsx'
-import { pdfToPages, isPdf } from '../../lib/pdfPages'
+import { isPdf } from '../../lib/pdfPages'
+import { splitPdf } from '../../lib/pdfSplit'
 import { parsePack, parseWeight, MEASURE_UNITS, fmtContent } from '../../components/UnitContent.jsx'
 import Icon from '../../components/Icon.jsx'
 import ItemSearchSheet from '../../components/ItemSearchSheet.jsx'
@@ -51,6 +53,7 @@ const ST = {
 }
 
 export default function PriceFill() {
+  const { access } = useAccess()
   const [lk, setLk] = useState(null)
   const [jobs, setJobs] = useState([])
   const priced = useRef(new Set())
@@ -79,24 +82,26 @@ export default function PriceFill() {
 
   const upd = (key, patch) => setJobs((l) => l.map((j) => (j.key === key ? { ...j, ...(typeof patch === 'function' ? patch(j) : patch) } : j)))
 
-  // a big PDF becomes page images; a long one (many invoices scanned together) is read 20 pages at a time
-  const PER_READ = 20
+  // a PDF with several invoices scanned together is cut into one PDF per invoice, and each is read on its own
+  // (its own supplier, number and date). Any size works: huge scans are re-drawn page by page first.
   const add = async (files) => {
     for (const file of files) {
-      let parts = [file]
-      if (isPdf(file) && file.size > 6 * 1024 * 1024) {
+      let parts = [{ file }]
+      if (isPdf(file)) {
         const key = crypto.randomUUID()
-        setJobs((l) => [...l, { key, name: file.name, state: 'ملف كبير، بجهّز صفحاته…' }])
-        try { parts = await pdfToPages(file, (n, t) => upd(key, { state: `بجهّز الصفحات ${n} من ${t}…` })) }
-        catch (e) { upd(key, { state: null, error: 'ما قدرت أفتح الـ PDF: ' + (e.message || e) }); continue }
+        setJobs((l) => [...l, { key, name: file.name, state: 'بشوف كم فاتورة في الملف…' }])
+        try { parts = await splitPdf(file, { kind: 'invoices', employeeId: access.employee?.id, onState: (t) => upd(key, { state: t }) }) }
+        catch (e) {
+          const m = e.message === 'no_credit' ? 'رصيد قارئ الفواتير خلص' : e.message === 'not_configured' ? 'قارئ الفواتير مش متفعّل' : 'ما قدرت أفتح الـ PDF: ' + (e.message || e)
+          upd(key, { state: null, error: m }); continue
+        }
         setJobs((l) => l.filter((j) => j.key !== key))
       }
-      for (let i = 0; i < parts.length; i += PER_READ) {
-        const chunk = parts.slice(i, i + PER_READ)
+      for (const p of parts) {
         const key = crypto.randomUUID()
-        const name = parts.length > PER_READ ? `${file.name} (صفحات ${i + 1}-${i + chunk.length})` : file.name
+        const name = parts.length > 1 ? `${p.title || file.name} · ${p.from === p.to ? `صفحة ${p.from}` : `صفحات ${p.from}-${p.to}`} من ${p.pages}` : file.name
         setJobs((l) => [...l, { key, name, state: 'قاعد يرفع…' }])
-        read(key, chunk).then((id) => { if (id) queue.current = queue.current.then(() => apply(key, id)) })
+        read(key, [p.file]).then((id) => { if (id) queue.current = queue.current.then(() => apply(key, id)) })
       }
     }
   }

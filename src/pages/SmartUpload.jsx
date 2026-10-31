@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { supabase, errMsg, fmtDate, todayKuwait } from '../lib/supabase'
 import { useAccess } from '../lib/access.jsx'
 import { uploadAttachment, readFile, readError, copyFile, openFile, ACCEPT } from '../lib/ai'
 import { startRead } from './inventory/Invoices.jsx'
+import { splitPdf } from '../lib/pdfSplit'
 import ReviewSheet from '../components/ReviewSheet.jsx'
 import Icon from '../components/Icon.jsx'
 
@@ -15,7 +16,7 @@ const fold = (s) => String(s || '').toLowerCase().replace(/[أإآ]/g, 'ا').rep
 const ext = (p) => (p.endsWith('.pdf') ? 'pdf' : 'jpg')
 const findType = (types, name) => types.find((t) => fold(t.name) === fold(name)) || types.find((t) => name && (fold(t.name).includes(fold(name)) || fold(name).includes(fold(t.name))))
 
-function Card({ item, lk, onUpdate, onReview }) {
+function Card({ item, lk, onUpdate, onReview, saveAllTick }) {
   const nav = useNavigate()
   const d = item.data || {}, m = item.match || {}
   const [cat, setCat] = useState(d.category || 'other')
@@ -46,11 +47,11 @@ function Card({ item, lk, onUpdate, onReview }) {
     return { kind: 'employee', id: data.id }
   }
 
-  const go = async () => {
+  const go = async (auto) => {
     setBusy(true); setErr('')
     try {
-      if (cat === 'employee_document') { if (!emp) throw new Error('اختار الموظف'); const r = await doc('employee'); onUpdate({ done: 'انحفظ في مستندات الموظف' }); onReview(r) }
-      else if (cat === 'branch_document') { if (!branch) throw new Error('اختار الفرع'); const r = await doc('branch'); onUpdate({ done: 'انحفظ في تراخيص الفرع' }); onReview(r) }
+      if (cat === 'employee_document') { if (!emp) throw new Error('اختار الموظف'); const r = await doc('employee'); onUpdate({ done: 'انحفظ في مستندات الموظف' }); if (!auto) onReview(r) }
+      else if (cat === 'branch_document') { if (!branch) throw new Error('اختار الفرع'); const r = await doc('branch'); onUpdate({ done: 'انحفظ في تراخيص الفرع' }); if (!auto) onReview(r) }
       else if (cat === 'supplier_invoice') {
         if (!branch) throw new Error('اختار مين استلم البضاعة')
         const { data: inv, error } = await supabase.from('purchase_invoices').insert({ branch_id: branch, supplier_id: sup || null, status: 'draft' }).select().single()
@@ -85,13 +86,18 @@ function Card({ item, lk, onUpdate, onReview }) {
     setBusy(false)
   }
 
+  // "save all": every paper whose place is already known (supplier invoices open their own page, so they stay manual)
+  const ready = !!item.data && !item.done && ((cat === 'employee_document' && emp) || (cat === 'branch_document' && branch) || (cat === 'maintenance_invoice' && maint)
+    || cat === 'government_receipt' || (cat === 'supplier_document' && sup))
+  const seenTick = useRef(saveAllTick) // only a press made while this card is on screen
+  useEffect(() => { if (saveAllTick !== seenTick.current) { seenTick.current = saveAllTick; if (ready && !busy) go(true) } }, [saveAllTick]) // eslint-disable-line react-hooks/exhaustive-deps
   const needs = { employee_document: 'emp', branch_document: 'branch', supplier_invoice: 'branch+sup', maintenance_invoice: 'maint', government_receipt: 'emp|branch', supplier_document: 'sup' }[cat] || ''
   return (
     <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div className="row" style={{ flexWrap: 'wrap' }}>
         <span className="thumb"><Icon name="doc" /></span>
-        <span className="grow"><div style={{ fontWeight: 600 }}>{item.name}</div><div className="sub">{d.summary_ar || (item.error ? '' : 'جاري القراءة…')}</div></span>
-        <button className="chip" style={{ minHeight: 30 }} onClick={() => openFile('attachments', item.path)}>فتح</button>
+        <span className="grow"><div style={{ fontWeight: 600 }}>{item.name}</div><div className="sub">{item.pagesLabel && <span className="pill gray" style={{ marginInlineEnd: 6 }}>{item.pagesLabel}</span>}{d.summary_ar || (item.error ? '' : item.state || 'جاري القراءة…')}</div></span>
+        {item.path && <button className="chip" style={{ minHeight: 30 }} onClick={() => openFile('attachments', item.path)}>فتح</button>}
       </div>
       {item.error && <div className="warn">{item.error}</div>}
       {item.done ? <div className="notice">✓ {item.done}</div> : item.data && (
@@ -139,19 +145,31 @@ export default function SmartUpload() {
       kitchen: (b.data || []).find((x) => x.is_central_kitchen)?.id || '' }))
   }, [])
 
+  const [saveAllTick, setSaveAllTick] = useState(0)
   const update = (key, patch) => setItems((l) => l.map((x) => (x.key === key ? { ...x, ...patch } : x)))
+  const readOne = async (key, file) => {
+    try {
+      const path = await uploadAttachment(file, access.employee.id)
+      update(key, { path, state: 'جاري القراءة…' })
+      const r = await readFile('classify', [path])
+      update(key, r.ok ? { data: r.data, match: r.match || {}, text: r.text } : { error: readError(r) })
+    } catch (e) { update(key, { error: errMsg(e) }) }
+  }
   const add = async (files) => {
     for (const file of files) {
       const key = crypto.randomUUID()
-      setItems((l) => [{ key, name: file.name }, ...l])
-      try {
-        const path = await uploadAttachment(file, access.employee.id)
-        update(key, { path })
-        const r = await readFile('classify', [path])
-        update(key, r.ok ? { data: r.data, match: r.match || {}, text: r.text } : { error: readError(r) })
-      } catch (e) { update(key, { error: errMsg(e) }) }
+      setItems((l) => [{ key, name: file.name, state: 'قاعد يرفع…' }, ...l])
+      // a PDF with several pages may hold several papers: each one gets its own card
+      let parts
+      try { parts = await splitPdf(file, { kind: 'papers', employeeId: access.employee.id, onState: (t) => update(key, { state: t }) }) }
+      catch (e) { update(key, { error: readError({ error: e.message }) || errMsg(e) }); continue }
+      if (parts.length === 1) { await readOne(key, parts[0].file); continue }
+      const pieces = parts.map((p) => ({ key: crypto.randomUUID(), name: p.title || file.name, pagesLabel: p.from === p.to ? `صفحة ${p.from} من ${p.pages}` : `صفحات ${p.from}-${p.to} من ${p.pages}`, state: 'ينتظر دوره…', file: p.file }))
+      setItems((l) => l.flatMap((x) => (x.key === key ? pieces.map(({ file: _f, ...rest }) => rest) : [x])))
+      for (const p of pieces) await readOne(p.key, p.file)
     }
   }
+  const readyCount = items.filter((x) => x.data && !x.done).length
 
   return (
     <div style={{ maxWidth: 900 }}>
@@ -163,7 +181,10 @@ export default function SmartUpload() {
       </label>
       {!lk ? <div className="center sub"><span className="spinner" /></div> : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {items.map((x) => <Card key={x.key + (x.data ? '1' : '0')} item={x} lk={lk} onUpdate={(p) => update(x.key, p)} onReview={setReview} />)}
+          {readyCount > 1 && <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+            <span className="sub">{readyCount} ورقة جاهزة. «احفظ الكل» يحفظ اللي عرف مكانها، والباقي يبقى لك تختار.</span>
+            <button className="btn primary" onClick={() => setSaveAllTick((n) => n + 1)}><Icon name="check" /> احفظ الكل</button></div>}
+          {items.map((x) => <Card key={x.key + (x.data ? '1' : '0')} item={x} lk={lk} onUpdate={(p) => update(x.key, p)} onReview={setReview} saveAllTick={saveAllTick} />)}
         </div>)}
       {review && <ReviewSheet kind={review.kind} docId={review.id} onClose={() => setReview(null)} />}
     </div>
