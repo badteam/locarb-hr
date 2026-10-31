@@ -84,7 +84,7 @@ export default function OpeningBalance() {
   const filled = Object.entries(vals).filter(([, v]) => v.qty !== undefined && v.qty !== '' || v.price !== undefined && v.price !== '')
   const total = filled.reduce((a, [id, v]) => {
     const it = items.find((i) => i.id === id)
-    const price = v.price !== undefined && v.price !== '' ? Number(v.price) : Number(it?.avg_cost || 0)
+    const price = v.price !== undefined && v.price !== '' ? (Number(v.price) || 0) : (Number(it?.avg_cost) || 0)
     return a + (Number(v.qty) || 0) * price
   }, 0)
   const noPrice = filled.filter(([id, v]) => Number(v.qty) > 0 && (v.price === undefined || v.price === '') && !Number(items.find((i) => i.id === id)?.avg_cost)).length
@@ -182,7 +182,7 @@ export default function OpeningBalance() {
       <div className="order-list">
         {shown.slice(0, limit).map((i) => {
           const v = vals[i.id] || {}
-          const price = v.price !== undefined && v.price !== '' ? Number(v.price) : Number(i.avg_cost || 0)
+          const price = v.price !== undefined && v.price !== '' ? (Number(v.price) || 0) : (Number(i.avg_cost) || 0)
           return (
             <div key={i.id} className="order-row">
               <div className="row" style={{ gap: 10 }}>
