@@ -226,3 +226,8 @@ language sql stable security definer set search_path to 'public','private' as $$
   order by coalesce(e.is_driver, false) desc, e.full_name
 $$;
 grant execute on function public.fleet_people() to authenticated;
+
+-- devices & doors got their own tile in the portal too (each section is a separate app now, no tabs between them)
+insert into public.portal_apps(key, name, url, icon, sort_order, active)
+values ('devices', 'الأجهزة والأبواب', 'https://badteam.github.io/locarb-hr/devices', 'hr', 16, true)
+on conflict (key) do update set name = excluded.name, url = excluded.url, active = true;

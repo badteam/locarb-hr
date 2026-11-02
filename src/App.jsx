@@ -133,9 +133,7 @@ function Shell() {
   const canSuppliers = canInv || can('supplier_payments')
   const canMonitor = can('monitor_alerts')
   const canSales = can('view_reports') || can('manage_inventory')
-  const invHome = canInv ? '/inventory' : canOrders ? '/inventory/orders' : canCount ? '/inventory/stock' : '/inventory/invoices'
   const canDev = can('view_devices') || can('open_doors') || can('manage_devices')
-  const canInvSection = canInv || canOrders || canCount || canInvoices || canMonitor
   const canFleet = can('fleet_view') || can('fleet_manage')
   const section = location.pathname.startsWith('/inventory') ? 'inv' : location.pathname.startsWith('/devices') ? 'dev' : location.pathname.startsWith('/fleet') ? 'fleet' : 'hr'
 
@@ -190,8 +188,6 @@ function Shell() {
     { to: '/notifications', icon: 'bell', label: t('nav_notifications'), show: true, badge: unread },
   ]
   const withBadge = (list) => list.map((x) => ({ ...x, badge: x.badge ?? (badges[x.to] || 0) }))
-  const sum = (list) => list.filter((x) => x.show && x.to !== '/notifications').reduce((a, x) => a + (badges[x.to] || 0), 0)
-  const secCount = { hr: sum(hrNav), inv: sum(invNav), dev: sum(devNav), fleet: sum(fleetNav) }
   const nav = withBadge((section === 'inv' ? invNav : section === 'dev' ? devNav : section === 'fleet' ? fleetNav : hrNav).filter((x) => x.show))
 
   const INV_MOBILE = ['/inventory', '/inventory/orders', '/inventory/stock', '/inventory/invoices', '/inventory/reports']
@@ -204,20 +200,13 @@ function Shell() {
       ? pick(['/', '/dashboard', '/documents', '/notifications'])
       : pick(['/', '/leaves', '/my-documents', '/notifications'])
 
-  const switcher = (canInvSection || canDev || canFleet) && (
-    <div className="seg no-print" role="tablist" aria-label={tr('القسم')}>
-      <NavLink to="/" className={section === 'hr' ? 'on' : ''} role="tab" aria-selected={section === 'hr'}><Icon name="users" size={18} /> {tr('الموارد البشرية')}{section !== 'hr' && secCount.hr ? <span className="badge">{secCount.hr}</span> : null}</NavLink>
-      {canInvSection && <NavLink to={invHome} className={section === 'inv' ? 'on' : ''} role="tab" aria-selected={section === 'inv'}><Icon name="box" size={18} /> {tr('المخزون والتوريد')}{section !== 'inv' && secCount.inv ? <span className="badge">{secCount.inv}</span> : null}</NavLink>}
-      {canDev && <NavLink to="/devices" className={section === 'dev' ? 'on' : ''} role="tab" aria-selected={section === 'dev'}><Icon name="door" size={18} /> {tr('الأجهزة والأبواب')}{section !== 'dev' && secCount.dev ? <span className="badge">{secCount.dev}</span> : null}</NavLink>}
-      {canFleet && <NavLink to="/fleet" className={section === 'fleet' ? 'on' : ''} role="tab" aria-selected={section === 'fleet'}><Icon name="truck" size={18} /> {tr('السيارات GPS')}{section !== 'fleet' && secCount.fleet ? <span className="badge">{secCount.fleet}</span> : null}</NavLink>}
-    </div>
-  )
+  // each section is its own app, opened from its own tile in the portal (no tabs to jump between them)
+  const sectionTitle = { inv: tr('المخزون والتوريد'), dev: tr('الأجهزة والأبواب'), fleet: tr('GPS السيارات') }[section]
 
   return (
     <div className="shell">
       <aside className="side no-print">
-        <div className="brand">LoCarb</div>
-        {switcher}
+        <div className="brand">LoCarb{sectionTitle ? <div className="sub" style={{ fontWeight: 500, marginTop: 2 }}>{sectionTitle}</div> : null}</div>
         {nav.map((x) => (
           <NavLink key={x.to} to={x.to} end={!['/inventory/invoices', '/inventory/orders', '/inventory/suppliers'].includes(x.to)} className={({ isActive }) => 'navlink' + (isActive ? ' active' : '')}>
             <Icon name={x.icon} /> {x.label} {x.badge ? <span className="badge">{x.badge}</span> : null}
@@ -231,7 +220,6 @@ function Shell() {
       </aside>
 
       <main className="main" dir={adminPage ? 'rtl' : dir} lang={adminPage ? 'ar' : undefined}>
-        {switcher && <div className="mobile-only" style={{ marginBottom: 16 }}>{switcher}</div>}
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/my-documents" element={<MyDocuments />} />
