@@ -5,6 +5,7 @@ import { statusPill } from '../lib/docs'
 import DocumentForm from './DocumentForm.jsx'
 import ReviewSheet from './ReviewSheet.jsx'
 import Icon from './Icon.jsx'
+import DocArchive from './DocArchive.jsx'
 
 // Inside the employee's page: the required papers (civil ID, health card, passport) with their photo,
 // what is missing in red with "upload for him" / "remind him", then any other document he uploaded.
@@ -90,6 +91,10 @@ export default function EmployeeDocs({ employee, canManage }) {
           <button type="button" className="btn" onClick={() => setUpload({ typeId: '' })}><Icon name="plus" /> مستند ثاني</button>
         </div>)}
       {msg && <div className={msg.ok ? 'notice' : 'error'}>{msg.t}</div>}
+      <details style={{ marginTop: 6 }}>
+        <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: 14 }}>الأرشيف (النسخ القديمة)</summary>
+        <div style={{ marginTop: 6 }}><DocArchive employeeId={employee.id} /></div>
+      </details>
       {(upload || open) && createPortal(
         // own layer outside the employee form, so its buttons never submit that form
         <div onSubmit={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>

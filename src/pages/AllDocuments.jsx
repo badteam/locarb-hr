@@ -7,8 +7,9 @@ import DocumentList from '../components/DocumentList.jsx'
 import DocumentForm from '../components/DocumentForm.jsx'
 import ReviewSheet from '../components/ReviewSheet.jsx'
 import Icon from '../components/Icon.jsx'
+import DocArchive from '../components/DocArchive.jsx'
 
-const FILTERS = [{ k: 'attention', t: 'تحتاج انتباه' }, { k: 'review', t: 'بانتظار المراجعة' }, { k: 'all', t: 'الكل' }]
+const FILTERS = [{ k: 'attention', t: 'تحتاج انتباه' }, { k: 'review', t: 'بانتظار المراجعة' }, { k: 'all', t: 'الكل' }, { k: 'archive', t: 'الأرشيف' }]
 // what needs HR to act: expired first, then waiting for review, then about to expire (nearest first)
 const RANK = { expired: 0, review: 1, expiring: 2 }
 const SEARCH_KEYS = ['employee_name', 'document_type_name', 'document_number', 'holder_name', 'extracted_text', 'employee_phone', 'job_title']
@@ -47,7 +48,9 @@ export default function AllDocuments() {
         <input className="input" style={{ maxWidth: 300, height: 42 }} placeholder="بحث بالاسم، الرقم، أو أي كلمة في المستند…" value={search} onChange={(e) => setSearch(e.target.value)} />
       </div>
       {tab === 'review' && reviewCount > 0 && <div className="sub" style={{ marginBottom: 8 }}>افتح كل مستند، طابق البيانات مع الصورة، واعتمده. الخانات الملوّنة هي اللي الذكاء الاصطناعي مو متأكد منها.</div>}
-      <DocumentList docs={shown} showEmployee onOpen={(d) => setOpen(d.id)} admin />
+      {tab === 'archive'
+        ? <div className="card"><div className="sub" style={{ marginBottom: 6 }}>النسخ القديمة اللي انحطت بدالها نسخة جديدة معتمدة. ما يجي عليها تنبيهات.</div><DocArchive search={search} /></div>
+        : <DocumentList docs={shown} showEmployee onOpen={(d) => setOpen(d.id)} admin />}
 
       {picking && (
         <div className="overlay" onClick={(e) => e.target === e.currentTarget && setPicking(false)}>
