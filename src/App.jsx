@@ -51,6 +51,9 @@ import Devices from './pages/devices/Devices.jsx'
 import DeviceNames from './pages/devices/DeviceNames.jsx'
 import DeviceLog from './pages/devices/DeviceLog.jsx'
 import Kiosk from './pages/Kiosk.jsx'
+import Fleet from './pages/fleet/Fleet.jsx'
+import FleetAlerts from './pages/fleet/FleetAlerts.jsx'
+import FleetVehicles from './pages/fleet/FleetVehicles.jsx'
 
 function useUnread(enabled) {
   const [n, setN] = useState(0)
@@ -68,7 +71,12 @@ function useUnread(enabled) {
 // counts of things waiting for me, per page (leaves to approve, invoices to receive, new alerts…)
 function useBadges(enabled, path) {
   const [b, setB] = useState({})
-  const load = useCallback(() => { supabase.rpc('my_badges').then(({ data }) => data && setB(data)) }, [])
+  const load = useCallback(() => { supabase.rpc('my_badges').then(({ data }) => {
+    if (!data) return
+    // car alerts nobody has looked at yet show on the alerts page link
+    const fleet = Array.isArray(data.fleet) ? data.fleet.reduce((a, x) => a + (Number(x?.[1]) || 0), 0) : 0
+    setB({ ...data, '/fleet/alerts': fleet })
+  }) }, [])
   useEffect(() => {
     if (!enabled) return
     load()
@@ -82,7 +90,7 @@ function useBadges(enabled, path) {
 }
 
 const BRANCH_PATHS = ['/inventory/orders', '/inventory/stock', '/inventory/count']
-const ADMIN_PATHS = ['/branch-location', '/devices', '/smart-upload', '/branch-docs', '/maintenance', '/transactions', '/settings', '/inventory', '/overtime', '/dashboard', '/payroll', '/attendance', '/documents', '/employees', '/branches', '/roles']
+const ADMIN_PATHS = ['/fleet', '/branch-location', '/devices', '/smart-upload', '/branch-docs', '/maintenance', '/transactions', '/settings', '/inventory', '/overtime', '/dashboard', '/payroll', '/attendance', '/documents', '/employees', '/branches', '/roles']
 
 export default function App() {
   const { access } = useAccess()
@@ -128,7 +136,8 @@ function Shell() {
   const invHome = canInv ? '/inventory' : canOrders ? '/inventory/orders' : canCount ? '/inventory/stock' : '/inventory/invoices'
   const canDev = can('view_devices') || can('open_doors') || can('manage_devices')
   const canInvSection = canInv || canOrders || canCount || canInvoices || canMonitor
-  const section = location.pathname.startsWith('/inventory') ? 'inv' : location.pathname.startsWith('/devices') ? 'dev' : 'hr'
+  const canFleet = can('fleet_view') || can('fleet_manage')
+  const section = location.pathname.startsWith('/inventory') ? 'inv' : location.pathname.startsWith('/devices') ? 'dev' : location.pathname.startsWith('/fleet') ? 'fleet' : 'hr'
 
   const hrNav = [
     { to: '/', icon: 'home', label: t('nav_home'), show: true },
@@ -174,25 +183,33 @@ function Shell() {
     { to: '/devices/log', icon: 'list', label: tr('السجل'), show: canDev },
     { to: '/notifications', icon: 'bell', label: t('nav_notifications'), show: true, badge: unread },
   ]
+  const fleetNav = [
+    { to: '/fleet', icon: 'pin', label: tr('الخريطة المباشرة'), show: canFleet },
+    { to: '/fleet/alerts', icon: 'warn', label: tr('تنبيهات السيارات'), show: canFleet },
+    { to: '/fleet/vehicles', icon: 'truck', label: tr('السيارات والأجهزة'), show: canFleet },
+    { to: '/notifications', icon: 'bell', label: t('nav_notifications'), show: true, badge: unread },
+  ]
   const withBadge = (list) => list.map((x) => ({ ...x, badge: x.badge ?? (badges[x.to] || 0) }))
   const sum = (list) => list.filter((x) => x.show && x.to !== '/notifications').reduce((a, x) => a + (badges[x.to] || 0), 0)
-  const secCount = { hr: sum(hrNav), inv: sum(invNav), dev: sum(devNav) }
-  const nav = withBadge((section === 'inv' ? invNav : section === 'dev' ? devNav : hrNav).filter((x) => x.show))
+  const secCount = { hr: sum(hrNav), inv: sum(invNav), dev: sum(devNav), fleet: sum(fleetNav) }
+  const nav = withBadge((section === 'inv' ? invNav : section === 'dev' ? devNav : section === 'fleet' ? fleetNav : hrNav).filter((x) => x.show))
 
   const INV_MOBILE = ['/inventory', '/inventory/orders', '/inventory/stock', '/inventory/invoices', '/inventory/reports']
   const pick = (paths) => paths.map((p) => nav.find((x) => x.to === p)).filter(Boolean)
   const mobileNav = section === 'inv'
     ? [...pick(INV_MOBILE).slice(0, 3), ...pick(['/notifications'])]
     : section === 'dev' ? pick(['/devices', '/devices/log', '/notifications'])
+    : section === 'fleet' ? pick(['/fleet', '/fleet/alerts', '/fleet/vehicles', '/notifications'])
     : isManager
       ? pick(['/', '/dashboard', '/documents', '/notifications'])
       : pick(['/', '/leaves', '/my-documents', '/notifications'])
 
-  const switcher = (canInvSection || canDev) && (
+  const switcher = (canInvSection || canDev || canFleet) && (
     <div className="seg no-print" role="tablist" aria-label={tr('القسم')}>
       <NavLink to="/" className={section === 'hr' ? 'on' : ''} role="tab" aria-selected={section === 'hr'}><Icon name="users" size={18} /> {tr('الموارد البشرية')}{section !== 'hr' && secCount.hr ? <span className="badge">{secCount.hr}</span> : null}</NavLink>
       {canInvSection && <NavLink to={invHome} className={section === 'inv' ? 'on' : ''} role="tab" aria-selected={section === 'inv'}><Icon name="box" size={18} /> {tr('المخزون والتوريد')}{section !== 'inv' && secCount.inv ? <span className="badge">{secCount.inv}</span> : null}</NavLink>}
       {canDev && <NavLink to="/devices" className={section === 'dev' ? 'on' : ''} role="tab" aria-selected={section === 'dev'}><Icon name="door" size={18} /> {tr('الأجهزة والأبواب')}{section !== 'dev' && secCount.dev ? <span className="badge">{secCount.dev}</span> : null}</NavLink>}
+      {canFleet && <NavLink to="/fleet" className={section === 'fleet' ? 'on' : ''} role="tab" aria-selected={section === 'fleet'}><Icon name="truck" size={18} /> {tr('السيارات GPS')}{section !== 'fleet' && secCount.fleet ? <span className="badge">{secCount.fleet}</span> : null}</NavLink>}
     </div>
   )
 
@@ -259,6 +276,9 @@ function Shell() {
           {canDev && <Route path="/devices" element={<Devices />} />}
           {canDev && <Route path="/devices/log" element={<DeviceLog />} />}
           {can('manage_devices') && <Route path="/devices/:id/names" element={<DeviceNames />} />}
+          {canFleet && <Route path="/fleet" element={<Fleet />} />}
+          {canFleet && <Route path="/fleet/alerts" element={<FleetAlerts />} />}
+          {canFleet && <Route path="/fleet/vehicles" element={<FleetVehicles />} />}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
