@@ -99,7 +99,7 @@ function useBadges(enabled, path) {
 }
 
 const BRANCH_PATHS = ['/inventory/orders', '/inventory/stock', '/inventory/count']
-const ADMIN_PATHS = ['/monitor', '/fleet', '/branch-location', '/devices', '/smart-upload', '/branch-docs', '/maintenance', '/transactions', '/settings', '/inventory', '/overtime', '/dashboard', '/payroll', '/attendance', '/documents', '/employees', '/branches', '/roles']
+const ADMIN_PATHS = ['/monitor', '/fleet', '/branch-location', '/devices', '/smart-upload', '/branch-docs', '/maintenance', '/transactions', '/settings', '/overtime', '/dashboard', '/payroll', '/attendance', '/documents', '/employees', '/branches', '/roles']
 
 export default function App() {
   const { access } = useAccess()
