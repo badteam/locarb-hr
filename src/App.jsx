@@ -56,16 +56,24 @@ import FleetAlerts from './pages/fleet/FleetAlerts.jsx'
 import FleetVehicles from './pages/fleet/FleetVehicles.jsx'
 import SanadMonitor from './pages/monitor/Monitor.jsx'
 
-function useUnread(enabled) {
+// sections that are their own app (سند, GPS) keep their own notifications: only the ones whose link points into them
+const SECTION_NOTIFS = { '/monitor': '/monitor', '/fleet': '/fleet' }
+export const notifPrefix = (path) => Object.keys(SECTION_NOTIFS).find((p) => path.startsWith(p)) || null
+
+function useUnread(enabled, prefix) {
   const [n, setN] = useState(0)
   useEffect(() => {
     if (!enabled) return
-    const load = () => supabase.from('notifications').select('id', { count: 'exact', head: true }).is('read_at', null).then(({ count }) => setN(count || 0))
+    const load = () => {
+      let q = supabase.from('notifications').select('id', { count: 'exact', head: true }).is('read_at', null)
+      if (prefix) q = q.like('link', prefix + '%')
+      q.then(({ count }) => setN(count || 0))
+    }
     load()
     const t = setInterval(load, 60000)
     window.addEventListener('notifications-changed', load)
     return () => { clearInterval(t); window.removeEventListener('notifications-changed', load) }
-  }, [enabled])
+  }, [enabled, prefix])
   return n
 }
 
@@ -105,7 +113,7 @@ function Shell() {
   const { session, access, loading, can } = useAccess()
   const { t, tr, dir } = useLang()
   const location = useLocation()
-  const unread = useUnread(!!access)
+  const unread = useUnread(!!access, notifPrefix(location.pathname))
   const badges = useBadges(!!access, location.pathname)
   const [more, setMore] = useState(false)
   const adminPage = ADMIN_PATHS.some((p) => location.pathname.startsWith(p)) && !BRANCH_PATHS.some((p) => location.pathname.startsWith(p))
@@ -187,11 +195,11 @@ function Shell() {
     { to: '/fleet', icon: 'pin', label: tr('الخريطة المباشرة'), show: canFleet },
     { to: '/fleet/alerts', icon: 'warn', label: tr('تنبيهات السيارات'), show: canFleet },
     { to: '/fleet/vehicles', icon: 'truck', label: tr('السيارات والأجهزة'), show: canFleet },
-    { to: '/notifications', icon: 'bell', label: t('nav_notifications'), show: true, badge: unread },
+    { to: '/fleet/notifications', icon: 'bell', label: t('nav_notifications'), show: true, badge: unread },
   ]
   const monitorNav = [
     { to: '/monitor', icon: 'shield', label: tr('حالة الأنظمة'), show: canSanad },
-    { to: '/notifications', icon: 'bell', label: t('nav_notifications'), show: true, badge: unread },
+    { to: '/monitor/notifications', icon: 'bell', label: t('nav_notifications'), show: true, badge: unread },
   ]
   const withBadge = (list) => list.map((x) => ({ ...x, badge: x.badge ?? (badges[x.to] || 0) }))
   const nav = withBadge((section === 'inv' ? invNav : section === 'dev' ? devNav : section === 'fleet' ? fleetNav : section === 'monitor' ? monitorNav : hrNav).filter((x) => x.show))
@@ -201,8 +209,8 @@ function Shell() {
   const mobileNav = section === 'inv'
     ? [...pick(INV_MOBILE).slice(0, 3), ...pick(['/notifications'])]
     : section === 'dev' ? pick(['/devices', '/devices/log', '/notifications'])
-    : section === 'fleet' ? pick(['/fleet', '/fleet/alerts', '/fleet/vehicles', '/notifications'])
-    : section === 'monitor' ? pick(['/monitor', '/notifications'])
+    : section === 'fleet' ? pick(['/fleet', '/fleet/alerts', '/fleet/vehicles', '/fleet/notifications'])
+    : section === 'monitor' ? pick(['/monitor', '/monitor/notifications'])
     : isManager
       ? pick(['/', '/dashboard', '/documents', '/notifications'])
       : pick(['/', '/leaves', '/my-documents', '/notifications'])
@@ -273,6 +281,8 @@ function Shell() {
           {can('manage_devices') && <Route path="/devices/:id/names" element={<DeviceNames />} />}
           {canFleet && <Route path="/fleet" element={<Fleet />} />}
           {canSanad && <Route path="/monitor" element={<SanadMonitor />} />}
+          {canSanad && <Route path="/monitor/notifications" element={<Notifications linkPrefix="/monitor" />} />}
+          {canFleet && <Route path="/fleet/notifications" element={<Notifications linkPrefix="/fleet" />} />}
           {canFleet && <Route path="/fleet/alerts" element={<FleetAlerts />} />}
           {canFleet && <Route path="/fleet/vehicles" element={<FleetVehicles />} />}
           <Route path="*" element={<Navigate to="/" replace />} />

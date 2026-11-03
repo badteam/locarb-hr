@@ -4,13 +4,16 @@ import { supabase } from '../lib/supabase'
 import { useLang } from '../lib/i18n.jsx'
 import Icon from '../components/Icon.jsx'
 
-export default function Notifications() {
+// linkPrefix: inside a section app (سند, GPS) only that section's notifications are listed
+export default function Notifications({ linkPrefix }) {
   const { t, tn, fmtDate } = useLang()
   const [items, setItems] = useState([])
   const nav = useNavigate()
   const load = useCallback(() => {
-    supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(100).then(({ data }) => setItems(data || []))
-  }, [])
+    let q = supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(100)
+    if (linkPrefix) q = q.like('link', linkPrefix + '%')
+    q.then(({ data }) => setItems(data || []))
+  }, [linkPrefix])
   useEffect(() => { load() }, [load])
 
   // employee notifications carry a kind + params so they show in the employee's language
@@ -25,7 +28,9 @@ export default function Notifications() {
   }
 
   const markAll = async () => {
-    await supabase.from('notifications').update({ read_at: new Date().toISOString() }).is('read_at', null)
+    let q = supabase.from('notifications').update({ read_at: new Date().toISOString() }).is('read_at', null)
+    if (linkPrefix) q = q.like('link', linkPrefix + '%')
+    await q
     window.dispatchEvent(new Event('notifications-changed')); load()
   }
   const open = async (n) => {
