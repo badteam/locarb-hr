@@ -53,6 +53,7 @@ function EmployeeMonth({ emp, rows, att, showMoney, onDone }) {
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
   const pending = rows.filter((r) => r.status === 'pending')
+  const review = pending.filter((r) => r.needs_review).length
   const minutes = (s) => rows.filter((r) => r.status === s).reduce((a, r) => a + (s === 'approved' ? r.approved_minutes || 0 : r.minutes || 0), 0)
   const amount = rows.filter((r) => r.status === 'approved').reduce((a, r) => a + Number(r.amount || 0), 0)
 
@@ -62,7 +63,7 @@ function EmployeeMonth({ emp, rows, att, showMoney, onDone }) {
       const h = edit[r.id]
       if (ok && !r.minutes && !(Number(h) > 0)) { setErr('اكتب الساعات المعتمدة لليوم اليدوي قبل الموافقة'); setBusy(''); return }
       const { error } = await supabase.rpc('decide_overtime', { p_id: r.id, p_approve: ok, p_minutes: h !== undefined && h !== '' ? Math.round(Number(h) * 60) : null, p_note: null })
-      if (error) { setErr(error.message.includes('approved') ? 'كشف راتب هالشهر معتمد، ما ينفع تعدّل الإضافي' : errMsg(error)); setBusy(''); return }
+      if (error) { setErr(error.message.includes('payslip already approved') ? 'كشف راتب هالشهر معتمد، ما ينفع تعدّل الإضافي' : errMsg(error)); setBusy(''); return }
     }
     setBusy(''); onDone()
   }
@@ -73,7 +74,7 @@ function EmployeeMonth({ emp, rows, att, showMoney, onDone }) {
         <span className="avatar">{emp.full_name?.[0]}</span>
         <span className="grow">
           <div style={{ fontWeight: 600 }}>{emp.full_name}{emp.is_driver ? <span className="sub"> · سواق</span> : null}</div>
-          <div className="sub">{rows.length} يوم · {pending.length ? `ينتظر ${hrs(minutes('pending'))} ساعة` : 'ما فيه شي ينتظر'}{minutes('approved') ? ` · معتمد ${hrs(minutes('approved'))}` : ''}{showMoney && amount ? ` · ${amount.toFixed(3)} د.ك` : ''}</div>
+          <div className="sub">{rows.length} يوم · {pending.length ? `ينتظر ${hrs(minutes('pending'))} ساعة` : 'ما فيه شي ينتظر'}{review ? ` · ${review} يوم يحتاج مراجعة` : ''}{minutes('approved') ? ` · معتمد ${hrs(minutes('approved'))}` : ''}{showMoney && amount ? ` · ${amount.toFixed(3)} د.ك` : ''}</div>
         </span>
         {pending.length > 0 && <span className="badge">{pending.length}</span>}
         <span className="sub">{open ? '▲' : '▼'}</span>
@@ -86,7 +87,7 @@ function EmployeeMonth({ emp, rows, att, showMoney, onDone }) {
               const a = att[r.attendance_id]
               return (
                 <tr key={r.id}>
-                  <td>{fmtDate(r.work_date)}{r.is_offday ? <div className="cell-sub">يوم عطلة</div> : null}</td>
+                  <td>{fmtDate(r.work_date)}{r.is_offday ? <div className="cell-sub">يوم عطلة</div> : null}{r.needs_review ? <div><span className="pill red">يحتاج مراجعة</span></div> : null}</td>
                   <td>{a ? <span className="ltr">{fmtTime(a.check_in_at)} → {fmtTime(a.check_out_at)}</span> : r.source === 'manual' ? 'يدوي' : '—'}{r.note ? <div className="cell-sub">{r.note}</div> : null}</td>
                   <td>{r.source === 'manual' ? '—' : hrs(r.minutes)}</td>
                   <td>{r.status === 'pending'
@@ -122,7 +123,9 @@ function ShortHours({ month }) {
   useEffect(() => { load() }, [load])
   const mark = async (r, status) => {
     setBusy(r.id)
-    await supabase.from('short_hours').update({ status, decided_at: new Date().toISOString() }).eq('id', r.id)
+    // decided_by / decided_at are filled on the server (trigger)
+    const { error } = await supabase.from('short_hours').update({ status }).eq('id', r.id)
+    if (error) alert(errMsg(error))
     setBusy(''); load()
   }
   const pending = rows.filter((r) => r.status === 'pending')

@@ -343,7 +343,7 @@ export function LangProvider({ employee, children }) {
     const s = lang === 'ar' ? ar : PHRASES[ar]?.[lang] ?? DB_NAMES[ar] ?? ar
     return String(s).replace(/\{(\w+)\}/g, (_, k) => (p[k] ?? ''))
   }, [lang])
-  const tn = useCallback((name) => (name && lang !== 'ar' ? NAMES[name]?.[lang] ?? DB_NAMES[name] ?? name : name), [lang])
+  const tn = useCallback((name) => (name && lang !== 'ar' ? NAMES[name]?.[lang] ?? DB_NAMES[name] ?? PHRASES[name]?.[lang] ?? name : name), [lang])
   const fmtDate = useCallback((d) => d ? new Intl.DateTimeFormat(info.locale, { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Kuwait', numberingSystem: 'latn' }).format(new Date(d)) : '—', [info.locale])
   const fmtTime = useCallback((d) => d ? new Intl.DateTimeFormat(info.locale, { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kuwait', numberingSystem: 'latn' }).format(new Date(d)) : '—', [info.locale])
 

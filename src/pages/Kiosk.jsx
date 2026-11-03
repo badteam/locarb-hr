@@ -28,6 +28,7 @@ const T = {
   already_in: { ar: 'أنت مسجل حضور من قبل', en: 'You are already checked in', ne: 'तपाईंको हाजिरी पहिले नै छ', hi: 'आप पहले से चेक इन हैं' },
   not_in: { ar: 'ما سجلت حضور', en: 'You have not checked in', ne: 'तपाईंले हाजिरी गर्नुभएको छैन', hi: 'आपने चेक इन नहीं किया' },
   too_soon: { ar: 'توك مسجل حضور', en: 'You just checked in', ne: 'भर्खर हाजिरी गर्नुभयो', hi: 'आपने अभी चेक इन किया' },
+  just_out: { ar: 'توك مسجل انصراف. انتظر ٥ دقايق', en: 'You just checked out. Wait 5 minutes', ne: 'भर्खर प्रस्थान गर्नुभयो। ५ मिनेट पर्खनुहोस्', hi: 'आपने अभी चेक आउट किया। 5 मिनट रुकें' },
   welcome_branch: { ar: 'أهلاً بك في فرع {b}', en: 'Welcome to {b} branch', ne: '{b} शाखामा स्वागत छ', hi: '{b} शाखा में आपका स्वागत है' },
   ask_branch: { ar: 'هل انتقلت للشغل في فرع {b}؟', en: 'Have you moved to work at {b} branch?', ne: 'के तपाईं {b} शाखामा काम गर्न सर्नुभयो?', hi: 'क्या आप {b} शाखा में काम करने आ गए हैं?' },
   ask_shift: { ar: 'هل تغيّر شفتك؟', en: 'Has your shift changed?', ne: 'के तपाईंको सिफ्ट परिवर्तन भयो?', hi: 'क्या आपकी शिफ्ट बदल गई है?' },

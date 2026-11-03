@@ -125,7 +125,7 @@ export default function NewOrder() {
           <div className="grow">
             <div style={{ fontWeight: 600 }}>{itemNames(i, lang)[0]}</div>
             {itemNames(i, lang)[1] && <div className="cell-sub">{itemNames(i, lang)[1]}</div>}
-            <div className="cell-sub">{tr(i.unit || '')}{par != null && Number(par) > 0 ? ` · ${tr('العادي عندكم {n}', { n: qtyFmt(par) })}` : ''}{cur != null ? ` · ${tr('آخر رصيد {n}', { n: branchPieces(i, false) ? `${qtyFmt(toPieces(cur, branchPieces(i, false)))} ${tr('حبة')}` : qtyFmt(cur) })}` : ''}</div>
+            <div className="cell-sub">{tn(i.unit || '')}{par != null && Number(par) > 0 ? ` · ${tr('العادي عندكم {n}', { n: qtyFmt(par) })}` : ''}{cur != null ? ` · ${tr('آخر رصيد {n}', { n: branchPieces(i, false) ? `${qtyFmt(toPieces(cur, branchPieces(i, false)))} ${tr('حبة')}` : qtyFmt(cur) })}` : ''}</div>
           </div>
         </div>
         {editFav && isFav ? (
@@ -161,7 +161,7 @@ export default function NewOrder() {
           <select className="input" style={{ width: 'auto' }} value={branch} onChange={(e) => setBranch(e.target.value)} aria-label={tr('الفرع')}>
             {lookups.branches.filter((b) => !b.is_central_kitchen).map((b) => <option key={b.id} value={b.id}>{tn(b.name)}</option>)}
           </select>
-        ) : <span className="pill gray" style={{ fontSize: 14, padding: '6px 12px' }}>{branchName || tr('ما لك فرع')}</span>}
+        ) : <span className="pill gray" style={{ fontSize: 14, padding: '6px 12px' }}>{tn(branchName) || tr('ما لك فرع')}</span>}
       </div>
       {!branch && <div className="error">{tr('حسابك ما هو مربوط بفرع. كلم الإدارة يحددون فرعك.')}</div>}
 
@@ -188,7 +188,7 @@ export default function NewOrder() {
             <div className="search"><Icon name="search" size={18} /><input className="input" placeholder={tr('دوّر على صنف')} value={q} onChange={(e) => setQ(e.target.value)} autoFocus /></div>
             <select className="input" style={{ width: 'auto', flex: '0 1 220px' }} value={cat} onChange={(e) => setCat(e.target.value)} aria-label={tr('التصنيف')}>
               <option value="">{tr('اختار تصنيف')}</option>
-              {lookups.categories.map((c) => <option key={c.id} value={c.id}>{tr(c.name)}</option>)}
+              {lookups.categories.map((c) => <option key={c.id} value={c.id}>{tn(c.name)}</option>)}
             </select>
           </div>
           {allList.length === 0 ? <div className="card empty">{q || cat ? tr('ما لقينا شي') : tr('اكتب اسم الصنف أو اختار تصنيف')}</div>
@@ -204,11 +204,11 @@ export default function NewOrder() {
       {confirm && (
         <div className="overlay" onClick={(e) => e.target === e.currentTarget && !busy && setConfirm(false)}>
           <div className="sheet form">
-            <div className="sheet-head"><h2 style={{ fontSize: 20 }}>{tr('طلب {b}', { b: branchName })}</h2>
+            <div className="sheet-head"><h2 style={{ fontSize: 20 }}>{tr('طلب {b}', { b: tn(branchName) })}</h2>
               <button type="button" className="icon-btn" aria-label={tr('إغلاق')} onClick={() => setConfirm(false)}><Icon name="x" /></button></div>
             <div className="card list" style={{ padding: '2px 12px' }}>
               {ordered.map(([id, l]) => <div key={id} className="list-item"><span className="grow">{itemNames(byId[id], lang)[0]}</span>
-                <span className="num" style={{ fontWeight: 600 }}>{qtyFmt(l.qty)}</span><span className="sub">{tr(byId[id]?.unit || '')}</span></div>)}
+                <span className="num" style={{ fontWeight: 600 }}>{qtyFmt(l.qty)}</span><span className="sub">{tn(byId[id]?.unit || '')}</span></div>)}
             </div>
             <div className="field"><label htmlFor="nt">{tr('ملاحظة للمطبخ (اختياري)')}</label><input id="nt" className="input" value={note} onChange={(e) => setNote(e.target.value)} /></div>
             <button className="btn primary block" disabled={busy} onClick={submit}>{busy ? <span className="spinner" /> : null} {tr('أرسل الطلب للمطبخ')}</button>

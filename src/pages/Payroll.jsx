@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback } from 'react'
-import { supabase, errMsg } from '../lib/supabase'
+import { supabase, errMsg, todayKuwait } from '../lib/supabase'
 import Icon from '../components/Icon.jsx'
 import PayslipView from '../components/PayslipView.jsx'
 
 const money = (n) => Number(n || 0).toFixed(3)
-const thisMonth = () => new Date().toISOString().slice(0, 7)
+const thisMonth = () => todayKuwait().slice(0, 7)
 const KIND = { bonus: ['ok', 'مكافأة'], deduction: ['red', 'خصم'] }
 
 function AdjustmentForm({ employees, month, onClose, onSaved }) {
@@ -185,6 +185,7 @@ export default function Payroll() {
         {slips.length > 0 && <button className="btn" onClick={exportCsv}>تنزيل Excel</button>}
       </div>
       {msg && <div className={msg.ok ? 'notice' : 'error'}>{msg.t}</div>}
+      {slips.some((s) => s.no_attendance && s.status === 'draft') && <div className="warn">{slips.filter((s) => s.no_attendance && s.status === 'draft').length} موظف ما لهم ولا بصمة في النظام، فما انخصم عليهم غياب. راجعهم قبل الاعتماد.</div>}
 
       <section>
         <h2 style={{ fontSize: 18, marginBottom: 10 }}>المكافآت والخصومات لهالشهر</h2>
@@ -208,7 +209,7 @@ export default function Payroll() {
             <tbody>
               {slips.sort((a, b) => (emps[a.employee_id]?.full_name || '').localeCompare(emps[b.employee_id]?.full_name || '')).map((s) => (
                 <tr key={s.id}>
-                  <td style={{ fontWeight: 500 }}>{emps[s.employee_id]?.full_name}</td>
+                  <td style={{ fontWeight: 500 }}>{emps[s.employee_id]?.full_name}{s.no_attendance && <div><span className="pill amber" title="ما له ولا بصمة، ما انحسب عليه غياب. تأكد من وضعه قبل الاعتماد.">ما له بصمات</span></div>}</td>
                   <td>{money(s.basic_salary)}</td>
                   <td>{money(s.allowances_total)}</td>
                   <td>{money(s.overtime_total)}</td>

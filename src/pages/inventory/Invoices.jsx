@@ -1,10 +1,11 @@
 import { pdfToPages } from '../../lib/pdfPages'
 import { useEffect, useState, useCallback } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { supabase, fmtDate } from '../../lib/supabase'
+import { supabase, todayKuwait } from '../../lib/supabase'
 import { useAccess } from '../../lib/access.jsx'
 import { kwd, loadLookups, invErr, invoiceStage, STAGE, PAY_STATUS } from '../../lib/inv'
 import Icon from '../../components/Icon.jsx'
+import { useLang } from '../../lib/i18n.jsx'
 
 // shrink phone photos before upload (keeps text sharp, avoids 10MB uploads)
 export async function compress(file) {
@@ -31,6 +32,7 @@ export async function startRead(id) {
 }
 
 function NewInvoice({ onClose }) {
+  const { tr, tn } = useLang()
   const nav = useNavigate()
   const [lookups, setLookups] = useState(null)
   const [files, setFiles] = useState([])
@@ -44,10 +46,10 @@ function NewInvoice({ onClose }) {
 
   const create = async (manual) => {
     setErr('')
-    if (!manual && !files.length) { setErr('صوّر الفاتورة أو اختار الصورة'); return }
+    if (!manual && !files.length) { setErr(tr('صوّر الفاتورة أو اختار الصورة')); return }
     setBusy('saving')
     const { data: inv, error } = await supabase.from('purchase_invoices').insert({ branch_id: branch, supplier_id: supplier || null, status: 'draft' }).select().single()
-    if (error) { setErr(invErr(error)); setBusy(''); return }
+    if (error) { setErr(tr(invErr(error))); setBusy(''); return }
     const paths = []
     // a big PDF goes up as one light image per page (any size works)
     const pages = []
@@ -57,7 +59,7 @@ function NewInvoice({ onClose }) {
       const ext = f.type === 'application/pdf' ? 'pdf' : f.type === 'image/png' ? 'png' : 'jpg'
       const path = `${inv.id}/${i + 1}-${Date.now()}.${ext}`
       const up = await supabase.storage.from('invoices').upload(path, f, { contentType: f.type || 'image/jpeg' })
-      if (up.error) { setErr('ما قدرنا نرفع الصورة: ' + up.error.message); setBusy(''); return }
+      if (up.error) { setErr(tr('ما قدرنا نرفع الصورة: ') + up.error.message); setBusy(''); return }
       paths.push(path)
     }
     const gpaths = []
@@ -75,38 +77,38 @@ function NewInvoice({ onClose }) {
   return (
     <div className="overlay" onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
       <div className="sheet form">
-        <div className="sheet-head"><h2 style={{ fontSize: 20 }}>استلام بضاعة من مورد</h2>
-          <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose} disabled={!!busy}><Icon name="x" /></button></div>
+        <div className="sheet-head"><h2 style={{ fontSize: 20 }}>{tr('استلام بضاعة من مورد')}</h2>
+          <button type="button" className="icon-btn" aria-label={tr('إغلاق')} onClick={onClose} disabled={!!busy}><Icon name="x" /></button></div>
         <label className="upload" style={{ height: files.length ? 'auto' : 150, padding: files.length ? 8 : 0 }}>
           <input type="file" accept="image/*,application/pdf" multiple onChange={(e) => setFiles([...files, ...e.target.files])} />
-          {files.length === 0 ? <><Icon name="camera" size={30} /><strong style={{ fontSize: 15, color: 'var(--ink)' }}>صوّر الفاتورة</strong><span>أو اختار صورة أو ملف PDF. لو الفاتورة أكثر من صفحة صوّر كل صفحة.</span></> :
+          {files.length === 0 ? <><Icon name="camera" size={30} /><strong style={{ fontSize: 15, color: 'var(--ink)' }}>{tr('صوّر الفاتورة')}</strong><span>{tr('أو اختار صورة أو ملف PDF. لو الفاتورة أكثر من صفحة صوّر كل صفحة.')}</span></> :
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', position: 'relative', zIndex: 1 }}>
               {files.map((f, i) => previews[i] ? <img key={i} src={previews[i]} alt="" style={{ position: 'static', width: 90, height: 120, objectFit: 'cover', borderRadius: 8 }} /> :
                 <span key={i} className="thumb" style={{ width: 90, height: 120 }}>PDF</span>)}
-              <span className="thumb" style={{ width: 90, height: 120, flexDirection: 'column' }}><Icon name="plus" />صفحة ثانية</span>
+              <span className="thumb" style={{ width: 90, height: 120, flexDirection: 'column' }}><Icon name="plus" />{tr('صفحة ثانية')}</span>
             </div>}
         </label>
         <label className="upload" style={{ height: goods.length ? 'auto' : 80, padding: goods.length ? 8 : 0 }}>
           <input type="file" accept="image/*" multiple onChange={(e) => setGoods([...goods, ...e.target.files])} />
-          {goods.length === 0 ? <><Icon name="camera" /> <span><strong style={{ color: 'var(--ink)' }}>صوّر البضاعة</strong> كما وصلت (اختياري، ينفع بعدين)</span></> :
+          {goods.length === 0 ? <><Icon name="camera" /> <span><strong style={{ color: 'var(--ink)' }}>{tr('صوّر البضاعة')}</strong> {tr('كما وصلت (اختياري، ينفع بعدين)')}</span></> :
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', position: 'relative', zIndex: 1 }}>
               {goods.map((f, i) => <img key={i} src={URL.createObjectURL(f)} alt="" style={{ position: 'static', width: 70, height: 70, objectFit: 'cover', borderRadius: 8 }} />)}
               <span className="thumb" style={{ width: 70, height: 70 }}><Icon name="plus" /></span>
             </div>}
         </label>
-        <div className="field"><label htmlFor="sp">المورد (اختياري، النظام يقراه من الفاتورة)</label>
+        <div className="field"><label htmlFor="sp">{tr('المورد (اختياري، النظام يقراه من الفاتورة)')}</label>
           <select id="sp" className="input" value={supplier} onChange={(e) => setSupplier(e.target.value)}>
-            <option value="">يقراه النظام من الفاتورة</option>
+            <option value="">{tr('يقراه النظام من الفاتورة')}</option>
             {lookups?.suppliers.filter((s) => s.active).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select></div>
-        <div className="field"><label htmlFor="br">استلمتها في</label>
+        <div className="field"><label htmlFor="br">{tr('استلمتها في')}</label>
           <select id="br" className="input" value={branch} onChange={(e) => setBranch(e.target.value)}>
-            {lookups?.stockBranches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            {lookups?.stockBranches.map((b) => <option key={b.id} value={b.id}>{tn(b.name)}</option>)}
           </select></div>
         {err && <div className="error">{err}</div>}
         <button className="btn primary block" disabled={!!busy || !files.length} onClick={() => create(false)}>
-          {busy ? <><span className="spinner" /> جاري الرفع…</> : 'اقرا الفاتورة'}</button>
-        <button className="btn" disabled={!!busy} onClick={() => create(true)}>إدخال يدوي بدون قراءة</button>
+          {busy ? <><span className="spinner" /> {tr('جاري الرفع…')}</> : tr('اقرا الفاتورة')}</button>
+        <button className="btn" disabled={!!busy} onClick={() => create(true)}>{tr('إدخال يدوي بدون قراءة')}</button>
       </div>
     </div>
   )
@@ -119,6 +121,7 @@ const TABS = [
 const OPEN_ST = ['draft', 'reading', 'review', 'failed']
 
 export default function Invoices() {
+  const { tr, fmtDate } = useLang()
   const { can } = useAccess()
   const [params, setParams] = useSearchParams()
   const [tab, setTab] = useState(params.get('tab') || (can('approve_purchases') ? 'review' : can('supplier_payments') ? 'unpaid' : 'receive'))
@@ -142,7 +145,7 @@ export default function Invoices() {
     supabase.from('purchase_invoices').select('status,received_at,payment_status,total_due,paid_amount,due_date').eq('price_only', false)
       .or('status.in.(draft,reading,review,failed),and(status.eq.approved,payment_status.neq.paid)').then(({ data }) => {
         const c = { receive: 0, review: 0, unpaid: 0, owed: 0, overdue: 0 }
-        const now = new Date().toISOString().slice(0, 10)
+        const now = todayKuwait()
         for (const r of data || []) {
           if (r.status === 'approved') { c.unpaid++; c.owed += Number(r.total_due || 0) - Number(r.paid_amount || 0); if (r.due_date && r.due_date < now) c.overdue++ }
           else if (r.received_at) c.review++
@@ -154,7 +157,7 @@ export default function Invoices() {
   useEffect(() => { load() }, [load])
 
   const total = (v) => v.total_due != null ? Number(v.total_due) : (v.purchase_invoice_lines || []).reduce((a, l) => a + l.qty * l.unit_price, 0) - Number(v.discount || 0)
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayKuwait()
   const hint = {
     receive: 'المستلم يصوّر الفاتورة والبضاعة، يطابق اللي وصل فعلاً، ويأكد الاستلام. البضاعة تدخل المخزون مباشرة.',
     review: 'المحاسب يراجع الأسعار والمرتجع والمجاني ويضغط "تمت المراجعة".',
@@ -163,32 +166,32 @@ export default function Invoices() {
 
   return (
     <div>
-      <div className="page-head"><div><h1>فواتير الموردين</h1><div className="sub">استلام ← مراجعة المحاسب ← الدفع</div></div>
-        {canCreate && <button className="btn primary" onClick={() => setCreating(true)}><Icon name="camera" /> استلام بضاعة</button>}</div>
+      <div className="page-head"><div><h1>{tr('فواتير الموردين')}</h1><div className="sub">{tr('استلام ← مراجعة المحاسب ← الدفع')}</div></div>
+        {canCreate && <button className="btn primary" onClick={() => setCreating(true)}><Icon name="camera" /> {tr('استلام بضاعة')}</button>}</div>
       {(counts.owed > 0 || counts.overdue > 0) && (can('supplier_payments') || can('approve_purchases')) && (
         <div className={counts.overdue ? 'warn' : 'notice'} style={{ marginBottom: 12 }}>
-          {counts.overdue ? <Icon name="warn" /> : null}<span>علينا للموردين <strong className="num">{kwd(counts.owed)}</strong> د.ك</span>{counts.overdue ? <span>· {counts.overdue} فاتورة فات موعد دفعها</span> : null}</div>)}
+          {counts.overdue ? <Icon name="warn" /> : null}<span>{tr('علينا للموردين')} <strong className="num">{kwd(counts.owed)}</strong> {tr('د.ك')}</span>{counts.overdue ? <span>· {tr('{overdue} فاتورة فات موعد دفعها', { overdue: counts.overdue })}</span> : null}</div>)}
       <div className="chips" style={{ marginBottom: 8 }}>
         {TABS.map(([k, l]) => <button key={k} className={'chip' + (tab === k ? ' on' : '')} onClick={() => setTab(k)}>
-          {l}{counts[k] ? <span className="badge" style={{ marginInlineStart: 6 }}>{counts[k]}</span> : null}</button>)}
+          {tr(l)}{counts[k] ? <span className="badge" style={{ marginInlineStart: 6 }}>{counts[k]}</span> : null}</button>)}
       </div>
-      {hint && <div className="sub" style={{ marginBottom: 12 }}>{hint}</div>}
+      {hint && <div className="sub" style={{ marginBottom: 12 }}>{tr(hint)}</div>}
       <div className="card list" style={{ padding: '4px 14px' }}>
-        {rows.length === 0 && <div className="empty">ما فيه فواتير هنا</div>}
+        {rows.length === 0 && <div className="empty">{tr('ما فيه فواتير هنا')}</div>}
         {rows.map((v) => {
           const stg = STAGE[invoiceStage(v)]
           const late = v.status === 'approved' && v.payment_status !== 'paid' && v.due_date && v.due_date < today
           return (
             <Link key={v.id} to={`/inventory/invoices/${v.id}`} className="list-item" style={{ textDecoration: 'none', color: 'inherit' }}>
               <span className="avatar"><Icon name="receipt" /></span>
-              <span className="grow"><div style={{ fontWeight: 600 }}>{v.suppliers?.name || v.supplier_name_read || 'مورد غير محدد'}</div>
-                <div className="sub">{v.invoice_no ? `رقم ${v.invoice_no} · ` : ''}{fmtDate(v.invoice_date || v.created_at)} · {(v.purchase_invoice_lines || []).length} صنف{v.employees?.full_name ? ` · ${v.employees.full_name}` : ''}
-                  {v.status === 'approved' && v.due_date ? ` · الاستحقاق ${fmtDate(v.due_date)}` : ''}</div></span>
+              <span className="grow"><div style={{ fontWeight: 600 }}>{v.suppliers?.name || v.supplier_name_read || tr('مورد غير محدد')}</div>
+                <div className="sub">{v.invoice_no ? `${tr('رقم {invoice_no}', { invoice_no: v.invoice_no })} · ` : ''}{fmtDate(v.invoice_date || v.created_at)} · {tr('{n} صنف', { n: (v.purchase_invoice_lines || []).length })}{v.employees?.full_name ? ` · ${v.employees.full_name}` : ''}
+                  {v.status === 'approved' && v.due_date ? ` · ${tr('الاستحقاق {due_date}', { due_date: fmtDate(v.due_date) })}` : ''}</div></span>
               <span className="num" style={{ fontWeight: 600 }}>{kwd(total(v))}
-                {v.status === 'approved' && Number(v.paid_amount) > 0 && v.payment_status !== 'paid' && <div className="sub">باقي {kwd(total(v) - Number(v.paid_amount))}</div>}</span>
+                {v.status === 'approved' && Number(v.paid_amount) > 0 && v.payment_status !== 'paid' && <div className="sub">{tr('باقي {v}', { v: kwd(total(v) - Number(v.paid_amount)) })}</div>}</span>
               {v.status === 'approved'
-                ? <span className={'pill ' + (late ? 'red' : PAY_STATUS[v.payment_status][0])}>{late ? 'متأخرة' : PAY_STATUS[v.payment_status][1]}</span>
-                : <span className={'pill ' + stg[0]}>{v.status === 'failed' ? 'ما انقرت' : stg[1]}</span>}
+                ? <span className={'pill ' + (late ? 'red' : PAY_STATUS[v.payment_status][0])}>{late ? tr('متأخرة') : tr(PAY_STATUS[v.payment_status][1])}</span>
+                : <span className={'pill ' + stg[0]}>{v.status === 'failed' ? tr('ما انقرت') : tr(stg[1])}</span>}
             </Link>
           )
         })}

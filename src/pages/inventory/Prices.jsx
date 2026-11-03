@@ -3,6 +3,8 @@ import writeXlsxFile from 'write-excel-file/browser'
 import readXlsxFile from 'read-excel-file/browser'
 import { supabase, errMsg, selectAll } from '../../lib/supabase'
 import Icon from '../../components/Icon.jsx'
+import { itemNames } from '../../lib/inv'
+import { useLang } from '../../lib/i18n.jsx'
 
 const fold = (s) => String(s ?? '').toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').trim()
 const num = (v) => {
@@ -13,6 +15,7 @@ const COLS = [['id', 'رقم الصنف (لا تغيّره)'], ['name', 'الص�
 
 // Prices of stock items per unit: items without a price first, typed in place or filled in Excel.
 export default function Prices() {
+  const { tr, tn, lang } = useLang()
   const [items, setItems] = useState(null)
   const [sug, setSug] = useState({})
   const [f, setF] = useState('none')
@@ -68,7 +71,7 @@ export default function Prices() {
       const data = sheets[0]?.data || []
       const head = (data[0] || []).map((h) => String(h ?? '').trim())
       const iId = head.indexOf(COLS[0][1]), iName = head.indexOf('الصنف'), iPrice = head.indexOf('السعر الجديد')
-      if (iPrice < 0) throw new Error('ما لقيت عمود "السعر الجديد". نزّل الملف من هالصفحة وعبّيه.')
+      if (iPrice < 0) throw new Error(tr('ما لقيت عمود "السعر الجديد". نزّل الملف من هالصفحة وعبّيه.'))
       const byId = Object.fromEntries((items || []).map((i) => [i.id, i]))
       const byName = Object.fromEntries((items || []).map((i) => [fold(i.name_ar), i]))
       const ok = [], bad = []
@@ -86,61 +89,61 @@ export default function Prices() {
     const { data, error } = await supabase.rpc('set_item_prices', { p_rows: preview.ok.map(({ id, price }) => ({ id, price })), p_source: 'excel' })
     setBusy('')
     if (error) { setMsg({ ok: false, t: errMsg(error) }); return }
-    setPreview(null); setMsg({ ok: true, t: `انحفظ سعر ${data} صنف ✓` }); load()
+    setPreview(null); setMsg({ ok: true, t: tr('انحفظ سعر {data} صنف ✓', { data }) }); load()
   }
 
   if (!items) return <div className="center sub" style={{ minHeight: 300 }}><span className="spinner" /></div>
   return (
     <div>
       <div className="page-head">
-        <div><h1>أسعار الأصناف</h1><div className="sub">سعر الوحدة اللي ينحسب فيها المخزون (الحبة، الكيلو…). الأسعار تتحدث بروحها من فواتير الموردين المعتمدة.</div></div>
+        <div><h1>{tr('أسعار الأصناف')}</h1><div className="sub">{tr('سعر الوحدة اللي ينحسب فيها المخزون (الحبة، الكيلو…). الأسعار تتحدث بروحها من فواتير الموردين المعتمدة.')}</div></div>
         <div className="row" style={{ flexWrap: 'wrap' }}>
-          <button className="btn" disabled={!!busy} onClick={exportXlsx}>{busy === 'export' ? <span className="spinner" /> : <Icon name="download" />} تنزيل إكسل</button>
-          <label className="btn" style={{ cursor: 'pointer' }}><Icon name="plus" /> رفع إكسل<input type="file" accept=".xlsx" hidden onChange={(e) => { importXlsx(e.target.files?.[0]); e.target.value = '' }} /></label>
+          <button className="btn" disabled={!!busy} onClick={exportXlsx}>{busy === 'export' ? <span className="spinner" /> : <Icon name="download" />} {tr('تنزيل إكسل')}</button>
+          <label className="btn" style={{ cursor: 'pointer' }}><Icon name="plus" /> {tr('رفع إكسل')}<input type="file" accept=".xlsx" hidden onChange={(e) => { importXlsx(e.target.files?.[0]); e.target.value = '' }} /></label>
         </div>
       </div>
 
       <div className="grid stats" style={{ marginBottom: 14 }}>
-        <div className="card stat"><div className="label">أصناف بدون سعر</div><div className="value" style={{ color: missing ? 'var(--red)' : 'var(--ok)' }}>{missing}</div></div>
-        <div className="card stat"><div className="label">أصناف لها سعر</div><div className="value">{items.length - missing}</div></div>
+        <div className="card stat"><div className="label">{tr('أصناف بدون سعر')}</div><div className="value" style={{ color: missing ? 'var(--red)' : 'var(--ok)' }}>{missing}</div></div>
+        <div className="card stat"><div className="label">{tr('أصناف لها سعر')}</div><div className="value">{items.length - missing}</div></div>
       </div>
 
       {preview && (
         <div className="card form" style={{ marginBottom: 14, gap: 8 }}>
-          <strong>من ملف الإكسل: {preview.ok.length} سعر جاهز{preview.bad.length ? ` · ${preview.bad.length} ما انعرف` : ''}</strong>
+          <strong>{tr('من ملف الإكسل: {n} سعر جاهز', { n: preview.ok.length })}{preview.bad.length ? ` · ${tr('{n} ما انعرف', { n: preview.bad.length })}` : ''}</strong>
           <div className="table-wrap" style={{ maxHeight: 260, overflowY: 'auto' }}><table>
-            <thead><tr><th>الصنف</th><th>السعر الحالي</th><th>الجديد</th></tr></thead>
-            <tbody>{preview.ok.slice(0, 200).map((r) => <tr key={r.id}><td>{r.name}</td><td className="num">{r.old ? r.old.toFixed(3) : '—'}</td><td className="num" style={{ fontWeight: 600 }}>{r.price.toFixed(3)}</td></tr>)}</tbody>
+            <thead><tr><th>{tr('الصنف')}</th><th>{tr('السعر الحالي')}</th><th>{tr('الجديد')}</th></tr></thead>
+            <tbody>{preview.ok.slice(0, 200).map((r) => <tr key={r.id}><td>{tn(r.name)}</td><td className="num">{r.old ? r.old.toFixed(3) : '—'}</td><td className="num" style={{ fontWeight: 600 }}>{r.price.toFixed(3)}</td></tr>)}</tbody>
           </table></div>
-          {preview.bad.length > 0 && <div className="sub" style={{ color: 'var(--red)' }}>ما انعرفت: {preview.bad.slice(0, 10).join('، ')}{preview.bad.length > 10 ? '…' : ''}</div>}
-          <div className="row"><button className="btn primary" disabled={!preview.ok.length || !!busy} onClick={applyImport}>{busy === 'import' ? <span className="spinner" /> : <Icon name="check" />} احفظ الأسعار</button>
-            <button className="btn" onClick={() => setPreview(null)}>إلغاء</button></div>
+          {preview.bad.length > 0 && <div className="sub" style={{ color: 'var(--red)' }}>{tr('ما انعرفت')}: {preview.bad.slice(0, 10).join(tr('، '))}{preview.bad.length > 10 ? '…' : ''}</div>}
+          <div className="row"><button className="btn primary" disabled={!preview.ok.length || !!busy} onClick={applyImport}>{busy === 'import' ? <span className="spinner" /> : <Icon name="check" />} {tr('احفظ الأسعار')}</button>
+            <button className="btn" onClick={() => setPreview(null)}>{tr('إلغاء')}</button></div>
         </div>)}
       {msg && <div className={msg.ok ? 'notice' : 'error'} style={{ marginBottom: 12 }}>{msg.t}</div>}
 
       <div className="row" style={{ flexWrap: 'wrap', marginBottom: 12 }}>
-        <div className="chips">{[['none', `بدون سعر (${missing})`], ['all', 'الكل']].map(([k, t]) => <button key={k} className={'chip' + (f === k ? ' on' : '')} onClick={() => setF(k)}>{t}</button>)}</div>
-        <select className="input" style={{ maxWidth: 200, height: 42 }} value={cat} onChange={(e) => setCat(e.target.value)} aria-label="القسم">
-          <option value="">كل الأقسام</option>{cats.map((c) => <option key={c} value={c}>{c}</option>)}</select>
-        <input className="input" style={{ maxWidth: 260, height: 42 }} placeholder="بحث بالاسم…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="chips">{[['none', tr('بدون سعر ({missing})', { missing })], ['all', tr('الكل')]].map(([k, t]) => <button key={k} className={'chip' + (f === k ? ' on' : '')} onClick={() => setF(k)}>{t}</button>)}</div>
+        <select className="input" style={{ maxWidth: 200, height: 42 }} value={cat} onChange={(e) => setCat(e.target.value)} aria-label={tr('القسم')}>
+          <option value="">{tr('كل الأقسام')}</option>{cats.map((c) => <option key={c} value={c}>{tn(c)}</option>)}</select>
+        <input className="input" style={{ maxWidth: 260, height: 42 }} placeholder={tr('بحث بالاسم…')} value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
 
       <div className="card table-wrap">
-        {shown.length === 0 ? <div className="empty">{f === 'none' ? 'كل الأصناف لها سعر ✓' : 'ما فيه أصناف'}</div> : (
+        {shown.length === 0 ? <div className="empty">{f === 'none' ? tr('كل الأصناف لها سعر ✓') : tr('ما فيه أصناف')}</div> : (
           <table>
-            <thead><tr><th>الصنف</th><th>الوحدة</th><th>بالمخزون</th><th>آخر سعر مورد</th><th>السعر (د.ك)</th></tr></thead>
+            <thead><tr><th>{tr('الصنف')}</th><th>{tr('الوحدة')}</th><th>{tr('بالمخزون')}</th><th>{tr('آخر سعر مورد')}</th><th>{tr('السعر (د.ك)')}</th></tr></thead>
             <tbody>{shown.map((i) => {
               const sg = sug[i.id]; const st = saving[i.id]
               return (
                 <tr key={i.id}>
-                  <td style={{ fontWeight: 500 }}>{i.name_ar}{i.category ? <div className="cell-sub">{i.category}</div> : null}</td>
-                  <td>{i.unit || '—'}</td>
+                  <td style={{ fontWeight: 500 }}>{itemNames(i, lang)[0]}{i.category ? <div className="cell-sub">{tn(i.category)}</div> : null}</td>
+                  <td>{tn(i.unit) || '—'}</td>
                   <td className="num">{Number(i.total_qty) || 0}</td>
                   <td>{sg ? <button className="chip" style={{ minHeight: 30 }} title={`${sg.supplier}`} onClick={() => { setEdit({ ...edit, [i.id]: String(sg.unit_price) }); save(i, sg.unit_price) }}>{Number(sg.unit_price).toFixed(3)}</button> : <span className="sub">—</span>}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>
                     <input className="input num ltr" inputMode="decimal" style={{ width: 110, height: 38, borderColor: st === 'error' ? 'var(--red)' : undefined }} placeholder="0.000"
                       value={edit[i.id] ?? (priceOf(i) ? String(priceOf(i)) : '')} onChange={(e) => setEdit({ ...edit, [i.id]: e.target.value })}
-                      onBlur={(e) => save(i, e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }} aria-label={`سعر ${i.name_ar}`} />
+                      onBlur={(e) => save(i, e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }} aria-label={tr('سعر {name_ar}', { name_ar: itemNames(i, lang)[0] })} />
                     {' '}{st === 'saving' ? <span className="spinner" /> : st === 'ok' ? <span style={{ color: 'var(--ok)' }}>✓</span> : null}
                   </td>
                 </tr>)

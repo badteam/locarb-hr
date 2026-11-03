@@ -1,16 +1,18 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { supabase, fmtDate } from '../../lib/supabase'
+import { supabase } from '../../lib/supabase'
 import { useAccess } from '../../lib/access.jsx'
 import { kwd, invErr, clearLookups } from '../../lib/inv'
 import { CONTACT_ROLE, SUP_STATUS, WEEKDAYS, PAY_PREF, telLink, waLink } from '../../lib/supplier'
 import Icon from '../../components/Icon.jsx'
 import { uploadAttachment, readFile, readError, openFile, ACCEPT } from '../../lib/ai'
+import { useLang } from '../../lib/i18n.jsx'
 
 const Section = ({ title, children }) => <div className="card form" style={{ gap: 10, padding: 14 }}><strong style={{ fontSize: 15 }}>{title}</strong>{children}</div>
 const blankContact = () => ({ tmp: Math.random(), role: 'sales', name: '', phone: '', whatsapp: true })
 
 export function SupplierForm({ supplier, presetName, onClose, onSaved }) {
+  const { tr } = useLang()
   const { access, can } = useAccess()
   const canBank = access.is_owner || can('supplier_payments') || can('manage_suppliers')
   const s = supplier || {}
@@ -55,8 +57,8 @@ export function SupplierForm({ supplier, presetName, onClose, onSaved }) {
         licence_no: d.licence_no || x.licence_no, licence_expiry: d.licence_expiry || x.licence_expiry, contract_expiry: d.contract_expiry || x.contract_expiry }))
       if (d.contact_name || d.phone) setContacts((cs) => (cs.some((c) => c.phone === d.phone) ? cs : [...cs.filter((c) => c.name || c.phone), { ...blankContact(), name: d.contact_name || '', phone: d.phone || '' }]))
       const dup = !supplier && r.match?.supplier ? r.match.supplier : null
-      setScan(dup ? { ok: false, t: `انتبه: هالمورد شكله موجود عندك باسم "${dup.name}".` } : { ok: true, t: `قرا الورقة: ${d.summary_ar || d.company_name || ''}` })
-    } catch (e2) { setScan({ ok: false, t: invErr(e2) }) }
+      setScan(dup ? { ok: false, t: tr('انتبه: هالمورد شكله موجود عندك باسم "{name}".', { name: dup.name }) } : { ok: true, t: tr('قرا الورقة: {v}', { v: d.summary_ar || d.company_name || '' }) })
+    } catch (e2) { setScan({ ok: false, t: tr(invErr(e2)) }) }
     setBusy(false)
   }
   const save = async (e) => {
@@ -74,7 +76,7 @@ export function SupplierForm({ supplier, presetName, onClose, onSaved }) {
       ...((f.licence_expiry !== (s.licence_expiry || '') || f.contract_expiry !== (s.contract_expiry || '')) ? { last_alert_stage: null } : {}),
     }
     const r = s.id ? await supabase.from('suppliers').update(row).eq('id', s.id).select().single() : await supabase.from('suppliers').insert(row).select().single()
-    if (r.error) { setErr(invErr(r.error)); setBusy(false); return }
+    if (r.error) { setErr(tr(invErr(r.error))); setBusy(false); return }
     const sid = r.data.id
     const keep = contacts.filter((c) => c.name || c.phone)
     if (removed.length) await supabase.from('supplier_contacts').delete().in('id', removed)
@@ -82,110 +84,111 @@ export function SupplierForm({ supplier, presetName, onClose, onSaved }) {
       const c = keep[i]
       const rowC = { supplier_id: sid, role: c.role, name: n(c.name), phone: n(c.phone), whatsapp: !!c.whatsapp, email: n(c.email), notes: n(c.notes), sort_order: i }
       const rr = c.id ? await supabase.from('supplier_contacts').update(rowC).eq('id', c.id) : await supabase.from('supplier_contacts').insert(rowC)
-      if (rr.error) { setErr(invErr(rr.error)); setBusy(false); return }
+      if (rr.error) { setErr(tr(invErr(rr.error))); setBusy(false); return }
     }
     if (canBank && Object.entries(bank).some(([k, v]) => !['supplier_id', 'updated_at', 'updated_by'].includes(k) && v)) {
       const b = { supplier_id: sid, bank_name: n(bank.bank_name), account_name: n(bank.account_name), account_no: n(bank.account_no),
         iban: n((bank.iban || '').replace(/\s+/g, '').toUpperCase()), swift: n(bank.swift), notes: n(bank.notes), updated_at: new Date().toISOString() }
       const rb = await supabase.from('supplier_bank').upsert(b)
-      if (rb.error) { setErr('انحفظ المورد، بس بيانات البنك ما انحفظت: ' + invErr(rb.error)); setBusy(false); return }
+      if (rb.error) { setErr(tr('انحفظ المورد، بس بيانات البنك ما انحفظت: ') + tr(invErr(rb.error))); setBusy(false); return }
     }
     setBusy(false); clearLookups(); onSaved?.(r.data); onClose()
   }
   return (
     <div className="overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <form className="sheet form" onSubmit={save} style={{ maxWidth: 720 }}>
-        <div className="sheet-head"><h2 style={{ fontSize: 20 }}>{s.id ? s.name : 'مورد جديد'}</h2>
-          <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose}><Icon name="x" /></button></div>
+        <div className="sheet-head"><h2 style={{ fontSize: 20 }}>{s.id ? s.name : tr('مورد جديد')}</h2>
+          <button type="button" className="icon-btn" aria-label={tr('إغلاق')} onClick={onClose}><Icon name="x" /></button></div>
         <label className="upload" style={{ height: 70 }}>
           <input type="file" accept={ACCEPT} onChange={(e) => { read(e.target.files?.[0]); e.target.value = '' }} />
-          {busy ? <><span className="spinner" /> جاري القراءة…</> : <><Icon name="camera" /> ارفع رخصة المورد أو العقد أو الكرت، والنظام يعبّي البيانات</>}
+          {busy ? <><span className="spinner" /> {tr('جاري القراءة…')}</> : <><Icon name="camera" /> {tr('ارفع رخصة المورد أو العقد أو الكرت، والنظام يعبّي البيانات')}</>}
         </label>
         {scan && <div className={scan.ok ? 'notice' : 'warn'}>{scan.t}</div>}
 
-        <Section title="الأساسي">
-          <div className="field"><label htmlFor="sn">اسم المورد</label><input id="sn" className="input" value={f.name} onChange={set('name')} required /></div>
-          <div className="field"><label htmlFor="sc">إيش يورّد (افصل بفاصلة)</label><input id="sc" className="input" placeholder="مثلاً: دجاج، لحوم، تغليف" value={f.categories} onChange={set('categories')} />
-            <div className="sub">النظام يضيف لحاله التصنيفات من الفواتير.</div></div>
-          <div className="field"><span className="lbl">الحالة</span>
-            <div className="chips">{Object.entries(SUP_STATUS).map(([k, [, l]]) => <button type="button" key={k} className={'chip' + (f.status === k ? ' on' : '')} onClick={() => setF({ ...f, status: k })}>{l}</button>)}</div></div>
-          {f.status !== 'active' && <div className="field"><label htmlFor="sr">السبب</label><input id="sr" className="input" value={f.status_reason} onChange={set('status_reason')} /></div>}
+        <Section title={tr('الأساسي')}>
+          <div className="field"><label htmlFor="sn">{tr('اسم المورد')}</label><input id="sn" className="input" value={f.name} onChange={set('name')} required /></div>
+          <div className="field"><label htmlFor="sc">{tr('إيش يورّد (افصل بفاصلة)')}</label><input id="sc" className="input" placeholder={tr('مثلاً: دجاج، لحوم، تغليف')} value={f.categories} onChange={set('categories')} />
+            <div className="sub">{tr('النظام يضيف لحاله التصنيفات من الفواتير.')}</div></div>
+          <div className="field"><span className="lbl">{tr('الحالة')}</span>
+            <div className="chips">{Object.entries(SUP_STATUS).map(([k, [, l]]) => <button type="button" key={k} className={'chip' + (f.status === k ? ' on' : '')} onClick={() => setF({ ...f, status: k })}>{tr(l)}</button>)}</div></div>
+          {f.status !== 'active' && <div className="field"><label htmlFor="sr">{tr('السبب')}</label><input id="sr" className="input" value={f.status_reason} onChange={set('status_reason')} /></div>}
         </Section>
 
-        <Section title="أرقام التواصل">
+        <Section title={tr('أرقام التواصل')}>
           {contacts.map((c, i) => (
             <div key={c.id || c.tmp} className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 6, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid var(--line)' }}>
-              <select className="input" value={c.role} onChange={(e) => setC(i, { role: e.target.value })} aria-label="الصفة">
-                {Object.entries(CONTACT_ROLE).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
-              <input className="input" placeholder="الاسم" value={c.name || ''} onChange={(e) => setC(i, { name: e.target.value })} aria-label="الاسم" />
-              <input className="input ltr" inputMode="tel" placeholder="الرقم" value={c.phone || ''} onChange={(e) => setC(i, { phone: e.target.value })} aria-label="الرقم" />
+              <select className="input" value={c.role} onChange={(e) => setC(i, { role: e.target.value })} aria-label={tr('الصفة')}>
+                {Object.entries(CONTACT_ROLE).map(([k, l]) => <option key={k} value={k}>{tr(l)}</option>)}</select>
+              <input className="input" placeholder={tr('الاسم')} value={c.name || ''} onChange={(e) => setC(i, { name: e.target.value })} aria-label={tr('الاسم')} />
+              <input className="input ltr" inputMode="tel" placeholder={tr('الرقم')} value={c.phone || ''} onChange={(e) => setC(i, { phone: e.target.value })} aria-label={tr('الرقم')} />
               <div className="row" style={{ gap: 4 }}>
-                <label className="check" style={{ fontSize: 12 }}><input type="checkbox" checked={!!c.whatsapp} onChange={(e) => setC(i, { whatsapp: e.target.checked })} /> واتساب</label>
-                <button type="button" className="icon-btn" style={{ width: 34, height: 34 }} aria-label="حذف" onClick={() => { if (c.id) setRemoved([...removed, c.id]); setContacts(contacts.filter((_, j) => j !== i)) }}><Icon name="trash" size={15} /></button>
+                <label className="check" style={{ fontSize: 12 }}><input type="checkbox" checked={!!c.whatsapp} onChange={(e) => setC(i, { whatsapp: e.target.checked })} /> {tr('واتساب')}</label>
+                <button type="button" className="icon-btn" style={{ width: 34, height: 34 }} aria-label={tr('حذف')} onClick={() => { if (c.id) setRemoved([...removed, c.id]); setContacts(contacts.filter((_, j) => j !== i)) }}><Icon name="trash" size={15} /></button>
               </div>
             </div>))}
-          <button type="button" className="btn" onClick={() => setContacts([...contacts, blankContact()])}><Icon name="plus" /> رقم ثاني</button>
+          <button type="button" className="btn" onClick={() => setContacts([...contacts, blankContact()])}><Icon name="plus" /> {tr('رقم ثاني')}</button>
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-            <div className="field"><label htmlFor="ph">هاتف الشركة</label><input id="ph" className="input ltr" inputMode="tel" value={f.phone} onChange={set('phone')} /></div>
-            <div className="field"><label htmlFor="em">الإيميل</label><input id="em" className="input ltr" type="email" value={f.email} onChange={set('email')} /></div>
+            <div className="field"><label htmlFor="ph">{tr('هاتف الشركة')}</label><input id="ph" className="input ltr" inputMode="tel" value={f.phone} onChange={set('phone')} /></div>
+            <div className="field"><label htmlFor="em">{tr('الإيميل')}</label><input id="em" className="input ltr" type="email" value={f.email} onChange={set('email')} /></div>
           </div>
         </Section>
 
-        <Section title="العنوان">
+        <Section title={tr('العنوان')}>
           <div className="grid" style={{ gridTemplateColumns: '1fr 2fr' }}>
-            <div className="field"><label htmlFor="ar">المنطقة</label><input id="ar" className="input" value={f.area} onChange={set('area')} placeholder="مثلاً: الري" /></div>
-            <div className="field"><label htmlFor="ad">العنوان</label><input id="ad" className="input" value={f.address} onChange={set('address')} placeholder="قطعة، شارع، مبنى" /></div>
+            <div className="field"><label htmlFor="ar">{tr('المنطقة')}</label><input id="ar" className="input" value={f.area} onChange={set('area')} placeholder={tr('مثلاً: الري')} /></div>
+            <div className="field"><label htmlFor="ad">{tr('العنوان')}</label><input id="ad" className="input" value={f.address} onChange={set('address')} placeholder={tr('قطعة، شارع، مبنى')} /></div>
           </div>
-          <div className="field"><label htmlFor="mp">رابط اللوكيشن (خرائط جوجل)</label><input id="mp" className="input ltr" value={f.map_url} onChange={set('map_url')} /></div>
+          <div className="field"><label htmlFor="mp">{tr('رابط اللوكيشن (خرائط جوجل)')}</label><input id="mp" className="input ltr" value={f.map_url} onChange={set('map_url')} /></div>
         </Section>
 
-        <Section title="الدفع والتوريد">
+        <Section title={tr('الدفع والتوريد')}>
           <div className="grid" style={{ gridTemplateColumns: '2fr 1fr 1fr' }}>
-            <div className="field"><label htmlFor="pt">شروط الدفع</label><input id="pt" className="input" placeholder="مثلاً: آجل ٣٠ يوم" value={f.payment_terms} onChange={set('payment_terms')} /></div>
-            <div className="field"><label htmlFor="cd">مهلة الدفع (يوم)</label><input id="cd" className="input num" type="number" min="0" value={f.credit_days} onChange={set('credit_days')} /></div>
-            <div className="field"><label htmlFor="pp">طريقة الدفع</label>
+            <div className="field"><label htmlFor="pt">{tr('شروط الدفع')}</label><input id="pt" className="input" placeholder={tr('مثلاً: آجل ٣٠ يوم')} value={f.payment_terms} onChange={set('payment_terms')} /></div>
+            <div className="field"><label htmlFor="cd">{tr('مهلة الدفع (يوم)')}</label><input id="cd" className="input num" type="number" min="0" value={f.credit_days} onChange={set('credit_days')} /></div>
+            <div className="field"><label htmlFor="pp">{tr('طريقة الدفع')}</label>
               <select id="pp" className="input" value={f.preferred_payment} onChange={set('preferred_payment')}><option value="">—</option>
-                {Object.entries(PAY_PREF).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></div>
+                {Object.entries(PAY_PREF).map(([k, l]) => <option key={k} value={k}>{tr(l)}</option>)}</select></div>
           </div>
-          <div className="field"><span className="lbl">أيام التوصيل</span>
+          <div className="field"><span className="lbl">{tr('أيام التوصيل')}</span>
             <div className="chips">{WEEKDAYS.map((d, i) => <button type="button" key={i} className={'chip' + (f.delivery_days.includes(i) ? ' on' : '')}
-              onClick={() => setF({ ...f, delivery_days: f.delivery_days.includes(i) ? f.delivery_days.filter((x) => x !== i) : [...f.delivery_days, i].sort() })}>{d}</button>)}</div></div>
+              onClick={() => setF({ ...f, delivery_days: f.delivery_days.includes(i) ? f.delivery_days.filter((x) => x !== i) : [...f.delivery_days, i].sort() })}>{tr(d)}</button>)}</div></div>
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-            <div className="field"><label htmlFor="oc">آخر وقت للطلب</label><input id="oc" className="input" placeholder="مثلاً: قبل ٢ الظهر لليوم اللي بعده" value={f.order_cutoff} onChange={set('order_cutoff')} /></div>
-            <div className="field"><label htmlFor="mo">أقل طلبية (د.ك)</label><input id="mo" className="input num" type="number" min="0" step="any" value={f.min_order} onChange={set('min_order')} /></div>
+            <div className="field"><label htmlFor="oc">{tr('آخر وقت للطلب')}</label><input id="oc" className="input" placeholder={tr('مثلاً: قبل ٢ الظهر لليوم اللي بعده')} value={f.order_cutoff} onChange={set('order_cutoff')} /></div>
+            <div className="field"><label htmlFor="mo">{tr('أقل طلبية (د.ك)')}</label><input id="mo" className="input num" type="number" min="0" step="any" value={f.min_order} onChange={set('min_order')} /></div>
           </div>
-          <div className="field"><label htmlFor="ag">اتفاقيات خاصة</label><textarea id="ag" className="input" rows={2} placeholder="مثلاً: سعر ثابت للدجاج لين نهاية السنة، خصم ٣٪ فوق ٥٠٠ د.ك" value={f.agreements} onChange={set('agreements')} /></div>
+          <div className="field"><label htmlFor="ag">{tr('اتفاقيات خاصة')}</label><textarea id="ag" className="input" rows={2} placeholder={tr('مثلاً: سعر ثابت للدجاج لين نهاية السنة، خصم ٣٪ فوق ٥٠٠ د.ك')} value={f.agreements} onChange={set('agreements')} /></div>
         </Section>
 
-        {canBank && <Section title="بيانات البنك (تبين للمالك والمحاسب بس)">
+        {canBank && <Section title={tr('بيانات البنك (تبين للمالك والمحاسب بس)')}>
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-            <div className="field"><label htmlFor="bn">البنك</label><input id="bn" className="input" value={bank.bank_name || ''} onChange={(e) => setBank({ ...bank, bank_name: e.target.value })} /></div>
-            <div className="field"><label htmlFor="ba">اسم صاحب الحساب</label><input id="ba" className="input" value={bank.account_name || ''} onChange={(e) => setBank({ ...bank, account_name: e.target.value })} /></div>
-            <div className="field"><label htmlFor="bc">رقم الحساب</label><input id="bc" className="input ltr" value={bank.account_no || ''} onChange={(e) => setBank({ ...bank, account_no: e.target.value })} /></div>
+            <div className="field"><label htmlFor="bn">{tr('البنك')}</label><input id="bn" className="input" value={bank.bank_name || ''} onChange={(e) => setBank({ ...bank, bank_name: e.target.value })} /></div>
+            <div className="field"><label htmlFor="ba">{tr('اسم صاحب الحساب')}</label><input id="ba" className="input" value={bank.account_name || ''} onChange={(e) => setBank({ ...bank, account_name: e.target.value })} /></div>
+            <div className="field"><label htmlFor="bc">{tr('رقم الحساب')}</label><input id="bc" className="input ltr" value={bank.account_no || ''} onChange={(e) => setBank({ ...bank, account_no: e.target.value })} /></div>
             <div className="field"><label htmlFor="bs">SWIFT</label><input id="bs" className="input ltr" value={bank.swift || ''} onChange={(e) => setBank({ ...bank, swift: e.target.value })} /></div>
           </div>
-          <div className="field"><label htmlFor="bi">الآيبان IBAN</label><input id="bi" className="input ltr" placeholder="KW.." value={bank.iban || ''} onChange={(e) => setBank({ ...bank, iban: e.target.value })} /></div>
+          <div className="field"><label htmlFor="bi">{tr('الآيبان IBAN')}</label><input id="bi" className="input ltr" placeholder="KW.." value={bank.iban || ''} onChange={(e) => setBank({ ...bank, iban: e.target.value })} /></div>
         </Section>}
 
-        <Section title="الأوراق الرسمية">
+        <Section title={tr('الأوراق الرسمية')}>
           <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
-            <div className="field"><label htmlFor="cr">السجل التجاري</label><input id="cr" className="input ltr" value={f.cr_no} onChange={set('cr_no')} /></div>
-            <div className="field"><label htmlFor="ln">رقم الرخصة</label><input id="ln" className="input ltr" value={f.licence_no} onChange={set('licence_no')} /></div>
-            <div className="field"><label htmlFor="le">انتهاء الرخصة</label><input id="le" type="date" className="input" value={f.licence_expiry} onChange={set('licence_expiry')} /></div>
-            <div className="field"><label htmlFor="ce">انتهاء العقد</label><input id="ce" type="date" className="input" value={f.contract_expiry} onChange={set('contract_expiry')} /></div>
+            <div className="field"><label htmlFor="cr">{tr('السجل التجاري')}</label><input id="cr" className="input ltr" value={f.cr_no} onChange={set('cr_no')} /></div>
+            <div className="field"><label htmlFor="ln">{tr('رقم الرخصة')}</label><input id="ln" className="input ltr" value={f.licence_no} onChange={set('licence_no')} /></div>
+            <div className="field"><label htmlFor="le">{tr('انتهاء الرخصة')}</label><input id="le" type="date" className="input" value={f.licence_expiry} onChange={set('licence_expiry')} /></div>
+            <div className="field"><label htmlFor="ce">{tr('انتهاء العقد')}</label><input id="ce" type="date" className="input" value={f.contract_expiry} onChange={set('contract_expiry')} /></div>
           </div>
-          {f.doc_paths.length > 0 && <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}><span className="sub">الأوراق:</span>
-            {f.doc_paths.map((p, i) => <button type="button" key={p} className="chip" style={{ minHeight: 30 }} onClick={() => openFile('attachments', p)}>ورقة {i + 1}</button>)}</div>}
+          {f.doc_paths.length > 0 && <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}><span className="sub">{tr('الأوراق')}:</span>
+            {f.doc_paths.map((p, i) => <button type="button" key={p} className="chip" style={{ minHeight: 30 }} onClick={() => openFile('attachments', p)}>{tr('ورقة {v}', { v: i + 1 })}</button>)}</div>}
         </Section>
-        <div className="field"><label htmlFor="no">ملاحظات عامة</label><input id="no" className="input" value={f.notes} onChange={set('notes')} /></div>
+        <div className="field"><label htmlFor="no">{tr('ملاحظات عامة')}</label><input id="no" className="input" value={f.notes} onChange={set('notes')} /></div>
         {err && <div className="error">{err}</div>}
-        <button className="btn primary block" disabled={busy}>{busy ? <span className="spinner" /> : null} حفظ</button>
+        <button className="btn primary block" disabled={busy}>{busy ? <span className="spinner" /> : null} {tr('حفظ')}</button>
       </form>
     </div>
   )
 }
 
 function Directory() {
+  const { tr } = useLang()
   const [rows, setRows] = useState(null)
   const [q, setQ] = useState('')
   useEffect(() => { supabase.rpc('supplier_directory').then(({ data }) => setRows(data || [])) }, [])
@@ -197,7 +200,7 @@ function Directory() {
   const nav = useNavigate()
   return (
     <div>
-      <div className="toolbar"><div className="search"><Icon name="search" size={18} /><input className="input" placeholder="دوّر باسم المورد أو بالصنف (مثلاً: دجاج) أو بالرقم" value={q} onChange={(e) => setQ(e.target.value)} /></div></div>
+      <div className="toolbar"><div className="search"><Icon name="search" size={18} /><input className="input" placeholder={tr('دوّر باسم المورد أو بالصنف (مثلاً: دجاج) أو بالرقم')} value={q} onChange={(e) => setQ(e.target.value)} /></div></div>
       {!rows ? <div className="center" style={{ minHeight: 120 }}><span className="spinner" /></div> :
         <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: 12 }}>
           {shown.map((s) => {
@@ -208,27 +211,28 @@ function Directory() {
               <div key={s.id} className="card form" style={{ gap: 8 }}>
                 <div className="row" style={{ justifyContent: 'space-between' }}>
                   <button className="btn-link" style={{ fontWeight: 700, fontSize: 16, background: 'none', border: 0, padding: 0, cursor: 'pointer', color: 'var(--ink)' }} onClick={() => nav(`/inventory/suppliers/${s.id}`)}>{s.name}</button>
-                  {s.status !== 'active' && <span className={'pill ' + SUP_STATUS[s.status][0]}>{SUP_STATUS[s.status][1]}</span>}
+                  {s.status !== 'active' && <span className={'pill ' + SUP_STATUS[s.status][0]}>{tr(SUP_STATUS[s.status][1])}</span>}
                 </div>
                 {cats.length > 0 && <div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>{cats.map((c) => <span key={c} className="pill gray">{c}</span>)}</div>}
-                {hit?.length > 0 && <div className="sub">يبيع: {hit.join('، ')}</div>}
+                {hit?.length > 0 && <div className="sub">{tr('يبيع')}: {hit.join(tr('، '))}</div>}
                 {s.area && <div className="sub">{s.area}</div>}
-                {contacts.length === 0 && <div className="sub">ما فيه أرقام مسجلة</div>}
+                {contacts.length === 0 && <div className="sub">{tr('ما فيه أرقام مسجلة')}</div>}
                 {contacts.map((c, i) => (
                   <div key={i} className="row" style={{ gap: 6 }}>
-                    <span className="grow"><span className="sub">{CONTACT_ROLE[c.role] || ''}</span> {c.name || ''} <span className="num ltr">{c.phone}</span></span>
-                    {c.phone && <a className="icon-btn" style={{ width: 36, height: 36 }} href={telLink(c.phone)} aria-label="اتصال"><Icon name="phone" size={16} /></a>}
-                    {c.phone && c.whatsapp && <a className="icon-btn" style={{ width: 36, height: 36, color: '#1F8F4E' }} href={waLink(c.phone)} target="_blank" rel="noreferrer" aria-label="واتساب"><Icon name="chat" size={16} /></a>}
+                    <span className="grow"><span className="sub">{tr(CONTACT_ROLE[c.role] || '')}</span> {c.name || ''} <span className="num ltr">{c.phone}</span></span>
+                    {c.phone && <a className="icon-btn" style={{ width: 36, height: 36 }} href={telLink(c.phone)} aria-label={tr('اتصال')}><Icon name="phone" size={16} /></a>}
+                    {c.phone && c.whatsapp && <a className="icon-btn" style={{ width: 36, height: 36, color: '#1F8F4E' }} href={waLink(c.phone)} target="_blank" rel="noreferrer" aria-label={tr('واتساب')}><Icon name="chat" size={16} /></a>}
                   </div>))}
               </div>)
           })}
-          {shown.length === 0 && <div className="card empty">ما لقينا شي</div>}
+          {shown.length === 0 && <div className="card empty">{tr('ما لقينا شي')}</div>}
         </div>}
     </div>
   )
 }
 
 export default function Suppliers() {
+  const { tr, fmtDate } = useLang()
   const { can } = useAccess()
   const nav = useNavigate()
   const [tab, setTab] = useState('list')
@@ -265,28 +269,28 @@ export default function Suppliers() {
 
   return (
     <div>
-      <div className="page-head"><div><h1>الموردين</h1><div className="sub">افتح أي مورد تشوف كل شي عنه: فواتيره، بضاعته، أسعاره، حسابه، وتقدر تسأل النظام عنه</div></div>
-        {canEdit && <button className="btn primary" onClick={() => setAdding(true)}><Icon name="plus" /> مورد جديد</button>}</div>
+      <div className="page-head"><div><h1>{tr('الموردين')}</h1><div className="sub">{tr('افتح أي مورد تشوف كل شي عنه: فواتيره، بضاعته، أسعاره، حسابه، وتقدر تسأل النظام عنه')}</div></div>
+        {canEdit && <button className="btn primary" onClick={() => setAdding(true)}><Icon name="plus" /> {tr('مورد جديد')}</button>}</div>
       <div className="chips" style={{ marginBottom: 12 }}>
-        <button className={'chip' + (tab === 'list' ? ' on' : '')} onClick={() => setTab('list')}>الموردين</button>
-        <button className={'chip' + (tab === 'dir' ? ' on' : '')} onClick={() => setTab('dir')}>دليل الأرقام</button>
+        <button className={'chip' + (tab === 'list' ? ' on' : '')} onClick={() => setTab('list')}>{tr('الموردين')}</button>
+        <button className={'chip' + (tab === 'dir' ? ' on' : '')} onClick={() => setTab('dir')}>{tr('دليل الأرقام')}</button>
       </div>
       {tab === 'dir' ? <Directory /> : <>
-        <div className="toolbar"><div className="search"><Icon name="search" size={18} /><input className="input" placeholder="دوّر بالاسم أو الرقم أو إيش يورّد" value={q} onChange={(e) => setQ(e.target.value)} /></div></div>
+        <div className="toolbar"><div className="search"><Icon name="search" size={18} /><input className="input" placeholder={tr('دوّر بالاسم أو الرقم أو إيش يورّد')} value={q} onChange={(e) => setQ(e.target.value)} /></div></div>
         <div className="card list" style={{ padding: '4px 14px' }}>
-          {shown.length === 0 && <div className="empty">ما فيه موردين. أضف أول مورد، أو صوّر فاتورة والنظام يقترح اسم المورد.</div>}
+          {shown.length === 0 && <div className="empty">{tr('ما فيه موردين. أضف أول مورد، أو صوّر فاتورة والنظام يقترح اسم المورد.')}</div>}
           {shown.map((s) => {
             const st = stats[s.id]
             return (
-              <button key={s.id} className="list-item" style={{ width: '100%', background: 'none', border: 0, cursor: 'pointer', textAlign: 'right' }} onClick={() => nav(`/inventory/suppliers/${s.id}`)}>
+              <button key={s.id} className="list-item" style={{ width: '100%', background: 'none', border: 0, cursor: 'pointer', textAlign: 'start' }} onClick={() => nav(`/inventory/suppliers/${s.id}`)}>
                 <span className="avatar"><Icon name="truck" /></span>
                 <span className="grow"><div style={{ fontWeight: 600 }}>{s.name}</div>
-                  <div className="sub">{(s.categories || []).length ? s.categories.join('، ') + ' · ' : ''}{st ? `${st.n} فاتورة آخر ٩٠ يوم · آخر وحدة ${fmtDate(st.last)}` : 'ما فيه فواتير معتمدة'}</div></span>
+                  <div className="sub">{(s.categories || []).length ? s.categories.join(tr('، ')) + ' · ' : ''}{st ? tr('{n} فاتورة آخر ٩٠ يوم · آخر وحدة {last}', { n: st.n, last: fmtDate(st.last) }) : tr('ما فيه فواتير معتمدة')}</div></span>
                 {st && <span className="num" style={{ fontWeight: 600 }}>{kwd(st.total)}</span>}
-                {owed[s.id]?.amt > 0.0005 && <span className={'pill ' + (owed[s.id].late > 0 ? 'red' : 'amber')}>علينا {kwd(owed[s.id].amt)}</span>}
+                {owed[s.id]?.amt > 0.0005 && <span className={'pill ' + (owed[s.id].late > 0 ? 'red' : 'amber')}>{tr('علينا {amt}', { amt: kwd(owed[s.id].amt) })}</span>}
                 {(() => { const d = [s.licence_expiry, s.contract_expiry].filter(Boolean).sort()[0]; if (!d) return null; const left = Math.round((new Date(d) - new Date()) / 864e5)
-                  return left < 0 ? <span className="pill red">ورقة منتهية</span> : left <= 30 ? <span className="pill amber">ورقة تنتهي بعد {left} يوم</span> : null })()}
-                {s.status && s.status !== 'active' && <span className={'pill ' + SUP_STATUS[s.status][0]}>{SUP_STATUS[s.status][1]}</span>}
+                  return left < 0 ? <span className="pill red">{tr('ورقة منتهية')}</span> : left <= 30 ? <span className="pill amber">{tr('ورقة تنتهي بعد {left} يوم', { left })}</span> : null })()}
+                {s.status && s.status !== 'active' && <span className={'pill ' + SUP_STATUS[s.status][0]}>{tr(SUP_STATUS[s.status][1])}</span>}
               </button>
             )
           })}

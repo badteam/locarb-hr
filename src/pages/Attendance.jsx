@@ -106,6 +106,15 @@ export default function Attendance() {
 
   const bName = Object.fromEntries(branches.map((b) => [b.id, b.name]))
   const hours = (a) => a.check_out_at ? ((new Date(a.check_out_at) - new Date(a.check_in_at)) / 3600000).toFixed(1) : '—'
+  // several segments for one employee on one day: total of the closed ones, shown once on the newest row of that day
+  const dayTotals = {}
+  for (const a of rows) {
+    const k = a.employee_id + a.work_date
+    const d = (dayTotals[k] ||= { n: 0, ms: 0, open: false, first: a.id })
+    d.n += 1
+    if (a.check_out_at) d.ms += new Date(a.check_out_at) - new Date(a.check_in_at); else d.open = true
+  }
+  const limitHit = rows.length >= 1000
 
   const exportCsv = async () => {
     setExporting(true)
@@ -181,7 +190,7 @@ export default function Attendance() {
           </div>
         )
       })()}
-      {rows.length >= 1000 && <div className="warn" style={{ marginBottom: 12 }}>الصفحة تعرض أول 1000 بصمة. ملف Excel فيه كل بصمات الفترة.</div>}
+      {limitHit && <div className="warn" style={{ marginBottom: 12 }}><strong>الصفحة تعرض أحدث 1000 بصمة بس، وفيه بصمات أقدم ما تبينت.</strong> ضيّق الفترة أو اختار فرع أو موظف، أو نزّل ملف Excel (فيه كل بصمات الفترة). مجموع ساعات اليوم ممكن يكون ناقص لأيام أول الفترة.</div>}
       <div className="card table-wrap">
         {rows.length === 0 ? <div className="empty">ما فيه سجلات في هالفترة</div> : (
           <table>
@@ -197,7 +206,7 @@ export default function Attendance() {
                     {a.check_out_at && a.check_out_lat != null && (a.check_out_inside === false
                       ? <div><span className="pill red">برا الفرع</span></div>
                       : a.check_out_branch_id && a.check_out_branch_id !== a.branch_id ? <div className="cell-sub">من {bName[a.check_out_branch_id]}</div> : null)}</td>
-                  <td>{hours(a)}</td>
+                  <td>{hours(a)}{(() => { const d = dayTotals[a.employee_id + a.work_date]; if (!d || d.n < 2 || d.first !== a.id) return null; return <div className="cell-sub" title="مجموع كل بصمات هاليوم">مجموع اليوم {(d.ms / 3600000).toFixed(1)} س ({d.n} بصمات){d.open ? ' + مفتوحة' : ''}</div> })()}</td>
                   <td>{(() => { const o = ot[a.employee_id + a.work_date]; if (!o) return '—'; const m = o.status === 'approved' ? o.approved_minutes : o.minutes; return <span className={'pill ' + (o.status === 'approved' ? 'ok' : 'amber')}>{(m / 60).toFixed(1)} س{o.status === 'pending' ? ' · ينتظر' : ''}</span> })()}</td>
                   <td>
                     {a.late_minutes > 0 && <span className="pill amber">متأخر {a.late_minutes} د</span>}{' '}

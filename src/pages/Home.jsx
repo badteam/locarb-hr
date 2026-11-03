@@ -113,7 +113,10 @@ export default function Home() {
       }
       await load()
     } catch (e) {
-      setMsg({ ok: false, text: e.message?.includes('already checked in') ? t('already_in') : e.message?.includes('location required') ? t('loc_unavailable') : tr(errMsg(e)) })
+      const m = e.message || ''
+      setMsg({ ok: false, text: m.includes('already checked in') ? t('already_in') : m.includes('location required') ? t('loc_unavailable')
+        : m.includes('just checked out') ? tr('توك مسجل انصراف. انتظر ٥ دقايق وبعدين سجل حضور')
+        : m.includes('just checked in') ? tr('توك مسجل حضور. انتظر دقيقتين قبل الانصراف') : tr(errMsg(e)) })
     }
     setBusy(false)
   }

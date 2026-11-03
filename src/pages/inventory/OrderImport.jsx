@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import readXlsxFile from 'read-excel-file/browser'
 import { supabase, selectAll } from '../../lib/supabase'
-import { kwd, qtyFmt, loadLookups, invErr } from '../../lib/inv'
+import { kwd, qtyFmt, loadLookups, invErr, itemNames } from '../../lib/inv'
 import { parseSheet, parseDate, guessBranch, spellKey, normName, normUnit, unitFactor, bestMatches, kwDay, fileHash, contentUnits, contentFactor } from '../../lib/orderSheet'
 import ProductImage from '../../components/ProductImage.jsx'
 import Icon from '../../components/Icon.jsx'
 import ItemSearchSheet from '../../components/ItemSearchSheet.jsx'
+import { useLang } from '../../lib/i18n.jsx'
 
 // Branch orders written in Excel (one sheet per branch) entered into stock on their own date.
 // Names are linked to items (saved links first, then the AI, then the manager), and items counted
@@ -21,6 +22,7 @@ const AI_ERR = { not_configured: 'مفتاح الذكاء مش متسجل في �
 const CONF = { saved: ['ok', 'مربوط من قبل'], manual: ['ok', 'ربطته أنت'], high: ['ok', 'الذكاء: متأكد'], medium: ['amber', 'الذكاء: غالباً'], low: ['red', 'الذكاء: تخمين'], guess: ['amber', 'تشابه في الاسم'] }
 
 export default function OrderImport() {
+  const { tr, tn, lang } = useLang()
   const [lookups, setLookups] = useState(null)
   const [items, setItems] = useState([])
   const [aliases, setAliases] = useState({})
@@ -62,8 +64,8 @@ export default function OrderImport() {
     const fl = [...(list || [])].filter(Boolean)
     if (!fl.length) return
     const bad = fl.filter((f) => !/\.xlsx$/i.test(f.name))
-    if (bad.length === fl.length) { setErr('الملف لازم يكون إكسل (.xlsx)'); return }
-    setErr(''); setMsg(bad.length ? `اتجاهلت ${bad.length} ملف مش إكسل.` : ''); setBusy('read'); setSheets([]); setMaps({}); setOv({}); setDone({}); setActive(0)
+    if (bad.length === fl.length) { setErr(tr('الملف لازم يكون إكسل (.xlsx)')); return }
+    setErr(''); setMsg(bad.length ? `${tr('اتجاهلت {n} ملف مش إكسل', { n: bad.length })}.` : ''); setBusy('read'); setSheets([]); setMaps({}); setOv({}); setDone({}); setActive(0)
     try {
       const out = [], got = [], allOv = {}
       for (const f of fl.filter((x) => /\.xlsx$/i.test(x.name))) {
@@ -88,7 +90,7 @@ export default function OrderImport() {
           out.push({ key, sheet: sh.sheet, name: sh.sheet.trim(), fname: f.name, fhash: hash, title: p.title, date, branch, lines })
         }
       }
-      if (!out.length) { setErr('ما لقيت أصناف في الملفات. لازم يكون فيه عمود اسم الصنف (ITEM NAME) وعمود الكمية (QTY).'); setBusy(''); return }
+      if (!out.length) { setErr(tr('ما لقيت أصناف في الملفات. لازم يكون فيه عمود اسم الصنف (ITEM NAME) وعمود الكمية (QTY).')); setBusy(''); return }
       // by branch, then by day, so the same branch's days sit next to each other
       const bname = (id) => branchOpts.find((b) => b.id === id)?.name || 'zzz'
       out.sort((a, b) => bname(a.branch).localeCompare(bname(b.branch), 'ar') || String(a.date).localeCompare(String(b.date)) || a.name.localeCompare(b.name))
@@ -112,7 +114,7 @@ export default function OrderImport() {
       setMaps(m)
       setBusy('')
       if (todo.length) matchWithAi(todo, false, out.flatMap((x) => x.lines))
-    } catch (e) { setErr('ما قدرت أقرا الملف: ' + (e.message || e)); setBusy('') }
+    } catch (e) { setErr(tr('ما قدرت أقرا الملف: ') + (e.message || e)); setBusy('') }
   }
 
   const matchWithAi = async (allTodo, again = false, allLines = null) => {
@@ -203,8 +205,8 @@ export default function OrderImport() {
     const skipFor = (place) => {
       const day = kwDay(counts[place]?.[item?.id])
       if (!day || !s.date) return null
-      if (day > s.date) return `اتجرد ${fmtDay(day)} بعد الطلبية`
-      if (day === s.date) return `اتجرد نفس يوم الطلبية`
+      if (day > s.date) return { ar: `اتجرد ${fmtDay(day)} بعد الطلبية`, show: tr('اتجرد {d} بعد الطلبية', { d: fmtDay(day) }) }
+      if (day === s.date) return { ar: 'اتجرد نفس يوم الطلبية', show: tr('اتجرد نفس يوم الطلبية') }
       return null
     }
     const kSkip = item && kitchen ? skipFor(kitchen.id) : null
@@ -265,11 +267,11 @@ export default function OrderImport() {
     const bad = []
     for (const x of list) {
       try { const d = await postSheet(x, false); ok++; n += d.lines; value += Number(d.value) || 0 }
-      catch (e) { bad.push(`${fmtDay(x.date)}: ${/already imported/.test(e.message) ? 'اترفع قبل كده' : postErr(e)}`) }
+      catch (e) { bad.push(`${fmtDay(x.date)}: ${/already imported/.test(e.message) ? tr('اترفع قبل كده') : postErr(e)}`) }
     }
     setBusy(''); setConfirm(null); loadHistory()
-    setMsg(`${g.label}: اتسجل ${ok} يوم (${n} سطر بقيمة ${kwd(value)} د.ك)، كل يوم بتاريخه.`)
-    if (bad.length) setErr('ما اتسجلش: ' + bad.join(' — '))
+    setMsg(`${tr('{label}: اتسجل {ok} يوم ({n} سطر بقيمة {value} د.ك)، كل يوم بتاريخه', { label: g.label, ok, n, value: kwd(value) })}.`)
+    if (bad.length) setErr(tr('ما اتسجلش: ') + bad.join(' — '))
     const next = groups.find((x) => x.key !== g.key && x.sheets.some((y) => !done[y.key] && !list.includes(y)))
     if (next) setGsel(next.key)
   }
@@ -290,7 +292,7 @@ export default function OrderImport() {
     const typed = m.factor != null && m.factor !== '' ? Number(m.factor) : null
     const factor = typed != null ? contentFactor(typed, m.fu || item.unit, item) : null
     supabase.rpc('save_order_alias', { p_alias: alias, p_unit: unit, p_item: item.id, p_factor: factor, p_content_qty: typed, p_content_unit: typed != null ? (m.fu || item.unit) : null })
-      .then(({ error }) => { if (error) setErr('ما قدرت أحفظ الربط: ' + invErr(error)) })
+      .then(({ error }) => { if (error) setErr(tr('ما قدرت أحفظ الربط: ') + tr(invErr(error))) })
     setAliases((a) => ({ ...a, [mkey]: { alias, unit, item_id: item.id, factor, content_qty: typed, content_unit: m.fu || null } }))
   }
   const linkChange = (mkey, patch) => {
@@ -310,7 +312,7 @@ export default function OrderImport() {
   // ---------- posting one sheet
   const linesFor = (s) => s.lines.map((l) => [l, work(s, l)]).filter(([, w]) => w.state !== 'ignored').map(([l, w]) => ({
     item_id: w.item.id, qty: w.stock, kitchen: w.k, branch: w.b,
-    note: [l.extra ? l.block : '', `${l.name} ${qtyFmt(l.qty)} ${l.unit}`.trim(), !w.k ? 'ما انخصم من المطبخ: ' + (w.kSkip || 'باختيارك') : '', !w.b ? 'ما انضاف للفرع: ' + (w.bSkip || 'باختيارك') : ''].filter(Boolean).join(' · '),
+    note: [l.extra ? l.block : '', `${l.name} ${qtyFmt(l.qty)} ${l.unit}`.trim(), !w.k ? 'ما انخصم من المطبخ: ' + (w.kSkip?.ar || 'باختيارك') : '', !w.b ? 'ما انضاف للفرع: ' + (w.bSkip?.ar || 'باختيارك') : ''].filter(Boolean).join(' · '),
     alias: normName(l.name), unit: normUnit(l.unit), factor: w.factor,
     content_qty: w.m?.factor != null && w.m.factor !== '' ? Number(w.m.factor) : null, content_unit: w.m?.factor != null && w.m.factor !== '' ? (w.m.fu || w.item.unit) : null,
   }))
@@ -325,14 +327,14 @@ export default function OrderImport() {
     setMaps((m) => Object.fromEntries(Object.entries(m).map(([k, v]) => [k, lines.some((x) => `${x.alias}|${x.unit}` === k) ? { ...v, src: 'saved' } : v])))
     return data
   }
-  const postErr = (e) => (/future/.test(e.message) ? 'تاريخ الطلبية في المستقبل' : /not allowed to import/.test(e.message) ? 'ما عندك صلاحية' : invErr(e))
+  const postErr = (e) => (/future/.test(e.message) ? tr('تاريخ الطلبية في المستقبل') : /not allowed to import/.test(e.message) ? tr('ما عندك صلاحية') : tr(invErr(e)))
   const post = async (force = false) => {
     const s = sheet
     setBusy('post'); setErr('')
     try {
       const data = await postSheet(s, force)
       setConfirm(null)
-      setMsg(`اتسجلت طلبية ${s.name} (${fmtDay(s.date)}): ${data.lines} صنف بقيمة ${kwd(data.value)} د.ك. انخصم من المطبخ ${data.kitchen} صنف، وانضاف للفرع ${data.branch} صنف.`)
+      setMsg(`${tr('اتسجلت طلبية {name} ({date}): {lines} صنف بقيمة {value} د.ك. انخصم من المطبخ {kitchen} صنف، وانضاف للفرع {branch} صنف', { name: s.name, date: fmtDay(s.date), lines: data.lines, value: kwd(data.value), kitchen: data.kitchen, branch: data.branch })}.`)
       loadHistory()
       const nextOpen = sheets.findIndex((x, i) => i !== active && !done[x.key])
       if (nextOpen >= 0) { setActive(nextOpen); setFilter('todo') }
@@ -354,18 +356,18 @@ export default function OrderImport() {
       catch (e) { if (/already imported/.test(e.message)) skipped.push(`${x.name} ${fmtDay(x.date)}`); else failed.push(`${x.name} ${fmtDay(x.date)}: ${postErr(e)}`) }
     }
     setBusy(''); setConfirm(null); loadHistory()
-    setMsg(`اتسجل ${ok} شيت (${lines} سطر بقيمة ${kwd(value)} د.ك).${skipped.length ? ` ما سجلتش ${skipped.length} عشان اترفعوا قبل كده: ${skipped.join('، ')}.` : ''}`)
-    if (failed.length) setErr('ما اتسجلش: ' + failed.join(' — '))
+    setMsg(tr('اتسجل {ok} شيت ({lines} سطر بقيمة {value} د.ك).{v}', { ok, lines, value: kwd(value), v: skipped.length ? ` ${tr('ما سجلتش {n} عشان اترفعوا قبل كده: {v}', { n: skipped.length, v: skipped.join(tr('، ')) })}.` : '' }))
+    if (failed.length) setErr(tr('ما اتسجلش: ') + failed.join(' — '))
     const nextOpen = sheets.findIndex((x) => !done[x.key] && !list.includes(x))
     if (nextOpen >= 0) { setActive(nextOpen); setFilter('todo') }
   }
   const undo = async (row) => {
-    if (!window.confirm(`تتراجع عن طلبية ${row.branches?.name || ''} بتاريخ ${fmtDay(row.order_date)}؟ الكميات ترجع للمطبخ وتتشال من الفرع.`)) return
+    if (!window.confirm(`${tr('تتراجع عن طلبية {name} بتاريخ {order_date}؟ الكميات ترجع للمطبخ وتتشال من الفرع', { name: tn(row.branches?.name || ''), order_date: fmtDay(row.order_date) })}.`)) return
     setBusy('undo:' + row.id)
     const { error } = await supabase.rpc('undo_order_import', { p_id: row.id })
     setBusy('')
-    if (error) { setErr(invErr(error)); return }
-    setMsg('اتراجعت الطلبية، والكميات رجعت زي ما كانت.')
+    if (error) { setErr(tr(invErr(error))); return }
+    setMsg(tr('اتراجعت الطلبية، والكميات رجعت زي ما كانت.'))
     setDone((d) => Object.fromEntries(Object.entries(d).filter(([, v]) => v.id !== row.id)))
     loadHistory()
   }
@@ -380,27 +382,27 @@ export default function OrderImport() {
   return (
     <div style={{ paddingBottom: 100 }}>
       <div className="page-head">
-        <div><Link to="/inventory/orders" className="sub" style={{ textDecoration: 'none' }}>→ طلبات الفروع</Link>
-          <h1 style={{ marginTop: 4 }}>رفع طلبيات الفروع من إكسل</h1>
-          <div className="sub">كل شيت = فرع. الطلبية تنسجّل بتاريخها، تنخصم من المطبخ وتنضاف للفرع، إلا الأصناف اللي اتجردت بعد التاريخ ده.</div></div>
+        <div><Link to="/inventory/orders" className="sub" style={{ textDecoration: 'none' }}>{tr('→ طلبات الفروع')}</Link>
+          <h1 style={{ marginTop: 4 }}>{tr('رفع طلبيات الفروع من إكسل')}</h1>
+          <div className="sub">{tr('كل شيت = فرع. الطلبية تنسجّل بتاريخها، تنخصم من المطبخ وتنضاف للفرع، إلا الأصناف اللي اتجردت بعد التاريخ ده.')}</div></div>
       </div>
 
       <label className={'card drop' + (drag ? ' on' : '')} onDragOver={(e) => { e.preventDefault(); setDrag(true) }} onDragLeave={() => setDrag(false)}
         onDrop={(e) => { e.preventDefault(); setDrag(false); readFiles(e.dataTransfer.files) }}>
         <input type="file" accept=".xlsx" multiple style={{ display: 'none' }} onChange={(e) => { readFiles(e.target.files); e.target.value = '' }} />
         {busy === 'read' ? <span className="spinner" /> : <Icon name="download" size={26} />}
-        <div><strong>{files.length > 1 ? `${files.length} ملفات: ${files.map((f) => f.name).join('، ')}` : files.length ? files[0].name : 'اسحب ملفات الإكسل هنا (كل الأيام مرة واحدة)'}</strong>
-          <div className="sub">{files.length ? 'اسحب ملفات تانية أو اضغط عشان تغيّرها' : 'أو اضغط واختار ملف أو أكتر من جهازك. أي اسم صنف تربطه مرة، بيتربط في كل الملفات والأيام.'}</div></div>
+        <div><strong>{files.length > 1 ? tr('{n} ملفات: {v}', { n: files.length, v: files.map((f) => f.name).join(tr('، ')) }) : files.length ? files[0].name : tr('اسحب ملفات الإكسل هنا (كل الأيام مرة واحدة)')}</strong>
+          <div className="sub">{files.length ? tr('اسحب ملفات تانية أو اضغط عشان تغيّرها') : tr('أو اضغط واختار ملف أو أكتر من جهازك. أي اسم صنف تربطه مرة، بيتربط في كل الملفات والأيام.')}</div></div>
       </label>
 
-      {ai === 'running' && <div className="notice row" style={{ gap: 10, marginTop: 12 }}><span className="spinner" /> الذكاء بيربط أسامي الأصناف بالمخزن… ممكن ياخد دقيقة.</div>}
-      {ai.startsWith('error') && <div className="warn" style={{ marginTop: 12 }}><Icon name="warn" /> الذكاء ما اشتغلش ({AI_ERR[ai.slice(6)] || (ai.slice(6) === 'network' ? 'مشكلة اتصال' : ai.slice(6, 120))}). ربطت اللي أسماؤه قريبة، والباقي اختاره بإيدك. <button className="btn" style={{ minHeight: 34, marginInlineStart: 'auto' }} onClick={retryAi}>حاول تاني</button></div>}
+      {ai === 'running' && <div className="notice row" style={{ gap: 10, marginTop: 12 }}><span className="spinner" /> {tr('الذكاء بيربط أسامي الأصناف بالمخزن… ممكن ياخد دقيقة.')}</div>}
+      {ai.startsWith('error') && <div className="warn" style={{ marginTop: 12 }}><Icon name="warn" /> {tr('الذكاء ما اشتغلش')} ({(AI_ERR[ai.slice(6)] && tr(AI_ERR[ai.slice(6)])) || (ai.slice(6) === 'network' ? tr('مشكلة اتصال') : ai.slice(6, 120))}){tr('. ربطت اللي أسماؤه قريبة، والباقي اختاره بإيدك.')} <button className="btn" style={{ minHeight: 34, marginInlineStart: 'auto' }} onClick={retryAi}>{tr('حاول تاني')}</button></div>}
       {msg && <div className="notice" style={{ marginTop: 12 }}>{msg}</div>}
       {err && <div className="error" style={{ marginTop: 12 }}>{err}</div>}
 
       {sheets.length > 0 && (
         <div className="seg" style={{ maxWidth: 420, marginTop: 14 }}>
-          {[['branch', 'كل أيام الفرع مع بعض'], ['day', 'يوم يوم']].map(([k, lb]) =>
+          {[['branch', tr('كل أيام الفرع مع بعض')], ['day', tr('يوم يوم')]].map(([k, lb]) =>
             <a key={k} href={'#' + k} className={mode === k ? 'on' : ''} onClick={(e) => { e.preventDefault(); setMode(k) }}>{lb}</a>)}
         </div>)}
 
@@ -416,39 +418,39 @@ export default function OrderImport() {
               const open = g.sheets.filter((x) => !done[x.key])
               const n = open.reduce((a, x) => { const t = tally(x); return a + t.item + t.factor + t.review }, 0)
               return <button key={g.key} className={'chip' + (g.key === grp.key ? ' on' : '')} onClick={() => { setGsel(g.key); setFilter('todo'); setStick(new Set()) }}>
-                {g.label} <span className="sub" style={{ marginInlineStart: 4 }}>{g.sheets.length} يوم</span>
-                {!open.length ? <span className="pill ok" style={{ marginInlineStart: 6 }}>اتسجل ✓</span>
-                  : !g.branch ? <span className="pill red" style={{ marginInlineStart: 6 }}>بدون فرع</span>
-                  : n ? <span className="badge" style={{ marginInlineStart: 6 }}>{n}</span> : <span className="pill ok" style={{ marginInlineStart: 6 }}>جاهز</span>}</button>
+                {g.label} <span className="sub" style={{ marginInlineStart: 4 }}>{tr('{n} يوم', { n: g.sheets.length })}</span>
+                {!open.length ? <span className="pill ok" style={{ marginInlineStart: 6 }}>{tr('اتسجل ✓')}</span>
+                  : !g.branch ? <span className="pill red" style={{ marginInlineStart: 6 }}>{tr('بدون فرع')}</span>
+                  : n ? <span className="badge" style={{ marginInlineStart: 6 }}>{n}</span> : <span className="pill ok" style={{ marginInlineStart: 6 }}>{tr('جاهز')}</span>}</button>
             })}
           </div>
 
           <div className="card form" style={{ gap: 10, marginBottom: 12 }}>
-            <div className="field"><label htmlFor="gb">الفرع (لكل الأيام)</label>
+            <div className="field"><label htmlFor="gb">{tr('الفرع (لكل الأيام)')}</label>
               <select id="gb" className="input" value={grp.branch || ''} disabled={!gOpen.length} onChange={(e) => setGroupBranch(grp, e.target.value)}>
-                <option value="">— اختار الفرع —</option>{branchOpts.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                <option value="">— {tr('اختار الفرع')} —</option>{branchOpts.map((b) => <option key={b.id} value={b.id}>{tn(b.name)}</option>)}
               </select></div>
             <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
               {grp.sheets.map((x) => (
                 <span key={x.key} className="row" style={{ gap: 4, border: '1px solid var(--line)', borderRadius: 10, padding: '4px 8px' }}>
                   <span className="sub" style={{ fontSize: 12 }}>{x.name}</span>
                   {done[x.key] ? <span className="pill ok">{fmtDay(x.date)} ✓</span>
-                    : <input type="date" className="input" style={{ height: 34, width: 150 }} value={x.date} max={kwDay(Date.now())} onChange={(e) => setSheetDate(x.key, e.target.value)} aria-label="تاريخ اليوم" />}
+                    : <input type="date" className="input" style={{ height: 34, width: 150 }} value={x.date} max={kwDay(Date.now())} onChange={(e) => setSheetDate(x.key, e.target.value)} aria-label={tr('تاريخ اليوم')} />}
                 </span>))}
             </div>
-            {!grp.branch && <div className="warn"><Icon name="warn" /> "{grp.label}" مش لاقي له فرع في السيستم. اختاره من فوق (بيتطبق على كل الأيام)، ولو الفرع مش موجود ضيفه من صفحة الفروع الأول.</div>}
-            <div className="sub">كل اسم بيظهر مرة واحدة ومعاه كمية كل يوم والإجمالي. بتربطه مرة، وكل يوم بيتسجل بتاريخه.</div>
+            {!grp.branch && <div className="warn"><Icon name="warn" /> "{grp.label}{tr('" مش لاقي له فرع في السيستم. اختاره من فوق (بيتطبق على كل الأيام)، ولو الفرع مش موجود ضيفه من صفحة الفروع الأول.')}</div>}
+            <div className="sub">{tr('كل اسم بيظهر مرة واحدة ومعاه كمية كل يوم والإجمالي. بتربطه مرة، وكل يوم بيتسجل بتاريخه.')}</div>
           </div>
 
           {gOpen.length > 0 && <>
             <div className="seg" style={{ maxWidth: 520 }}>
-              {[['todo', `محتاج مراجعة (${need})`], ['ok', `جاهز (${grpRows.filter((r) => r.state === 'ok').length})`], ['all', `الكل (${grpRows.length})`]].map(([k, lb]) =>
+              {[['todo', tr('محتاج مراجعة ({need})', { need })], ['ok', tr('جاهز ({n})', { n: grpRows.filter((r) => r.state === 'ok').length })], ['all', tr('الكل ({n})', { n: grpRows.length })]].map(([k, lb]) =>
                 <a key={k} href={'#' + k} className={filter === k ? 'on' : ''} onClick={(e) => { e.preventDefault(); setFilter(k); setStick(new Set()) }}>{lb}</a>)}
             </div>
             {grpRows.some((r) => r.state === 'review') && filter !== 'ok' && <div className="row" style={{ justifyContent: 'space-between', marginBottom: 10, gap: 10, flexWrap: 'wrap' }}>
-              <span className="sub">الأصفر: الذكاء مش متأكد. بص عليهم، غيّر الغلط، وبعدين أكّد الباقي.</span>
+              <span className="sub">{tr('الأصفر: الذكاء مش متأكد. بص عليهم، غيّر الغلط، وبعدين أكّد الباقي.')}</span>
               <button className="btn" style={{ minHeight: 38 }} onClick={() => { const next = {}; for (const r of grpRows) if (r.state === 'review') for (const k of r.mkeys) if (maps[k]) next[k] = { ...maps[k], src: 'manual' }; setMaps((m) => ({ ...m, ...next })); Object.entries(next).forEach(([k, m]) => saveLink(k, m)) }}>
-                <Icon name="check" size={16} /> أكّد كل الأصفر ({grpRows.filter((r) => r.state === 'review').length})</button></div>}
+                <Icon name="check" size={16} /> {tr('أكّد كل الأصفر')} ({grpRows.filter((r) => r.state === 'review').length})</button></div>}
 
             <div className="order-list">
               {shownRows.map((r) => {
@@ -459,26 +461,26 @@ export default function OrderImport() {
                   <div key={r.mkey} className={'order-row imp ' + tone} onPointerDownCapture={() => !stick.has(r.mkey) && setStick((x) => new Set(x).add(r.mkey))}>
                     <div className="row" style={{ gap: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
                       <div style={{ minWidth: 150, flex: '1 1 180px' }}>
-                        <div style={{ fontWeight: 700, direction: 'ltr', textAlign: 'right' }}>{r.names[0]}</div>
-                        {r.names.length > 1 && <div className="cell-sub" style={{ direction: 'ltr', textAlign: 'right' }}>مكتوب كمان: {r.names.slice(1).join(' · ')}</div>}
+                        <div style={{ fontWeight: 700, direction: 'ltr', textAlign: lang === 'ar' ? 'right' : 'left' }}>{r.names[0]}</div>
+                        {r.names.length > 1 && <div className="cell-sub" style={{ direction: 'ltr', textAlign: lang === 'ar' ? 'right' : 'left' }}>{tr('مكتوب كمان')}: {r.names.slice(1).join(' · ')}</div>}
                         <div className="row" style={{ gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
-                          {r.days.map((d, i) => <span key={i} className="pill gray" style={{ fontSize: 11 }}>{fmtDay(d.date).slice(0, 5)}: {qtyFmt(d.qty)}{r.units.size > 1 ? ` ${d.unit || ''}` : ''}{d.extra ? ' +' : ''}</span>)}
+                          {r.days.map((d, i) => <span key={i} className="pill gray" style={{ fontSize: 11 }}>{fmtDay(d.date).slice(0, 5)}: {qtyFmt(d.qty)}{r.units.size > 1 ? ` ${tn(d.unit) || ''}` : ''}{d.extra ? ' +' : ''}</span>)}
                         </div>
-                        <div className="num" style={{ fontWeight: 700, marginTop: 4 }}>الإجمالي: {qtyFmt(r.qty)} {unit}</div>
+                        <div className="num" style={{ fontWeight: 700, marginTop: 4 }}>{tr('الإجمالي')}: {qtyFmt(r.qty)} {unit}</div>
                       </div>
                       <div className="grow" style={{ flex: '2 1 240px' }}>
                         {w.item ? (
                           <button type="button" className="pick" onClick={() => setPicking(r.mkeys)}>
                             <ProductImage itemId={w.item.id} size={40} />
-                            <span className="grow" style={{ textAlign: 'start' }}><span style={{ fontWeight: 600 }}>{w.item.name_ar}</span>
-                              <span className="cell-sub" style={{ display: 'block' }}>{w.item.name_en}{w.item.unit ? ` · ${w.item.unit}` : ''}</span></span>
-                            <span className="sub" style={{ fontSize: 12 }}>تغيير</span>
+                            <span className="grow" style={{ textAlign: 'start' }}><span style={{ fontWeight: 600 }}>{itemNames(w.item, lang)[0]}</span>
+                              <span className="cell-sub" style={{ display: 'block' }}>{itemNames(w.item, lang)[1]}{w.item.unit ? ` · ${tn(w.item.unit)}` : ''}</span></span>
+                            <span className="sub" style={{ fontSize: 12 }}>{tr('تغيير')}</span>
                           </button>
-                        ) : <button type="button" className="btn primary" style={{ width: '100%' }} onClick={() => setPicking(r.mkeys)} disabled={st === 'ignored'}><Icon name="search" size={16} /> اختار الصنف</button>}
+                        ) : <button type="button" className="btn primary" style={{ width: '100%' }} onClick={() => setPicking(r.mkeys)} disabled={st === 'ignored'}><Icon name="search" size={16} /> {tr('اختار الصنف')}</button>}
                         <div className="row" style={{ gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-                          {w.m?.src && CONF[w.m.src] && <span className={'pill ' + CONF[w.m.src][0]}>{CONF[w.m.src][1]}</span>}
+                          {w.m?.src && CONF[w.m.src] && <span className={'pill ' + CONF[w.m.src][0]}>{tr(CONF[w.m.src][1])}</span>}
                           {w.m?.note && st === 'review' && <span className="sub" style={{ fontSize: 12 }}>{w.m.note}</span>}
-                          {st === 'review' && <button className="btn" style={{ minHeight: 30, padding: '0 10px', fontSize: 13 }} onClick={() => r.mkeys.forEach((k) => linkChange(k, { src: 'manual' }))}>✓ صح</button>}
+                          {st === 'review' && <button className="btn" style={{ minHeight: 30, padding: '0 10px', fontSize: 13 }} onClick={() => r.mkeys.forEach((k) => linkChange(k, { src: 'manual' }))}>{tr('✓ صح')}</button>}
                         </div>
                       </div>
                     </div>
@@ -486,8 +488,8 @@ export default function OrderImport() {
                       <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                         {(w.factor !== 1 || st === 'factor' || w.m?.factor != null) && (
                           <div className="row" style={{ gap: 6, alignItems: 'center' }}>
-                            <span className="sub">1 {unit || 'وحدة'} =</span>
-                            <input className="input num" style={{ width: 90, height: 40 }} inputMode="decimal" placeholder="؟" aria-label={`كم في الـ ${unit}`}
+                            <span className="sub">1 {unit || tr('وحدة')} =</span>
+                            <input className="input num" style={{ width: 90, height: 40 }} inputMode="decimal" placeholder={tr('؟')} aria-label={tr('كم في الـ {unit}', { unit })}
                               value={w.m?.factor ?? (w.factor ?? '')} onChange={(e) => {
                                 const v = e.target.value.replace(/[^\d.]/g, '')
                                 for (const k of r.mkeys) {
@@ -497,30 +499,30 @@ export default function OrderImport() {
                                   timers.current[k] = setTimeout(() => saveLink(k, m), 800)
                                 }
                               }} />
-                            <select className="input" style={{ width: 'auto', height: 40, paddingInline: 10 }} aria-label="الوحدة" value={w.m?.fu || w.item.unit || ''}
+                            <select className="input" style={{ width: 'auto', height: 40, paddingInline: 10 }} aria-label={tr('الوحدة')} value={w.m?.fu || w.item.unit || ''}
                               onChange={(e) => r.mkeys.forEach((k) => linkChange(k, { ...(maps[r.mkey] || {}), fu: e.target.value, factor: w.m?.factor ?? null }))}>
-                              {contentUnits(w.item).map((u) => <option key={u} value={u}>{u}</option>)}
+                              {contentUnits(w.item).map((u) => <option key={u} value={u}>{tn(u)}</option>)}
                             </select>
                           </div>)}
                         <span className="grow" />
-                        <span style={{ fontWeight: 700 }} className="num">{st === 'factor' ? '—' : `${qtyFmt(r.stock)} ${w.item.unit || ''}`}</span>
+                        <span style={{ fontWeight: 700 }} className="num">{st === 'factor' ? '—' : `${qtyFmt(r.stock)} ${tn(w.item.unit) || ''}`}</span>
                       </div>)}
-                    {st === 'factor' && <div className="sub" style={{ color: 'var(--red)', fontSize: 13 }}>الشيت بالـ "{unit}" والصنف في المخزن بالـ "{w.item.unit}". اكتب الـ {unit} الواحد فيه كام. بيتحفظ للمرات الجاية.</div>}
+                    {st === 'factor' && <div className="sub" style={{ color: 'var(--red)', fontSize: 13 }}>{tr('الشيت بالـ "{unit}" والصنف في المخزن بالـ "{unit2}". اكتب الـ {unit3} الواحد فيه كام. بيتحفظ للمرات الجاية.', { unit, unit2: tn(w.item.unit), unit3: unit })}</div>}
                     {(r.skipK > 0 || r.skipB > 0) && st !== 'ignored' && <div className="sub" style={{ fontSize: 12, color: 'var(--amber)' }}>
-                      {r.skipK ? `${r.skipK} يوم ما هيتخصمش من المطبخ (اتجرد بعدها) ` : ''}{r.skipB ? `· ${r.skipB} يوم ما هيتضافش للفرع (اتجرد بعدها)` : ''}</div>}
+                      {r.skipK ? `${tr('{skipK} يوم ما هيتخصمش من المطبخ (اتجرد بعدها)', { skipK: r.skipK })} ` : ''}{r.skipB ? `· ${tr('{skipB} يوم ما هيتضافش للفرع (اتجرد بعدها)', { skipB: r.skipB })}` : ''}</div>}
                     <div className="row" style={{ justifyContent: 'flex-end' }}>
                       <button className="btn" style={{ minHeight: 30, padding: '0 10px', fontSize: 13 }} onClick={() => ignoreName(r, !r.allIgnored)}>
-                        {r.allIgnored ? 'رجّع الصنف ده' : 'تجاهل الصنف ده في كل الأيام'}</button>
+                        {r.allIgnored ? tr('رجّع الصنف ده') : tr('تجاهل الصنف ده في كل الأيام')}</button>
                     </div>
                   </div>)
               })}
-              {shownRows.length === 0 && <div className="card empty">{filter === 'todo' ? 'كله تمام في الفرع ده ✓' : 'ما فيه حاجة هنا'}</div>}
+              {shownRows.length === 0 && <div className="card empty">{filter === 'todo' ? tr('كله تمام في الفرع ده ✓') : tr('ما فيه حاجة هنا')}</div>}
             </div>
           </>}
           {gOpen.length > 0 && <div className="order-bar">
-            <div className="grow"><strong>{grp.label}</strong> · {gOpen.length} يوم · <span className="num">{kwd(value)}</span> د.ك
-              {need ? <span className="sub"> · باقي {need} صنف محتاج مراجعة</span> : gReady.length < gOpen.length ? <span className="sub"> · {gOpen.length - gReady.length} يوم ناقص فرع أو تاريخ</span> : null}</div>
-            <button className="btn primary" disabled={!gReady.length || !!busy} onClick={() => setConfirm({ group: grp.key })}>اعتماد {grp.label} ({gReady.length} يوم)</button>
+            <div className="grow"><strong>{grp.label}</strong> · {tr('{n} يوم', { n: gOpen.length })} · <span className="num">{kwd(value)}</span> {tr('د.ك')}
+              {need ? <span className="sub"> · {tr('باقي {need} صنف محتاج مراجعة', { need })}</span> : gReady.length < gOpen.length ? <span className="sub"> · {tr('{v} يوم ناقص فرع أو تاريخ', { v: gOpen.length - gReady.length })}</span> : null}</div>
+            <button className="btn primary" disabled={!gReady.length || !!busy} onClick={() => setConfirm({ group: grp.key })}>{tr('اعتماد {label} ({n} يوم)', { label: grp.label, n: gReady.length })}</button>
           </div>}
         </>
       })()}
@@ -532,40 +534,40 @@ export default function OrderImport() {
               const tt = tally(s)
               const n = tt.item + tt.factor + tt.review
               return <button key={s.key} className={'chip' + (i === active ? ' on' : '')} onClick={() => { setActive(i); setFilter('todo'); setStick(new Set()) }}>
-                {s.name}{s.date ? <span className="sub" style={{ marginInlineStart: 4 }}>{fmtDay(s.date).slice(0, 5)}</span> : null} {done[s.key] ? <span className="pill ok" style={{ marginInlineStart: 6 }}>اتسجل ✓</span>
-                  : !s.branch ? <span className="pill red" style={{ marginInlineStart: 6 }}>بدون فرع</span>
-                  : n ? <span className="badge" style={{ marginInlineStart: 6 }}>{n}</span> : <span className="pill ok" style={{ marginInlineStart: 6 }}>جاهز</span>}</button>
+                {s.name}{s.date ? <span className="sub" style={{ marginInlineStart: 4 }}>{fmtDay(s.date).slice(0, 5)}</span> : null} {done[s.key] ? <span className="pill ok" style={{ marginInlineStart: 6 }}>{tr('اتسجل ✓')}</span>
+                  : !s.branch ? <span className="pill red" style={{ marginInlineStart: 6 }}>{tr('بدون فرع')}</span>
+                  : n ? <span className="badge" style={{ marginInlineStart: 6 }}>{n}</span> : <span className="pill ok" style={{ marginInlineStart: 6 }}>{tr('جاهز')}</span>}</button>
             })}
           </div>
 
           {sheets.length > 1 && <div className="card row" style={{ gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
-            <span className="grow sub">{sheets.length} شيت · اتسجل {sheets.filter((x) => done[x.key]).length} · جاهز {readySheets.length} · محتاج مراجعة {sheets.filter((x) => !done[x.key] && !readySheets.includes(x)).length}</span>
-            <button className="btn primary" disabled={!readySheets.length || !!busy} onClick={() => setConfirm({ all: true })}>{busy === 'postall' ? <span className="spinner" /> : <Icon name="check" size={16} />} اعتماد كل الجاهز ({readySheets.length})</button>
+            <span className="grow sub">{tr('{n} شيت · اتسجل {n2} · جاهز {n3} · محتاج مراجعة {n4}', { n: sheets.length, n2: sheets.filter((x) => done[x.key]).length, n3: readySheets.length, n4: sheets.filter((x) => !done[x.key] && !readySheets.includes(x)).length })}</span>
+            <button className="btn primary" disabled={!readySheets.length || !!busy} onClick={() => setConfirm({ all: true })}>{busy === 'postall' ? <span className="spinner" /> : <Icon name="check" size={16} />} {tr('اعتماد كل الجاهز')} ({readySheets.length})</button>
           </div>}
 
           <div className="card" style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom: 12 }}>
-            <div className="field"><label htmlFor="ib">الفرع</label>
+            <div className="field"><label htmlFor="ib">{tr('الفرع')}</label>
               <select id="ib" className="input" value={sheet.branch} disabled={!!isDone} onChange={(e) => { setSheet({ branch: e.target.value }); lsSet(branchKey(sheet.sheet), e.target.value) }}>
-                <option value="">— اختار الفرع —</option>{branchOpts.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                <option value="">— {tr('اختار الفرع')} —</option>{branchOpts.map((b) => <option key={b.id} value={b.id}>{tn(b.name)}</option>)}
               </select></div>
-            <div className="field"><label htmlFor="id">تاريخ الطلبية</label>
+            <div className="field"><label htmlFor="id">{tr('تاريخ الطلبية')}</label>
               <input id="id" type="date" className="input" value={sheet.date} disabled={!!isDone} max={kwDay(Date.now())} onChange={(e) => setSheet({ date: e.target.value })} /></div>
-            <div className="field"><span className="lbl">في الشيت</span>
-              <div className="sub" style={{ lineHeight: 1.7 }}>{sheet.lines.length} سطر{sheet.lines.some((l) => l.extra) ? ` (منهم ${sheet.lines.filter((l) => l.extra).length} طلب إضافي)` : ''}<br />
-                {t.skipK ? `${t.skipK} صنف ما هيتخصمش من المطبخ` : 'كله هيتخصم من المطبخ'} · {t.skipB ? `${t.skipB} صنف ما هيتضافش للفرع` : 'كله هيتضاف للفرع'}</div></div>
+            <div className="field"><span className="lbl">{tr('في الشيت')}</span>
+              <div className="sub" style={{ lineHeight: 1.7 }}>{tr('{n} سطر', { n: sheet.lines.length })}{sheet.lines.some((l) => l.extra) ? ` ${tr('(منهم {n} طلب إضافي)', { n: sheet.lines.filter((l) => l.extra).length })}` : ''}<br />
+                {t.skipK ? tr('{skipK} صنف ما هيتخصمش من المطبخ', { skipK: t.skipK }) : tr('كله هيتخصم من المطبخ')} · {t.skipB ? tr('{skipB} صنف ما هيتضافش للفرع', { skipB: t.skipB }) : tr('كله هيتضاف للفرع')}</div></div>
           </div>
-          {!sheet.branch && !isDone && <div className="warn" style={{ marginBottom: 12 }}><Icon name="warn" /> الشيت "{sheet.name}" مش لاقي له فرع في السيستم. اختاره من فوق، ولو الفرع مش موجود ضيفه من صفحة الفروع الأول.</div>}
-          {isDone && <div className="notice row" style={{ marginBottom: 12, flexWrap: 'wrap', gap: 10 }}><span className="grow">الشيت ده اتسجل قبل كده.</span>
-            {isDone.request_id && <Link className="btn" to={`/inventory/orders/${isDone.request_id}`}>افتح الطلبية</Link>}</div>}
+          {!sheet.branch && !isDone && <div className="warn" style={{ marginBottom: 12 }}><Icon name="warn" /> {tr('الشيت "{name}" مش لاقي له فرع في السيستم. اختاره من فوق، ولو الفرع مش موجود ضيفه من صفحة الفروع الأول.', { name: sheet.name })}</div>}
+          {isDone && <div className="notice row" style={{ marginBottom: 12, flexWrap: 'wrap', gap: 10 }}><span className="grow">{tr('الشيت ده اتسجل قبل كده.')}</span>
+            {isDone.request_id && <Link className="btn" to={`/inventory/orders/${isDone.request_id}`}>{tr('افتح الطلبية')}</Link>}</div>}
 
           {!isDone && <>
             <div className="seg" style={{ maxWidth: 640 }}>
-              {[['todo', `محتاج مراجعة (${blocking})`], ['skip', `متخطّى بسبب الجرد (${rows.filter(({ w }) => w.item && (!w.k || !w.b) && w.state !== 'ignored').length})`], ['ok', `جاهز (${t.ok})`], ['all', `الكل (${sheet.lines.length})`]].map(([k, lb]) =>
+              {[['todo', tr('محتاج مراجعة ({blocking})', { blocking })], ['skip', tr('متخطّى بسبب الجرد ({n})', { n: rows.filter(({ w }) => w.item && (!w.k || !w.b) && w.state !== 'ignored').length })], ['ok', tr('جاهز ({ok})', { ok: t.ok })], ['all', tr('الكل ({n})', { n: sheet.lines.length })]].map(([k, lb]) =>
                 <a key={k} href={'#' + k} className={filter === k ? 'on' : ''} onClick={(e) => { e.preventDefault(); setFilter(k); setStick(new Set()) }}>{lb}</a>)}
             </div>
             {rows.some(({ w }) => w.state !== 'ignored' && ['medium', 'low', 'guess'].includes(w.m?.src)) && filter !== 'ok' && <div className="row" style={{ justifyContent: 'space-between', marginBottom: 10, gap: 10, flexWrap: 'wrap' }}>
-              <span className="sub">الأصفر: الذكاء مش متأكد. بص عليهم، غيّر الغلط، وبعدين أكّد الباقي.</span>
-              <button className="btn" style={{ minHeight: 38 }} onClick={okAllReview}><Icon name="check" size={16} /> أكّد كل الأصفر ({rows.filter(({ w }) => w.state !== 'ignored' && ['medium', 'low', 'guess'].includes(w.m?.src)).length})</button></div>}
+              <span className="sub">{tr('الأصفر: الذكاء مش متأكد. بص عليهم، غيّر الغلط، وبعدين أكّد الباقي.')}</span>
+              <button className="btn" style={{ minHeight: 38 }} onClick={okAllReview}><Icon name="check" size={16} /> {tr('أكّد كل الأصفر')} ({rows.filter(({ w }) => w.state !== 'ignored' && ['medium', 'low', 'guess'].includes(w.m?.src)).length})</button></div>}
 
             <div className="order-list">
               {shown.map(({ l, w }) => {
@@ -576,23 +578,23 @@ export default function OrderImport() {
                     onPointerDownCapture={() => !stick.has(l.id) && setStick((x) => new Set(x).add(l.id))}>
                     <div className="row" style={{ gap: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
                       <div style={{ minWidth: 150, flex: '1 1 160px' }}>
-                        <div className="cell-sub">مكتوب في الشيت {l.extra ? <span className="pill blue" style={{ fontSize: 11, padding: '1px 6px' }}>{l.block}</span> : null}</div>
-                        <div style={{ fontWeight: 700, direction: 'ltr', textAlign: 'right' }}>{l.name}</div>
-                        <div className="num sub">{qtyFmt(l.qty)} {l.unit || ''}</div>
+                        <div className="cell-sub">{tr('مكتوب في الشيت')} {l.extra ? <span className="pill blue" style={{ fontSize: 11, padding: '1px 6px' }}>{tr(l.block)}</span> : null}</div>
+                        <div style={{ fontWeight: 700, direction: 'ltr', textAlign: lang === 'ar' ? 'right' : 'left' }}>{l.name}</div>
+                        <div className="num sub">{qtyFmt(l.qty)} {tn(l.unit) || ''}</div>
                       </div>
                       <div className="grow" style={{ flex: '2 1 240px' }}>
                         {w.item ? (
                           <button type="button" className="pick" onClick={() => setPicking(l.mkey)}>
                             <ProductImage itemId={w.item.id} size={40} />
-                            <span className="grow" style={{ textAlign: 'start' }}><span style={{ fontWeight: 600 }}>{w.item.name_ar}</span>
-                              <span className="cell-sub" style={{ display: 'block' }}>{w.item.name_en}{w.item.unit ? ` · ${w.item.unit}` : ''}</span></span>
-                            <span className="sub" style={{ fontSize: 12 }}>تغيير</span>
+                            <span className="grow" style={{ textAlign: 'start' }}><span style={{ fontWeight: 600 }}>{itemNames(w.item, lang)[0]}</span>
+                              <span className="cell-sub" style={{ display: 'block' }}>{itemNames(w.item, lang)[1]}{w.item.unit ? ` · ${tn(w.item.unit)}` : ''}</span></span>
+                            <span className="sub" style={{ fontSize: 12 }}>{tr('تغيير')}</span>
                           </button>
-                        ) : <button type="button" className="btn primary" style={{ width: '100%' }} onClick={() => setPicking(l.mkey)} disabled={st === 'ignored'}><Icon name="search" size={16} /> اختار الصنف</button>}
+                        ) : <button type="button" className="btn primary" style={{ width: '100%' }} onClick={() => setPicking(l.mkey)} disabled={st === 'ignored'}><Icon name="search" size={16} /> {tr('اختار الصنف')}</button>}
                         <div className="row" style={{ gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-                          {w.m?.src && CONF[w.m.src] && <span className={'pill ' + CONF[w.m.src][0]}>{CONF[w.m.src][1]}</span>}
+                          {w.m?.src && CONF[w.m.src] && <span className={'pill ' + CONF[w.m.src][0]}>{tr(CONF[w.m.src][1])}</span>}
                           {w.m?.note && st === 'review' && <span className="sub" style={{ fontSize: 12 }}>{w.m.note}</span>}
-                          {st === 'review' && <button className="btn" style={{ minHeight: 30, padding: '0 10px', fontSize: 13 }} onClick={() => linkChange(l.mkey, { src: 'manual' })}>✓ صح</button>}
+                          {st === 'review' && <button className="btn" style={{ minHeight: 30, padding: '0 10px', fontSize: 13 }} onClick={() => linkChange(l.mkey, { src: 'manual' })}>{tr('✓ صح')}</button>}
                         </div>
                       </div>
                     </div>
@@ -601,8 +603,8 @@ export default function OrderImport() {
                       <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                         {(w.factor !== 1 || st === 'factor' || w.m?.factor != null) && (
                           <div className="row" style={{ gap: 6, alignItems: 'center' }}>
-                            <span className="sub">1 {l.unit || 'وحدة'} =</span>
-                            <input className="input num" style={{ width: 90, height: 40 }} inputMode="decimal" placeholder="؟" aria-label={`كم في الـ ${l.unit}`}
+                            <span className="sub">1 {tn(l.unit) || tr('وحدة')} =</span>
+                            <input className="input num" style={{ width: 90, height: 40 }} inputMode="decimal" placeholder={tr('؟')} aria-label={tr('كم في الـ {unit}', { unit: tn(l.unit) })}
                               value={w.m?.factor ?? (w.factor ?? '')} onChange={(e) => {
                                 const v = e.target.value.replace(/[^\d.]/g, '')
                                 const m = { ...(maps[l.mkey] || {}), factor: v === '' ? null : v }
@@ -610,36 +612,36 @@ export default function OrderImport() {
                                 clearTimeout(timers.current[l.mkey])
                                 timers.current[l.mkey] = setTimeout(() => saveLink(l.mkey, m), 800)
                               }} />
-                            <select className="input" style={{ width: 'auto', height: 40, paddingInline: 10 }} aria-label="الوحدة" value={w.m?.fu || w.item.unit || ''}
+                            <select className="input" style={{ width: 'auto', height: 40, paddingInline: 10 }} aria-label={tr('الوحدة')} value={w.m?.fu || w.item.unit || ''}
                               onChange={(e) => linkChange(l.mkey, { fu: e.target.value, factor: w.m?.factor ?? null })}>
-                              {contentUnits(w.item).map((u) => <option key={u} value={u}>{u}</option>)}
+                              {contentUnits(w.item).map((u) => <option key={u} value={u}>{tn(u)}</option>)}
                             </select>
-                            {w.m?.fu && w.m.fu !== w.item.unit && w.factor > 0 && <span className="sub">= {qtyFmt(w.factor)} {w.item.unit}</span>}
+                            {w.m?.fu && w.m.fu !== w.item.unit && w.factor > 0 && <span className="sub">= {qtyFmt(w.factor)} {tn(w.item.unit)}</span>}
                           </div>
                         )}
                         <span className="grow" />
-                        <span style={{ fontWeight: 700 }} className="num">{w.stock != null ? `${qtyFmt(w.stock)} ${w.item.unit || ''}` : '—'}</span>
+                        <span style={{ fontWeight: 700 }} className="num">{w.stock != null ? `${qtyFmt(w.stock)} ${tn(w.item.unit) || ''}` : '—'}</span>
                       </div>
                     )}
-                    {st === 'factor' && <div className="sub" style={{ color: 'var(--red)', fontSize: 13 }}>الشيت بالـ "{l.unit}" والصنف في المخزن بالـ "{w.item.unit}". اكتب الـ {l.unit} الواحد فيه كام، واختار الوحدة جنبها (كيلو، حبة…). بيتحفظ للمرات الجاية.</div>}
-                    {st === 'factor' && contentUnits(w.item).length === 1 && <div className="sub" style={{ fontSize: 12 }}>عشان تكتبه بالكيلو أو بالحبة، سجّل الـ {w.item.unit} فيه كام كيلو/حبة من بطاقة الصنف في المخزون.</div>}
+                    {st === 'factor' && <div className="sub" style={{ color: 'var(--red)', fontSize: 13 }}>{tr('الشيت بالـ "{unit}" والصنف في المخزن بالـ "{unit2}". اكتب الـ {unit3} الواحد فيه كام، واختار الوحدة جنبها (كيلو، حبة…). بيتحفظ للمرات الجاية.', { unit: tn(l.unit), unit2: tn(w.item.unit), unit3: tn(l.unit) })}</div>}
+                    {st === 'factor' && contentUnits(w.item).length === 1 && <div className="sub" style={{ fontSize: 12 }}>{tr('عشان تكتبه بالكيلو أو بالحبة، سجّل الـ {unit} فيه كام كيلو/حبة من بطاقة الصنف في المخزون.', { unit: tn(w.item.unit) })}</div>}
 
                     {w.item && st !== 'ignored' && (
                       <div className="row" style={{ gap: 14, flexWrap: 'wrap' }}>
-                        <label className="check"><input type="checkbox" checked={w.k} onChange={(e) => setLine(l.id, { kitchen: e.target.checked })} /> يتخصم من المطبخ
-                          {w.kSkip && <span className="pill amber" style={{ marginInlineStart: 6 }}>{w.kSkip}</span>}</label>
-                        <label className="check"><input type="checkbox" checked={w.b} onChange={(e) => setLine(l.id, { branch: e.target.checked })} /> يتضاف للفرع
-                          {w.bSkip && <span className="pill amber" style={{ marginInlineStart: 6 }}>{w.bSkip}</span>}</label>
+                        <label className="check"><input type="checkbox" checked={w.k} onChange={(e) => setLine(l.id, { kitchen: e.target.checked })} /> {tr('يتخصم من المطبخ')}
+                          {w.kSkip && <span className="pill amber" style={{ marginInlineStart: 6 }}>{w.kSkip.show}</span>}</label>
+                        <label className="check"><input type="checkbox" checked={w.b} onChange={(e) => setLine(l.id, { branch: e.target.checked })} /> {tr('يتضاف للفرع')}
+                          {w.bSkip && <span className="pill amber" style={{ marginInlineStart: 6 }}>{w.bSkip.show}</span>}</label>
                       </div>
                     )}
                     <div className="row" style={{ justifyContent: 'flex-end' }}>
                       <button className="btn" style={{ minHeight: 30, padding: '0 10px', fontSize: 13 }} onClick={() => setLine(l.id, { ignore: !ov[l.id]?.ignore })}>
-                        {st === 'ignored' ? 'رجّع السطر' : 'تجاهل السطر ده'}</button>
+                        {st === 'ignored' ? tr('رجّع السطر') : tr('تجاهل السطر ده')}</button>
                     </div>
                   </div>
                 )
               })}
-              {shown.length === 0 && <div className="card empty">{filter === 'todo' ? 'كله تمام في الشيت ده ✓' : 'ما فيه حاجة هنا'}</div>}
+              {shown.length === 0 && <div className="card empty">{filter === 'todo' ? tr('كله تمام في الشيت ده ✓') : tr('ما فيه حاجة هنا')}</div>}
             </div>
           </>}
         </>
@@ -647,15 +649,15 @@ export default function OrderImport() {
 
       {history.length > 0 && (
         <div style={{ marginTop: 28 }}>
-          <h2 style={{ fontSize: 18, marginBottom: 8 }}>اللي اترفع قبل كده</h2>
+          <h2 style={{ fontSize: 18, marginBottom: 8 }}>{tr('اللي اترفع قبل كده')}</h2>
           <div className="card list" style={{ padding: '2px 14px' }}>
             {history.map((h) => (
               <div key={h.id} className="list-item" style={{ flexWrap: 'wrap' }}>
-                <span className="grow"><div style={{ fontWeight: 600 }}>{h.branches?.name} · {fmtDay(h.order_date)}</div>
-                  <div className="sub">{h.lines_count} صنف · {kwd(h.value)} د.ك · {h.file_name} / {h.sheet_name}</div></span>
-                {h.status === 'undone' ? <span className="pill gray">اتراجعت</span> : <>
-                  {h.request_id && <Link className="btn" style={{ minHeight: 36 }} to={`/inventory/orders/${h.request_id}`}>عرض</Link>}
-                  <button className="btn danger" style={{ minHeight: 36 }} disabled={!!busy} onClick={() => undo(h)}>{busy === 'undo:' + h.id ? <span className="spinner" /> : null} تراجع</button></>}
+                <span className="grow"><div style={{ fontWeight: 600 }}>{tn(h.branches?.name)} · {fmtDay(h.order_date)}</div>
+                  <div className="sub">{tr('{lines_count} صنف · {value} د.ك', { lines_count: h.lines_count, value: kwd(h.value) })} · {h.file_name} / {h.sheet_name}</div></span>
+                {h.status === 'undone' ? <span className="pill gray">{tr('اتراجعت')}</span> : <>
+                  {h.request_id && <Link className="btn" style={{ minHeight: 36 }} to={`/inventory/orders/${h.request_id}`}>{tr('عرض')}</Link>}
+                  <button className="btn danger" style={{ minHeight: 36 }} disabled={!!busy} onClick={() => undo(h)}>{busy === 'undo:' + h.id ? <span className="spinner" /> : null} {tr('تراجع')}</button></>}
               </div>
             ))}
           </div>
@@ -664,20 +666,20 @@ export default function OrderImport() {
 
       {mode === 'day' && sheet && !isDone && (
         <div className="order-bar">
-          <div className="grow"><strong>{sheet.name}</strong> · {t.ok + t.review} صنف · <span className="num">{kwd(total)}</span> د.ك
-            {blocking ? <span className="sub"> · باقي {blocking} سطر محتاج مراجعة</span> : null}</div>
-          <button className="btn primary" disabled={!canPost || !!busy} onClick={() => setConfirm({})}>اعتماد الشيت</button>
+          <div className="grow"><strong>{sheet.name}</strong> · {tr('{v} صنف', { v: t.ok + t.review })} · <span className="num">{kwd(total)}</span> {tr('د.ك')}
+            {blocking ? <span className="sub"> · {tr('باقي {blocking} سطر محتاج مراجعة', { blocking })}</span> : null}</div>
+          <button className="btn primary" disabled={!canPost || !!busy} onClick={() => setConfirm({})}>{tr('اعتماد الشيت')}</button>
         </div>
       )}
 
       {confirm?.group && grp && (
         <div className="overlay" onClick={(e) => e.target === e.currentTarget && !busy && setConfirm(null)}>
           <div className="sheet form">
-            <div className="sheet-head"><h2 style={{ fontSize: 20 }}>اعتماد {grp.label}</h2>
-              <button type="button" className="icon-btn" aria-label="إغلاق" onClick={() => setConfirm(null)}><Icon name="x" /></button></div>
-            <div className="sub">كل يوم بيتسجل بتاريخه (عشان التقارير تطلع يوم يوم)، بينخصم من المطبخ وبينضاف للفرع، إلا الأصناف اللي اتجردت بعد اليوم ده.</div>
-            <div className="list">{grp.sheets.filter((x) => readySheets.includes(x)).map((x) => <div key={x.key} className="list-item"><span className="grow">{fmtDay(x.date)}</span><span className="sub">{tally(x).ok} صنف</span></div>)}</div>
-            <button className="btn primary block" disabled={!!busy} onClick={() => postGroup(grp)}>{busy ? <span className="spinner" /> : null} اعتماد</button>
+            <div className="sheet-head"><h2 style={{ fontSize: 20 }}>{tr('اعتماد {label}', { label: grp.label })}</h2>
+              <button type="button" className="icon-btn" aria-label={tr('إغلاق')} onClick={() => setConfirm(null)}><Icon name="x" /></button></div>
+            <div className="sub">{tr('كل يوم بيتسجل بتاريخه (عشان التقارير تطلع يوم يوم)، بينخصم من المطبخ وبينضاف للفرع، إلا الأصناف اللي اتجردت بعد اليوم ده.')}</div>
+            <div className="list">{grp.sheets.filter((x) => readySheets.includes(x)).map((x) => <div key={x.key} className="list-item"><span className="grow">{fmtDay(x.date)}</span><span className="sub">{tr('{ok} صنف', { ok: tally(x).ok })}</span></div>)}</div>
+            <button className="btn primary block" disabled={!!busy} onClick={() => postGroup(grp)}>{busy ? <span className="spinner" /> : null} {tr('اعتماد')}</button>
           </div>
         </div>
       )}
@@ -685,14 +687,14 @@ export default function OrderImport() {
       {confirm?.all && (
         <div className="overlay" onClick={(e) => e.target === e.currentTarget && !busy && setConfirm(null)}>
           <div className="sheet form">
-            <div className="sheet-head"><h2 style={{ fontSize: 20 }}>اعتماد كل الشيتات الجاهزة</h2>
-              <button type="button" className="icon-btn" aria-label="إغلاق" onClick={() => setConfirm(null)}><Icon name="x" /></button></div>
-            <div className="sub">كل شيت بيتسجل بتاريخه، من الأقدم للأحدث. بينخصم من المطبخ وبينضاف للفرع، إلا الأصناف اللي اتجردت بعد التاريخ ده.</div>
+            <div className="sheet-head"><h2 style={{ fontSize: 20 }}>{tr('اعتماد كل الشيتات الجاهزة')}</h2>
+              <button type="button" className="icon-btn" aria-label={tr('إغلاق')} onClick={() => setConfirm(null)}><Icon name="x" /></button></div>
+            <div className="sub">{tr('كل شيت بيتسجل بتاريخه، من الأقدم للأحدث. بينخصم من المطبخ وبينضاف للفرع، إلا الأصناف اللي اتجردت بعد التاريخ ده.')}</div>
             <div className="list" style={{ maxHeight: 300, overflow: 'auto' }}>
               {[...readySheets].sort((a, b) => String(a.date).localeCompare(String(b.date))).map((x) => (
-                <div key={x.key} className="list-item"><span className="grow">{branchOpts.find((b) => b.id === x.branch)?.name} · {fmtDay(x.date)}</span><span className="sub">{tally(x).ok} صنف</span></div>))}
+                <div key={x.key} className="list-item"><span className="grow">{tn(branchOpts.find((b) => b.id === x.branch)?.name)} · {fmtDay(x.date)}</span><span className="sub">{tr('{ok} صنف', { ok: tally(x).ok })}</span></div>))}
             </div>
-            <button className="btn primary block" disabled={!!busy} onClick={postAll}>{busy ? <span className="spinner" /> : null} اعتماد {readySheets.length} شيت</button>
+            <button className="btn primary block" disabled={!!busy} onClick={postAll}>{busy ? <span className="spinner" /> : null} {tr('اعتماد {n} شيت', { n: readySheets.length })}</button>
           </div>
         </div>
       )}
@@ -700,19 +702,19 @@ export default function OrderImport() {
       {confirm && !confirm.all && !confirm.group && sheet && (
         <div className="overlay" onClick={(e) => e.target === e.currentTarget && !busy && setConfirm(null)}>
           <div className="sheet form">
-            <div className="sheet-head"><h2 style={{ fontSize: 20 }}>اعتماد طلبية {branchOpts.find((b) => b.id === sheet.branch)?.name}</h2>
-              <button type="button" className="icon-btn" aria-label="إغلاق" onClick={() => setConfirm(null)}><Icon name="x" /></button></div>
+            <div className="sheet-head"><h2 style={{ fontSize: 20 }}>{tr('اعتماد طلبية {name}', { name: tn(branchOpts.find((b) => b.id === sheet.branch)?.name) })}</h2>
+              <button type="button" className="icon-btn" aria-label={tr('إغلاق')} onClick={() => setConfirm(null)}><Icon name="x" /></button></div>
             {confirm.again ? <>
-              <div className="warn"><Icon name="warn" /> الشيت ده من نفس الملف اترفع قبل كده. لو سجّلته تاني الكميات هتتخصم مرتين.</div>
-              <button className="btn danger block" disabled={!!busy} onClick={() => post(true)}>{busy ? <span className="spinner" /> : null} سجّله تاني برضه</button>
+              <div className="warn"><Icon name="warn" /> {tr('الشيت ده من نفس الملف اترفع قبل كده. لو سجّلته تاني الكميات هتتخصم مرتين.')}</div>
+              <button className="btn danger block" disabled={!!busy} onClick={() => post(true)}>{busy ? <span className="spinner" /> : null} {tr('سجّله تاني برضه')}</button>
             </> : <>
-              <div>بتاريخ <strong>{fmtDay(sheet.date)}</strong> · {t.ok} صنف بقيمة <strong className="num">{kwd(total)}</strong> د.ك</div>
+              <div>{tr('بتاريخ')} <strong>{fmtDay(sheet.date)}</strong> · {tr('{ok} صنف بقيمة', { ok: t.ok })} <strong className="num">{kwd(total)}</strong> {tr('د.ك')}</div>
               <div className="sub" style={{ lineHeight: 1.8 }}>
-                • ينخصم من المطبخ المركزي: {t.ok - t.skipK} صنف{t.skipK ? ` (ومش هيتخصم ${t.skipK} صنف اتجردوا بعدها)` : ''}<br />
-                • ينضاف لمخزن الفرع: {t.ok - t.skipB} صنف{t.skipB ? ` (ومش هيتضاف ${t.skipB} صنف اتجردوا بعدها)` : ''}<br />
-                • الطلبية تظهر في طلبات الفروع وتقرير تكلفة الفرع بتاريخها، والربط بيتحفظ للمرات الجاية.
+                • {tr('ينخصم من المطبخ المركزي: {v} صنف', { v: t.ok - t.skipK })}{t.skipK ? ` ${tr('(ومش هيتخصم {skipK} صنف اتجردوا بعدها)', { skipK: t.skipK })}` : ''}<br />
+                • {tr('ينضاف لمخزن الفرع: {v} صنف', { v: t.ok - t.skipB })}{t.skipB ? ` ${tr('(ومش هيتضاف {skipB} صنف اتجردوا بعدها)', { skipB: t.skipB })}` : ''}<br />
+                • {tr('الطلبية تظهر في طلبات الفروع وتقرير تكلفة الفرع بتاريخها، والربط بيتحفظ للمرات الجاية.')}
               </div>
-              <button className="btn primary block" disabled={!!busy} onClick={() => post(false)}>{busy ? <span className="spinner" /> : null} اعتماد</button>
+              <button className="btn primary block" disabled={!!busy} onClick={() => post(false)}>{busy ? <span className="spinner" /> : null} {tr('اعتماد')}</button>
             </>}
           </div>
         </div>
