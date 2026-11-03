@@ -1,0 +1,6 @@
+-- سند (system monitor). Applied live on 2026-11-03 as migrations system_monitor, system_monitor_email, sanad_monitor_page:
+-- * monitor_targets, monitor_checks (14 days), monitor_incidents, monitor_settings (alert emails)
+-- * public.monitor_record(jsonb) (service role): 2 failures in a row open an incident + bell notification; first success closes it
+-- * public.monitor_summary(): uptime 24h / 7d per system for the /monitor page
+-- * permissions monitor_view, monitor_manage; portal tile 'monitor' -> /monitor
+-- * pg_cron 'monitor-run' every 5 min calls the monitor-run edge function; 'monitor-cleanup' nightly. Email via Resend (resend_api_key).

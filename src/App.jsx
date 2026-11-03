@@ -54,6 +54,7 @@ import Kiosk from './pages/Kiosk.jsx'
 import Fleet from './pages/fleet/Fleet.jsx'
 import FleetAlerts from './pages/fleet/FleetAlerts.jsx'
 import FleetVehicles from './pages/fleet/FleetVehicles.jsx'
+import SanadMonitor from './pages/monitor/Monitor.jsx'
 
 function useUnread(enabled) {
   const [n, setN] = useState(0)
@@ -90,7 +91,7 @@ function useBadges(enabled, path) {
 }
 
 const BRANCH_PATHS = ['/inventory/orders', '/inventory/stock', '/inventory/count']
-const ADMIN_PATHS = ['/fleet', '/branch-location', '/devices', '/smart-upload', '/branch-docs', '/maintenance', '/transactions', '/settings', '/inventory', '/overtime', '/dashboard', '/payroll', '/attendance', '/documents', '/employees', '/branches', '/roles']
+const ADMIN_PATHS = ['/monitor', '/fleet', '/branch-location', '/devices', '/smart-upload', '/branch-docs', '/maintenance', '/transactions', '/settings', '/inventory', '/overtime', '/dashboard', '/payroll', '/attendance', '/documents', '/employees', '/branches', '/roles']
 
 export default function App() {
   const { access } = useAccess()
@@ -135,7 +136,8 @@ function Shell() {
   const canSales = can('view_reports') || can('manage_inventory')
   const canDev = can('view_devices') || can('open_doors') || can('manage_devices')
   const canFleet = can('fleet_view') || can('fleet_manage')
-  const section = location.pathname.startsWith('/inventory') ? 'inv' : location.pathname.startsWith('/devices') ? 'dev' : location.pathname.startsWith('/fleet') ? 'fleet' : 'hr'
+  const canSanad = can('monitor_view') || can('monitor_manage')
+  const section = location.pathname.startsWith('/inventory') ? 'inv' : location.pathname.startsWith('/devices') ? 'dev' : location.pathname.startsWith('/fleet') ? 'fleet' : location.pathname.startsWith('/monitor') ? 'monitor' : 'hr'
 
   const hrNav = [
     { to: '/', icon: 'home', label: t('nav_home'), show: true },
@@ -187,8 +189,12 @@ function Shell() {
     { to: '/fleet/vehicles', icon: 'truck', label: tr('السيارات والأجهزة'), show: canFleet },
     { to: '/notifications', icon: 'bell', label: t('nav_notifications'), show: true, badge: unread },
   ]
+  const monitorNav = [
+    { to: '/monitor', icon: 'shield', label: tr('حالة الأنظمة'), show: canSanad },
+    { to: '/notifications', icon: 'bell', label: t('nav_notifications'), show: true, badge: unread },
+  ]
   const withBadge = (list) => list.map((x) => ({ ...x, badge: x.badge ?? (badges[x.to] || 0) }))
-  const nav = withBadge((section === 'inv' ? invNav : section === 'dev' ? devNav : section === 'fleet' ? fleetNav : hrNav).filter((x) => x.show))
+  const nav = withBadge((section === 'inv' ? invNav : section === 'dev' ? devNav : section === 'fleet' ? fleetNav : section === 'monitor' ? monitorNav : hrNav).filter((x) => x.show))
 
   const INV_MOBILE = ['/inventory', '/inventory/orders', '/inventory/stock', '/inventory/invoices', '/inventory/reports']
   const pick = (paths) => paths.map((p) => nav.find((x) => x.to === p)).filter(Boolean)
@@ -196,12 +202,13 @@ function Shell() {
     ? [...pick(INV_MOBILE).slice(0, 3), ...pick(['/notifications'])]
     : section === 'dev' ? pick(['/devices', '/devices/log', '/notifications'])
     : section === 'fleet' ? pick(['/fleet', '/fleet/alerts', '/fleet/vehicles', '/notifications'])
+    : section === 'monitor' ? pick(['/monitor', '/notifications'])
     : isManager
       ? pick(['/', '/dashboard', '/documents', '/notifications'])
       : pick(['/', '/leaves', '/my-documents', '/notifications'])
 
   // each section is its own app, opened from its own tile in the portal (no tabs to jump between them)
-  const sectionTitle = { inv: tr('المخزون والتوريد'), dev: tr('الأجهزة والأبواب'), fleet: tr('GPS السيارات') }[section]
+  const sectionTitle = { inv: tr('المخزون والتوريد'), dev: tr('الأجهزة والأبواب'), fleet: tr('GPS السيارات'), monitor: tr('سند · مراقبة الأنظمة') }[section]
 
   return (
     <div className="shell">
@@ -265,6 +272,7 @@ function Shell() {
           {canDev && <Route path="/devices/log" element={<DeviceLog />} />}
           {can('manage_devices') && <Route path="/devices/:id/names" element={<DeviceNames />} />}
           {canFleet && <Route path="/fleet" element={<Fleet />} />}
+          {canSanad && <Route path="/monitor" element={<SanadMonitor />} />}
           {canFleet && <Route path="/fleet/alerts" element={<FleetAlerts />} />}
           {canFleet && <Route path="/fleet/vehicles" element={<FleetVehicles />} />}
           <Route path="*" element={<Navigate to="/" replace />} />
