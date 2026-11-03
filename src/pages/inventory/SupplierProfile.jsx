@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { supabase, fmtDate, todayKuwait } from '../../lib/supabase'
+import { supabase, todayKuwait } from '../../lib/supabase'
 import { useAccess } from '../../lib/access.jsx'
 import { kwd, qtyFmt, invErr, PAY_STATUS, PAY_METHOD, STAGE, invoiceStage, ISSUES } from '../../lib/inv'
 import { CONTACT_ROLE, SUP_STATUS, WEEKDAYS, PAY_PREF, telLink, waLink, mainContact } from '../../lib/supplier'
@@ -9,6 +9,7 @@ import { SupplierForm } from './Suppliers.jsx'
 import { PaymentForm } from './Payments.jsx'
 import Icon from '../../components/Icon.jsx'
 import { openFile } from '../../lib/ai'
+import { useLang } from '../../lib/i18n.jsx'
 
 const TABS = [['summary', 'ملخص'], ['invoices', 'الفواتير'], ['goods', 'البضاعة'], ['prices', 'الأسعار'], ['payments', 'الدفعات'], ['statement', 'كشف الحساب'], ['info', 'البيانات'], ['notes', 'الملاحظات'], ['ask', 'اسأل النظام']]
 const addMonths = (d, m) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCMonth(x.getUTCMonth() + m); return x.toISOString().slice(0, 10) }
@@ -24,9 +25,10 @@ const PERIODS = (today) => {
 }
 
 function Stars({ value }) {
-  if (value == null) return <span className="sub">التقييم يطلع بعد ٥ أصناف مستلمة</span>
+  const { tr } = useLang()
+  if (value == null) return <span className="sub">{tr('التقييم يطلع بعد ٥ أصناف مستلمة')}</span>
   return (
-    <span className="row" style={{ gap: 2 }} title={`${value} من ٥`}>
+    <span className="row" style={{ gap: 2 }} title={tr('{value} من ٥', { value })}>
       {[1, 2, 3, 4, 5].map((i) => <span key={i} style={{ color: i <= Math.round(value) ? '#E3A008' : '#D7DCD5' }}><Icon name="star" size={16} /></span>)}
       <span className="num sub" style={{ marginInlineStart: 4 }}>{value}</span>
     </span>
@@ -42,6 +44,7 @@ function Spark({ points }) {
 }
 
 function OrderSheet({ supplier, contacts, onClose }) {
+  const { tr, tn } = useLang()
   const [items, setItems] = useState([])
   const [qty, setQty] = useState({})
   const [note, setNote] = useState('')
@@ -58,26 +61,27 @@ function OrderSheet({ supplier, contacts, onClose }) {
   return (
     <div className="overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="sheet form">
-        <div className="sheet-head"><h2 style={{ fontSize: 20 }}>اطلب من {supplier.name}</h2>
-          <button type="button" className="icon-btn" aria-label="إغلاق" onClick={onClose}><Icon name="x" /></button></div>
-        {phones.length === 0 && <div className="warn">ما فيه رقم واتساب لهالمورد. أضفه من "تعديل".</div>}
-        {phones.length > 1 && <div className="chips">{phones.map((c, i) => <button key={i} className={'chip' + (to === i ? ' on' : '')} onClick={() => setTo(i)}>{CONTACT_ROLE[c.role]} {c.name || c.phone}</button>)}</div>}
-        {items.length === 0 && <div className="sub">الأصناف تطلع هنا بعد أول فاتورة من هالمورد. تقدر تكتب الطلب في الملاحظة.</div>}
+        <div className="sheet-head"><h2 style={{ fontSize: 20 }}>{tr('اطلب من {name}', { name: supplier.name })}</h2>
+          <button type="button" className="icon-btn" aria-label={tr('إغلاق')} onClick={onClose}><Icon name="x" /></button></div>
+        {phones.length === 0 && <div className="warn">{tr('ما فيه رقم واتساب لهالمورد. أضفه من "تعديل".')}</div>}
+        {phones.length > 1 && <div className="chips">{phones.map((c, i) => <button key={i} className={'chip' + (to === i ? ' on' : '')} onClick={() => setTo(i)}>{tr(CONTACT_ROLE[c.role])} {c.name || c.phone}</button>)}</div>}
+        {items.length === 0 && <div className="sub">{tr('الأصناف تطلع هنا بعد أول فاتورة من هالمورد. تقدر تكتب الطلب في الملاحظة.')}</div>}
         <div className="list">{items.map((x) => (
           <div key={x.item_id} className="list-item">
-            <span className="grow">{x.inv_items?.name_ar}<div className="sub">آخر سعر {kwd(x.last_price)} / {Number(x.pack_factor) !== 1 ? x.pack_unit || 'وحدة' : x.inv_items?.inv_units?.name || ''}</div></span>
-            <input className="input num" style={{ width: 90 }} type="number" min="0" step="any" value={qty[x.item_id] || ''} onChange={(e) => setQty({ ...qty, [x.item_id]: e.target.value })} aria-label="الكمية" />
+            <span className="grow">{x.inv_items?.name_ar}<div className="sub">{tr('آخر سعر {last_price}', { last_price: kwd(x.last_price) })} / {Number(x.pack_factor) !== 1 ? x.pack_unit || tr('وحدة') : tn(x.inv_items?.inv_units?.name || '')}</div></span>
+            <input className="input num" style={{ width: 90 }} type="number" min="0" step="any" value={qty[x.item_id] || ''} onChange={(e) => setQty({ ...qty, [x.item_id]: e.target.value })} aria-label={tr('الكمية')} />
           </div>))}</div>
-        <div className="field"><label htmlFor="on">ملاحظة</label><textarea id="on" className="input" rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="مثلاً: نبيها بكرة قبل ١٠ الصبح" /></div>
+        <div className="field"><label htmlFor="on">{tr('ملاحظة')}</label><textarea id="on" className="input" rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder={tr('مثلاً: نبيها بكرة قبل ١٠ الصبح')} /></div>
         <div className="card sub" style={{ whiteSpace: 'pre-line' }}>{text}</div>
         <a className={'btn primary block' + (!phones.length || (!lines.length && !note) ? ' disabled' : '')} style={{ pointerEvents: !phones.length || (!lines.length && !note) ? 'none' : undefined, opacity: !phones.length || (!lines.length && !note) ? 0.5 : 1 }}
-          href={phones[to] ? waLink(phones[to].phone, text) : '#'} target="_blank" rel="noreferrer"><Icon name="chat" /> أرسل على واتساب</a>
+          href={phones[to] ? waLink(phones[to].phone, text) : '#'} target="_blank" rel="noreferrer"><Icon name="chat" /> {tr('أرسل على واتساب')}</a>
       </div>
     </div>
   )
 }
 
 function Ask({ supplierId, name }) {
+  const { tr } = useLang()
   const [msgs, setMsgs] = useState([])
   const [q, setQ] = useState('')
   const [busy, setBusy] = useState(false)
@@ -94,7 +98,7 @@ function Ask({ supplierId, name }) {
     if (error || !data?.ok) {
       let b = {}; try { b = await error?.context?.json() } catch { /* ignore */ }
       const e = b?.error || data?.error || error?.message
-      a = e === 'not_configured' ? 'الذكاء الاصطناعي ما تفعّل. المالك يحط المفتاح من الإعدادات.' : e === 'no_credit' ? 'رصيد حساب Anthropic خلص.' : 'صار خطأ: ' + e
+      a = e === 'not_configured' ? tr('الذكاء الاصطناعي ما تفعّل. المالك يحط المفتاح من الإعدادات.') : e === 'no_credit' ? tr('رصيد حساب Anthropic خلص.') : tr('صار خطأ: ') + e
     }
     setMsgs((m) => m.map((x, i) => (i === m.length - 1 ? { ...x, a } : x)))
     setBusy(false)
@@ -102,23 +106,24 @@ function Ask({ supplierId, name }) {
   const samples = ['كم اشترينا منه هالشهر؟', 'كم علينا له وإيش المتأخر؟', 'إيش أكثر شي نشتريه منه؟', 'أي صنف زاد سعره؟', 'كم مرة رجّعنا له بضاعة أو جات ناقصة؟', 'متى آخر فاتورة وكم كانت؟']
   return (
     <div className="form" style={{ gap: 10 }}>
-      <div className="sub">اسأل أي سؤال عن {name} بالعربي، والنظام يجاوب من الفواتير والبضاعة والدفعات والملاحظات.</div>
-      {msgs.length === 0 && <div className="chips">{samples.map((s) => <button key={s} className="chip" onClick={() => ask(s)}>{s}</button>)}</div>}
+      <div className="sub">{tr('اسأل أي سؤال عن {name} بالعربي، والنظام يجاوب من الفواتير والبضاعة والدفعات والملاحظات.', { name })}</div>
+      {msgs.length === 0 && <div className="chips">{samples.map((s) => tr(s)).map((s) => <button key={s} className="chip" onClick={() => ask(s)}>{s}</button>)}</div>}
       {msgs.map((m, i) => (
         <div key={i} className="form" style={{ gap: 6 }}>
           <div className="card" style={{ alignSelf: 'flex-start', background: 'var(--green-soft)', padding: '8px 12px', maxWidth: '85%' }}>{m.q}</div>
-          <div className="card" style={{ whiteSpace: 'pre-line', lineHeight: 1.8, padding: '10px 14px' }}>{m.a || <span className="row" style={{ gap: 8 }}><span className="spinner" /> يدوّر في البيانات…</span>}</div>
+          <div className="card" style={{ whiteSpace: 'pre-line', lineHeight: 1.8, padding: '10px 14px' }}>{m.a || <span className="row" style={{ gap: 8 }}><span className="spinner" /> {tr('يدوّر في البيانات…')}</span>}</div>
         </div>))}
       <div ref={end} />
       <form className="row" style={{ gap: 8 }} onSubmit={(e) => { e.preventDefault(); ask() }}>
-        <input className="input grow" placeholder="اكتب سؤالك…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="السؤال" />
-        <button className="btn primary" disabled={busy || !q.trim()}>اسأل</button>
+        <input className="input grow" placeholder={tr('اكتب سؤالك…')} value={q} onChange={(e) => setQ(e.target.value)} aria-label={tr('السؤال')} />
+        <button className="btn primary" disabled={busy || !q.trim()}>{tr('اسأل')}</button>
       </form>
     </div>
   )
 }
 
 function Photos({ invoices }) {
+  const { tr, fmtDate } = useLang()
   const [urls, setUrls] = useState({})
   useEffect(() => {
     const paths = invoices.flatMap((v) => [...(v.goods || []), ...(v.photos || [])])
@@ -126,12 +131,12 @@ function Photos({ invoices }) {
     supabase.storage.from('invoices').createSignedUrls(paths, 3600).then(({ data }) => setUrls(Object.fromEntries((data || []).map((x, i) => [paths[i], x.signedUrl]))))
   }, [invoices])
   const withPhotos = invoices.filter((v) => (v.goods || []).length || (v.photos || []).length)
-  if (!withPhotos.length) return <div className="card empty">ما فيه صور في هالفترة</div>
+  if (!withPhotos.length) return <div className="card empty">{tr('ما فيه صور في هالفترة')}</div>
   return withPhotos.map((v) => (
     <div key={v.id} className="card form" style={{ gap: 8 }}>
-      <div className="row" style={{ justifyContent: 'space-between' }}><Link to={`/inventory/invoices/${v.id}`}>فاتورة {v.no || 'بدون رقم'}</Link><span className="sub">{fmtDate(v.d)}</span></div>
+      <div className="row" style={{ justifyContent: 'space-between' }}><Link to={`/inventory/invoices/${v.id}`}>{tr('فاتورة')} {v.no || tr('بدون رقم')}</Link><span className="sub">{fmtDate(v.d)}</span></div>
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-        {[...(v.goods || []).map((p) => [p, 'بضاعة']), ...(v.photos || []).map((p) => [p, 'فاتورة'])].map(([p, kind]) => (
+        {[...(v.goods || []).map((p) => [p, tr('بضاعة')]), ...(v.photos || []).map((p) => [p, tr('فاتورة')])].map(([p, kind]) => (
           <a key={p} href={urls[p]} target="_blank" rel="noreferrer" style={{ position: 'relative' }}>
             {p.endsWith('.pdf') ? <span className="thumb" style={{ width: 96, height: 96 }}>PDF</span>
               : <img src={urls[p]} alt={kind} style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 10, background: '#EEF1EC' }} />}
@@ -142,6 +147,7 @@ function Photos({ invoices }) {
 }
 
 export default function SupplierProfile() {
+  const { tr, fmtDate, tn, lang } = useLang()
   const { id } = useParams()
   const { can, access } = useAccess()
   const today = todayKuwait()
@@ -174,12 +180,12 @@ export default function SupplierProfile() {
   }, [id])
   const loadProfile = useCallback(() => {
     setP(null)
-    supabase.rpc('supplier_profile', { p_supplier: id, p_from: pf, p_to: pt }).then(({ data, error }) => { if (error) setErr(invErr(error)); else setP(data) })
+    supabase.rpc('supplier_profile', { p_supplier: id, p_from: pf, p_to: pt }).then(({ data, error }) => { if (error) setErr(tr(invErr(error))); else setP(data) })
   }, [id, pf, pt])
   useEffect(() => { loadBase() }, [loadBase])
   useEffect(() => { loadProfile() }, [loadProfile])
 
-  if (sup === false) return <div className="card empty">المورد مو موجود</div>
+  if (sup === false) return <div className="card empty">{tr('المورد مو موجود')}</div>
   if (!sup) return <div className="center" style={{ minHeight: 300 }}><span className="spinner" /></div>
   const k = p?.kpi || {}
   const money = p?.can_money
@@ -203,52 +209,52 @@ export default function SupplierProfile() {
   const addNote = async () => {
     if (!note.body.trim()) return
     const r = await supabase.from('supplier_notes').insert({ supplier_id: id, kind: note.kind, body: note.body.trim() })
-    if (r.error) setErr(invErr(r.error)); else { setNote({ kind: 'note', body: '' }); loadBase() }
+    if (r.error) setErr(tr(invErr(r.error))); else { setNote({ kind: 'note', body: '' }); loadBase() }
   }
-  const XL = ({ onClick }) => <button className="btn" onClick={() => onClick().catch((e) => setErr(invErr(e)))}><Icon name="download" /> Excel</button>
+  const XL = ({ onClick }) => <button className="btn" onClick={() => onClick().catch((e) => setErr(tr(invErr(e))))}><Icon name="download" /> Excel</button>
   let run = 0
 
   return (
     <div>
       <div className="page-head">
         <div>
-          <Link to="/inventory/suppliers" className="sub" style={{ textDecoration: 'none' }}>→ الموردين</Link>
+          <Link to="/inventory/suppliers" className="sub" style={{ textDecoration: 'none' }}>{tr('→ الموردين')}</Link>
           <h1 style={{ marginTop: 4 }}>{sup.name}</h1>
           <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
-            <span className={'pill ' + SUP_STATUS[sup.status || 'active'][0]}>{SUP_STATUS[sup.status || 'active'][1]}</span>
+            <span className={'pill ' + SUP_STATUS[sup.status || 'active'][0]}>{tr(SUP_STATUS[sup.status || 'active'][1])}</span>
             <Stars value={p?.rating} />
             {cats.map((c) => <span key={c} className="pill gray">{c}</span>)}
           </div>
           {sup.status_reason && sup.status !== 'active' && <div className="sub" style={{ color: 'var(--red)' }}>{sup.status_reason}</div>}
         </div>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-          {mc?.phone && <a className="btn" href={telLink(mc.phone)}><Icon name="phone" /> اتصال</a>}
-          {mc?.phone && <a className="btn" href={waLink(mc.phone)} target="_blank" rel="noreferrer"><Icon name="chat" /> واتساب</a>}
-          <button className="btn primary" onClick={() => setOrdering(true)}><Icon name="truck" /> اطلب منه</button>
-          {canPay && <button className="btn" onClick={() => setPaying(true)}><Icon name="check" /> دفعة</button>}
-          {canEdit && <button className="btn" onClick={() => setEdit(true)}>تعديل</button>}
+          {mc?.phone && <a className="btn" href={telLink(mc.phone)}><Icon name="phone" /> {tr('اتصال')}</a>}
+          {mc?.phone && <a className="btn" href={waLink(mc.phone)} target="_blank" rel="noreferrer"><Icon name="chat" /> {tr('واتساب')}</a>}
+          <button className="btn primary" onClick={() => setOrdering(true)}><Icon name="truck" /> {tr('اطلب منه')}</button>
+          {canPay && <button className="btn" onClick={() => setPaying(true)}><Icon name="check" /> {tr('دفعة')}</button>}
+          {canEdit && <button className="btn" onClick={() => setEdit(true)}>{tr('تعديل')}</button>}
         </div>
       </div>
       {err && <div className="error" style={{ marginBottom: 12 }}>{err}</div>}
 
       <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-        {periods.map(([kk, l]) => <button key={kk} className={'chip' + (period === kk ? ' on' : '')} onClick={() => setPeriod(kk)}>{l}</button>)}
-        <button className={'chip' + (period === 'custom' ? ' on' : '')} onClick={() => setPeriod('custom')}>فترة مخصصة</button>
+        {periods.map(([kk, l]) => <button key={kk} className={'chip' + (period === kk ? ' on' : '')} onClick={() => setPeriod(kk)}>{tr(l)}</button>)}
+        <button className={'chip' + (period === 'custom' ? ' on' : '')} onClick={() => setPeriod('custom')}>{tr('فترة مخصصة')}</button>
         {period === 'custom' && <>
-          <input type="date" className="input" style={{ width: 'auto' }} value={custom.from} onChange={(e) => setCustom({ ...custom, from: e.target.value })} aria-label="من" />
-          <input type="date" className="input" style={{ width: 'auto' }} value={custom.to} onChange={(e) => setCustom({ ...custom, to: e.target.value })} aria-label="إلى" /></>}
+          <input type="date" className="input" style={{ width: 'auto' }} value={custom.from} onChange={(e) => setCustom({ ...custom, from: e.target.value })} aria-label={tr('من')} />
+          <input type="date" className="input" style={{ width: 'auto' }} value={custom.to} onChange={(e) => setCustom({ ...custom, to: e.target.value })} aria-label={tr('إلى')} /></>}
       </div>
 
       <div className="grid stats" style={{ marginBottom: 14 }}>
-        {money && <div className="card stat"><div className="label">اشترينا منه</div><div className="value num" style={{ fontSize: 22 }}>{p ? kwd(k.purchased) : '…'}</div><div className="sub">د.ك · {k.invoices ?? '…'} فاتورة</div></div>}
-        {money && <div className="card stat"><div className="label">دفعنا له</div><div className="value num" style={{ fontSize: 22 }}>{p ? kwd(k.paid) : '…'}</div><div className="sub">في الفترة</div></div>}
-        {money && <div className="card stat"><div className="label">الرصيد علينا</div><div className="value num" style={{ fontSize: 22, color: Number(k.balance) > 0.0005 ? 'var(--red)' : 'var(--ok)' }}>{p ? kwd(k.balance) : '…'}</div>
-          <div className="sub">{Number(k.overdue) > 0 ? <span style={{ color: 'var(--red)' }}>متأخر {kwd(k.overdue)}</span> : 'كل الفترات'}</div></div>}
-        <div className="card stat"><div className="label">الأصناف</div><div className="value num">{k.items_count ?? '…'}</div><div className="sub">{k.last_invoice ? `آخر فاتورة ${fmtDate(k.last_invoice)}` : 'ما فيه فواتير'}</div></div>
+        {money && <div className="card stat"><div className="label">{tr('اشترينا منه')}</div><div className="value num" style={{ fontSize: 22 }}>{p ? kwd(k.purchased) : '…'}</div><div className="sub">{tr('د.ك')} · {k.invoices ?? '…'} {tr('فاتورة')}</div></div>}
+        {money && <div className="card stat"><div className="label">{tr('دفعنا له')}</div><div className="value num" style={{ fontSize: 22 }}>{p ? kwd(k.paid) : '…'}</div><div className="sub">{tr('في الفترة')}</div></div>}
+        {money && <div className="card stat"><div className="label">{tr('الرصيد علينا')}</div><div className="value num" style={{ fontSize: 22, color: Number(k.balance) > 0.0005 ? 'var(--red)' : 'var(--ok)' }}>{p ? kwd(k.balance) : '…'}</div>
+          <div className="sub">{Number(k.overdue) > 0 ? <span style={{ color: 'var(--red)' }}>{tr('متأخر {overdue}', { overdue: kwd(k.overdue) })}</span> : tr('كل الفترات')}</div></div>}
+        <div className="card stat"><div className="label">{tr('الأصناف')}</div><div className="value num">{k.items_count ?? '…'}</div><div className="sub">{k.last_invoice ? tr('آخر فاتورة {last_invoice}', { last_invoice: fmtDate(k.last_invoice) }) : tr('ما فيه فواتير')}</div></div>
       </div>
 
       <div className="chips" style={{ marginBottom: 12 }}>
-        {TABS.map(([kk, l]) => <button key={kk} className={'chip' + (tab === kk ? ' on' : '')} onClick={() => setTab(kk)}>{l}</button>)}
+        {TABS.map(([kk, l]) => <button key={kk} className={'chip' + (tab === kk ? ' on' : '')} onClick={() => setTab(kk)}>{tr(l)}</button>)}
       </div>
 
       {!p && tab !== 'ask' && tab !== 'info' && tab !== 'notes' && tab !== 'statement' ? <div className="center" style={{ minHeight: 160 }}><span className="spinner" /></div> : <>
@@ -256,31 +262,31 @@ export default function SupplierProfile() {
       {tab === 'summary' && (
         <div className="form" style={{ gap: 12 }}>
           <div className="card form" style={{ gap: 6 }}>
-            <strong>جودة التوريد</strong>
+            <strong>{tr('جودة التوريد')}</strong>
             <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-              <span className="pill gray">{p.issues.lines} صنف مستلم</span>
-              {['short', 'return', 'free', 'discount'].map((x) => <span key={x} className={'pill ' + (p.issues[x] ? (x === 'short' || x === 'return' ? 'red' : 'amber') : 'gray')}>{ISSUES[x][0]}: {p.issues[x]}</span>)}
-              {money && Number(p.issues.value_not_paid) > 0 && <span className="pill blue">ما دفعناه بسبب المشاكل: {kwd(p.issues.value_not_paid)}</span>}
+              <span className="pill gray">{tr('{lines} صنف مستلم', { lines: p.issues.lines })}</span>
+              {['short', 'return', 'free', 'discount'].map((x) => <span key={x} className={'pill ' + (p.issues[x] ? (x === 'short' || x === 'return' ? 'red' : 'amber') : 'gray')}>{tr(ISSUES[x][0])}: {p.issues[x]}</span>)}
+              {money && Number(p.issues.value_not_paid) > 0 && <span className="pill blue">{tr('ما دفعناه بسبب المشاكل')}: {kwd(p.issues.value_not_paid)}</span>}
             </div>
-            <div className="sub">التقييم يتحسب من كل الفواتير: الناقص والمرتجع ينزّلونه أكثر من المجاني والخصم.</div>
+            <div className="sub">{tr('التقييم يتحسب من كل الفواتير: الناقص والمرتجع ينزّلونه أكثر من المجاني والخصم.')}</div>
           </div>
           <div className="card list" style={{ padding: '6px 14px' }}>
-            <strong style={{ padding: '6px 0' }}>أكثر الأصناف</strong>
-            {p.items.length === 0 && <div className="empty">ما فيه أصناف في هالفترة</div>}
+            <strong style={{ padding: '6px 0' }}>{tr('أكثر الأصناف')}</strong>
+            {p.items.length === 0 && <div className="empty">{tr('ما فيه أصناف في هالفترة')}</div>}
             {p.items.slice(0, 8).map((x) => (
               <div key={x.item_id} className="list-item">
-                <span className="grow">{x.item}<div className="sub">{qtyFmt(x.stock_qty)} {x.unit} · {x.invoices} فاتورة</div></span>
+                <span className="grow">{x.item}<div className="sub">{qtyFmt(x.stock_qty)} {tn(x.unit)} · {tr('{invoices} فاتورة', { invoices: x.invoices })}</div></span>
                 <Spark points={x.history} />
                 {money && <span className="num" style={{ fontWeight: 600 }}>{kwd(x.total)}</span>}
               </div>))}
           </div>
           {(sup.delivery_days?.length > 0 || sup.order_cutoff || sup.min_order || sup.agreements) && (
             <div className="card form" style={{ gap: 4 }}>
-              <strong>التوريد</strong>
-              {sup.delivery_days?.length > 0 && <div>يوصل: {sup.delivery_days.map((d) => WEEKDAYS[d]).join('، ')}</div>}
-              {sup.order_cutoff && <div>آخر وقت للطلب: {sup.order_cutoff}</div>}
-              {sup.min_order && <div>أقل طلبية: {kwd(sup.min_order)} د.ك</div>}
-              {sup.agreements && <div style={{ whiteSpace: 'pre-line' }}>اتفاقيات: {sup.agreements}</div>}
+              <strong>{tr('التوريد')}</strong>
+              {sup.delivery_days?.length > 0 && <div>{tr('يوصل')}: {sup.delivery_days.map((d) => tr(WEEKDAYS[d])).join(tr('، '))}</div>}
+              {sup.order_cutoff && <div>{tr('آخر وقت للطلب')}: {sup.order_cutoff}</div>}
+              {sup.min_order && <div>{tr('أقل طلبية: {min_order} د.ك', { min_order: kwd(sup.min_order) })}</div>}
+              {sup.agreements && <div style={{ whiteSpace: 'pre-line' }}>{tr('اتفاقيات')}: {sup.agreements}</div>}
             </div>)}
         </div>)}
 
@@ -288,16 +294,16 @@ export default function SupplierProfile() {
         <div className="form" style={{ gap: 10 }}>
           <div className="row" style={{ justifyContent: 'flex-end' }}><XL onClick={exportInvoices} /></div>
           <div className="card list" style={{ padding: '4px 14px' }}>
-            {p.invoices.length === 0 && <div className="empty">ما فيه فواتير في هالفترة</div>}
+            {p.invoices.length === 0 && <div className="empty">{tr('ما فيه فواتير في هالفترة')}</div>}
             {p.invoices.map((v) => {
               const st = STAGE[invoiceStage({ status: v.status, received_at: v.received_at })]
               const late = v.status === 'approved' && v.payment_status !== 'paid' && v.due_date && v.due_date < today
               return (
                 <Link key={v.id} to={`/inventory/invoices/${v.id}`} className="list-item" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <span className="grow">{v.no ? `رقم ${v.no}` : 'بدون رقم'}<div className="sub">{fmtDate(v.d)} · {v.lines} صنف{v.due_date ? ` · الاستحقاق ${fmtDate(v.due_date)}` : ''}{(v.goods || []).length ? ' · فيها صور بضاعة' : ''}</div></span>
+                  <span className="grow">{v.no ? tr('رقم {no}', { no: v.no }) : tr('بدون رقم')}<div className="sub">{fmtDate(v.d)} · {tr('{lines} صنف', { lines: v.lines })}{v.due_date ? ` · ${tr('الاستحقاق {due_date}', { due_date: fmtDate(v.due_date) })}` : ''}{(v.goods || []).length ? tr(' · فيها صور بضاعة') : ''}</div></span>
                   {money && <span className="num" style={{ fontWeight: 600 }}>{kwd(v.total)}</span>}
-                  {v.status === 'approved' ? <span className={'pill ' + (late ? 'red' : PAY_STATUS[v.payment_status][0])}>{late ? 'متأخرة' : PAY_STATUS[v.payment_status][1]}</span>
-                    : <span className={'pill ' + st[0]}>{st[1]}</span>}
+                  {v.status === 'approved' ? <span className={'pill ' + (late ? 'red' : PAY_STATUS[v.payment_status][0])}>{late ? tr('متأخرة') : tr(PAY_STATUS[v.payment_status][1])}</span>
+                    : <span className={'pill ' + st[0]}>{tr(st[1])}</span>}
                 </Link>)
             })}
           </div>
@@ -307,26 +313,26 @@ export default function SupplierProfile() {
         <div className="form" style={{ gap: 10 }}>
           <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
             <div className="chips">
-              <button className={'chip' + (goodsView === 'lines' ? ' on' : '')} onClick={() => setGoodsView('lines')}>كل البضاعة</button>
-              <button className={'chip' + (goodsView === 'photos' ? ' on' : '')} onClick={() => setGoodsView('photos')}>الصور</button>
+              <button className={'chip' + (goodsView === 'lines' ? ' on' : '')} onClick={() => setGoodsView('lines')}>{tr('كل البضاعة')}</button>
+              <button className={'chip' + (goodsView === 'photos' ? ' on' : '')} onClick={() => setGoodsView('photos')}>{tr('الصور')}</button>
             </div>
             <XL onClick={exportGoods} />
           </div>
           {goodsView === 'photos' ? <Photos invoices={p.invoices} /> : (
             <div className="card table-wrap" style={{ padding: '4px 10px' }}>
               <table>
-                <thead><tr><th>التاريخ</th><th>الصنف</th><th>الكمية</th><th>المستلم</th>{money && <th>السعر</th>}{money && <th>المدفوع عليه</th>}<th></th></tr></thead>
+                <thead><tr><th>{tr('التاريخ')}</th><th>{tr('الصنف')}</th><th>{tr('الكمية')}</th><th>{tr('المستلم')}</th>{money && <th>{tr('السعر')}</th>}{money && <th>{tr('المدفوع عليه')}</th>}<th></th></tr></thead>
                 <tbody>
-                  {p.lines.length === 0 && <tr><td colSpan={7} className="empty">ما فيه بضاعة في هالفترة</td></tr>}
+                  {p.lines.length === 0 && <tr><td colSpan={7} className="empty">{tr('ما فيه بضاعة في هالفترة')}</td></tr>}
                   {p.lines.map((l, i) => (
                     <tr key={i}>
                       <td className="sub"><Link to={`/inventory/invoices/${l.invoice_id}`}>{fmtDate(l.d)}</Link></td>
-                      <td>{l.item || <span className="sub">غير مربوط</span>}<div className="cell-sub">{l.raw}</div></td>
+                      <td>{l.item || <span className="sub">{tr('غير مربوط')}</span>}<div className="cell-sub">{l.raw}</div></td>
                       <td className="num">{qtyFmt(l.qty)} <span className="sub">{l.unit_text || ''}</span></td>
                       <td className="num">{l.received == null ? '—' : qtyFmt(l.received)}</td>
                       {money && <td className="num">{kwd(l.price)}</td>}
                       {money && <td className="num">{kwd(l.payable)}</td>}
-                      <td>{l.issue !== 'none' && <span className={'pill ' + (l.issue === 'short' || l.issue === 'return' ? 'red' : 'amber')} title={l.issue_note || ''}>{ISSUES[l.issue][0]}</span>}</td>
+                      <td>{l.issue !== 'none' && <span className={'pill ' + (l.issue === 'short' || l.issue === 'return' ? 'red' : 'amber')} title={l.issue_note || ''}>{tr(ISSUES[l.issue][0])}</span>}</td>
                     </tr>))}
                 </tbody>
               </table>
@@ -335,16 +341,16 @@ export default function SupplierProfile() {
 
       {tab === 'prices' && (
         <div className="form" style={{ gap: 10 }}>
-          <div className="row" style={{ justifyContent: 'space-between' }}><span className="sub">الأسعار لكل وحدة مخزون. الخط الأحمر يعني السعر زاد.</span><XL onClick={exportPrices} /></div>
+          <div className="row" style={{ justifyContent: 'space-between' }}><span className="sub">{tr('الأسعار لكل وحدة مخزون. الخط الأحمر يعني السعر زاد.')}</span><XL onClick={exportPrices} /></div>
           <div className="card table-wrap" style={{ padding: '4px 10px' }}>
             <table>
-              <thead><tr><th>الصنف</th><th>الكمية</th>{money && <th>المجموع</th>}<th>أقل / أعلى</th><th>آخر سعر</th><th>التغير</th><th>مورد ثاني أرخص</th></tr></thead>
+              <thead><tr><th>{tr('الصنف')}</th><th>{tr('الكمية')}</th>{money && <th>{tr('المجموع')}</th>}<th>{tr('أقل / أعلى')}</th><th>{tr('آخر سعر')}</th><th>{tr('التغير')}</th><th>{tr('مورد ثاني أرخص')}</th></tr></thead>
               <tbody>
-                {p.items.length === 0 && <tr><td colSpan={7} className="empty">ما فيه أصناف في هالفترة</td></tr>}
+                {p.items.length === 0 && <tr><td colSpan={7} className="empty">{tr('ما فيه أصناف في هالفترة')}</td></tr>}
                 {p.items.map((x) => (
                   <tr key={x.item_id}>
                     <td style={{ fontWeight: 600 }}>{x.item}<div className="cell-sub">{fmtDate(x.last_date)}</div></td>
-                    <td className="num">{qtyFmt(x.stock_qty)} <span className="sub">{x.unit}</span></td>
+                    <td className="num">{qtyFmt(x.stock_qty)} <span className="sub">{tn(x.unit)}</span></td>
                     {money && <td className="num">{kwd(x.total)}</td>}
                     <td className="num sub">{kwd(x.min_price)} / {kwd(x.max_price)}</td>
                     <td className="num" style={{ fontWeight: 600 }}>{kwd(x.last_price)}</td>
@@ -358,14 +364,14 @@ export default function SupplierProfile() {
 
       {tab === 'payments' && (
         <div className="form" style={{ gap: 10 }}>
-          {!money ? <div className="card empty">ما عندك صلاحية تشوف المبالغ</div> : <>
-            <div className="row" style={{ justifyContent: 'space-between' }}>{canPay ? <button className="btn primary" onClick={() => setPaying(true)}><Icon name="check" /> تسجيل دفعة</button> : <span />}<XL onClick={exportPayments} /></div>
+          {!money ? <div className="card empty">{tr('ما عندك صلاحية تشوف المبالغ')}</div> : <>
+            <div className="row" style={{ justifyContent: 'space-between' }}>{canPay ? <button className="btn primary" onClick={() => setPaying(true)}><Icon name="check" /> {tr('تسجيل دفعة')}</button> : <span />}<XL onClick={exportPayments} /></div>
             <div className="card list" style={{ padding: '4px 14px' }}>
-              {p.payments.length === 0 && <div className="empty">ما فيه دفعات في هالفترة</div>}
+              {p.payments.length === 0 && <div className="empty">{tr('ما فيه دفعات في هالفترة')}</div>}
               {p.payments.map((x) => (
                 <div key={x.id} className="list-item">
-                  <span className="grow">{PAY_METHOD[x.method] || x.method} · {x.invoice_no ? `فاتورة ${x.invoice_no}` : 'على الحساب'}<div className="sub">{fmtDate(x.d)}{x.note ? ` · ${x.note}` : ''}</div></span>
-                  {x.receipt && <button className="chip" style={{ minHeight: 30 }} onClick={async () => { const { data } = await supabase.storage.from('invoices').createSignedUrl(x.receipt, 600); if (data) window.open(data.signedUrl, '_blank') }}>الإيصال</button>}
+                  <span className="grow">{tr(PAY_METHOD[x.method] || x.method)} · {x.invoice_no ? tr('فاتورة {invoice_no}', { invoice_no: x.invoice_no }) : tr('على الحساب')}<div className="sub">{fmtDate(x.d)}{x.note ? ` · ${x.note}` : ''}</div></span>
+                  {x.receipt && <button className="chip" style={{ minHeight: 30 }} onClick={async () => { const { data } = await supabase.storage.from('invoices').createSignedUrl(x.receipt, 600); if (data) window.open(data.signedUrl, '_blank') }}>{tr('الإيصال')}</button>}
                   <span className="num" style={{ fontWeight: 600 }}>{kwd(x.amount)}</span>
                 </div>))}
             </div></>}
@@ -373,17 +379,17 @@ export default function SupplierProfile() {
 
       {tab === 'statement' && (
         <div className="card list" style={{ padding: '4px 12px' }}>
-          {!stmt ? <div className="empty">ما عندك صلاحية تشوف كشف الحساب</div> : !stmt.rows?.length ? <div className="empty">ما فيه حركات للحين</div> : stmt.rows.map((r) => {
+          {!stmt ? <div className="empty">{tr('ما عندك صلاحية تشوف كشف الحساب')}</div> : !stmt.rows?.length ? <div className="empty">{tr('ما فيه حركات للحين')}</div> : stmt.rows.map((r) => {
             run += Number(r.debit) - Number(r.credit)
             const late = r.kind === 'invoice' && r.payment_status !== 'paid' && r.due_date && r.due_date < today
             return (
               <div key={r.kind + r.id} className="list-item">
-                <span className="grow">{r.kind === 'invoice' ? <Link to={`/inventory/invoices/${r.id}`}>فاتورة <span className="ltr">{r.ref || ''}</span></Link> : <span>دفعة {PAY_METHOD[r.payment_status] || ''}{r.ref ? ` · ${r.ref}` : ''}</span>}
-                  <div className="sub">{fmtDate(r.d)}{r.kind === 'invoice' && r.due_date ? ` · الاستحقاق ${fmtDate(r.due_date)}` : ''}</div></span>
-                {r.kind === 'invoice' && <span className={'pill ' + (late ? 'red' : PAY_STATUS[r.payment_status]?.[0])}>{late ? 'متأخرة' : PAY_STATUS[r.payment_status]?.[1]}</span>}
-                <span style={{ textAlign: 'left', flexShrink: 0 }}>
+                <span className="grow">{r.kind === 'invoice' ? <Link to={`/inventory/invoices/${r.id}`}>{tr('فاتورة')} <span className="ltr">{r.ref || ''}</span></Link> : <span>{tr('دفعة')} {tr(PAY_METHOD[r.payment_status] || '')}{r.ref ? ` · ${r.ref}` : ''}</span>}
+                  <div className="sub">{fmtDate(r.d)}{r.kind === 'invoice' && r.due_date ? ` · ${tr('الاستحقاق {due_date}', { due_date: fmtDate(r.due_date) })}` : ''}</div></span>
+                {r.kind === 'invoice' && <span className={'pill ' + (late ? 'red' : PAY_STATUS[r.payment_status]?.[0])}>{late ? tr('متأخرة') : tr(PAY_STATUS[r.payment_status]?.[1])}</span>}
+                <span style={{ textAlign: 'end', flexShrink: 0 }}>
                   <span className="num" style={{ fontWeight: 600, color: r.kind === 'payment' ? 'var(--ok)' : undefined }}>{r.kind === 'payment' ? '− ' : '+ '}{kwd(r.kind === 'payment' ? r.credit : r.debit)}</span>
-                  <div className="sub">الرصيد <span className="num">{kwd(run)}</span></div></span>
+                  <div className="sub">{tr('الرصيد')} <span className="num">{kwd(run)}</span></div></span>
               </div>)
           })}
         </div>)}
@@ -391,60 +397,60 @@ export default function SupplierProfile() {
       {tab === 'info' && (
         <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
           <div className="card form" style={{ gap: 8 }}>
-            <strong>التواصل</strong>
-            {allContacts.length === 0 && <div className="sub">ما فيه أرقام</div>}
+            <strong>{tr('التواصل')}</strong>
+            {allContacts.length === 0 && <div className="sub">{tr('ما فيه أرقام')}</div>}
             {allContacts.map((c, i) => (
               <div key={i} className="row" style={{ gap: 6 }}>
-                <span className="grow"><span className="sub">{CONTACT_ROLE[c.role] || ''}</span> {c.name || ''}<div className="num ltr" style={{ textAlign: 'right' }}>{c.phone}</div></span>
-                {c.phone && <a className="icon-btn" style={{ width: 36, height: 36 }} href={telLink(c.phone)} aria-label="اتصال"><Icon name="phone" size={16} /></a>}
-                {c.phone && c.whatsapp && <a className="icon-btn" style={{ width: 36, height: 36, color: '#1F8F4E' }} href={waLink(c.phone)} target="_blank" rel="noreferrer" aria-label="واتساب"><Icon name="chat" size={16} /></a>}
+                <span className="grow"><span className="sub">{tr(CONTACT_ROLE[c.role] || '')}</span> {c.name || ''}<div className="num ltr" style={{ textAlign: lang === 'ar' ? 'right' : 'left' }}>{c.phone}</div></span>
+                {c.phone && <a className="icon-btn" style={{ width: 36, height: 36 }} href={telLink(c.phone)} aria-label={tr('اتصال')}><Icon name="phone" size={16} /></a>}
+                {c.phone && c.whatsapp && <a className="icon-btn" style={{ width: 36, height: 36, color: '#1F8F4E' }} href={waLink(c.phone)} target="_blank" rel="noreferrer" aria-label={tr('واتساب')}><Icon name="chat" size={16} /></a>}
               </div>))}
-            {sup.phone && contacts.length > 0 && <div>هاتف الشركة: <a href={telLink(sup.phone)} className="num">{sup.phone}</a></div>}
-            {sup.email && <div>الإيميل: <a href={`mailto:${sup.email}`} className="ltr">{sup.email}</a></div>}
+            {sup.phone && contacts.length > 0 && <div>{tr('هاتف الشركة')}: <a href={telLink(sup.phone)} className="num">{sup.phone}</a></div>}
+            {sup.email && <div>{tr('الإيميل')}: <a href={`mailto:${sup.email}`} className="ltr">{sup.email}</a></div>}
           </div>
           <div className="card form" style={{ gap: 6 }}>
-            <strong>العنوان</strong>
-            <div>{[sup.area, sup.address].filter(Boolean).join(' — ') || <span className="sub">ما فيه عنوان</span>}</div>
-            {sup.map_url && <a className="btn" href={sup.map_url} target="_blank" rel="noreferrer"><Icon name="pin" /> افتح الخريطة</a>}
+            <strong>{tr('العنوان')}</strong>
+            <div>{[sup.area, sup.address].filter(Boolean).join(' — ') || <span className="sub">{tr('ما فيه عنوان')}</span>}</div>
+            {sup.map_url && <a className="btn" href={sup.map_url} target="_blank" rel="noreferrer"><Icon name="pin" /> {tr('افتح الخريطة')}</a>}
           </div>
           <div className="card form" style={{ gap: 6 }}>
-            <strong>الدفع</strong>
-            <div>الشروط: {sup.payment_terms || '—'} · المهلة: {sup.credit_days ? `${sup.credit_days} يوم` : 'فوري'}</div>
-            <div>الطريقة المفضلة: {PAY_PREF[sup.preferred_payment] || '—'}</div>
+            <strong>{tr('الدفع')}</strong>
+            <div>{tr('الشروط')}: {sup.payment_terms || '—'} · {tr('المهلة')}: {sup.credit_days ? tr('{credit_days} يوم', { credit_days: sup.credit_days }) : tr('فوري')}</div>
+            <div>{tr('الطريقة المفضلة')}: {tr(PAY_PREF[sup.preferred_payment] || '—')}</div>
             {bank ? <div className="form" style={{ gap: 4, background: '#F7F9F5', borderRadius: 10, padding: 10 }}>
-              <div>البنك: {bank.bank_name || '—'}</div><div>صاحب الحساب: {bank.account_name || '—'}</div>
-              <div>رقم الحساب: <span className="num ltr">{bank.account_no || '—'}</span></div>
+              <div>{tr('البنك')}: {bank.bank_name || '—'}</div><div>{tr('صاحب الحساب')}: {bank.account_name || '—'}</div>
+              <div>{tr('رقم الحساب')}: <span className="num ltr">{bank.account_no || '—'}</span></div>
               <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>IBAN: <span className="num ltr" style={{ userSelect: 'all', wordBreak: 'break-all' }}>{bank.iban || '—'}</span>
-                {bank.iban && <button className="chip" style={{ minHeight: 26, fontSize: 12 }} onClick={() => navigator.clipboard?.writeText(bank.iban)}>نسخ</button>}</div>
+                {bank.iban && <button className="chip" style={{ minHeight: 26, fontSize: 12 }} onClick={() => navigator.clipboard?.writeText(bank.iban)}>{tr('نسخ')}</button>}</div>
               {bank.swift && <div>SWIFT: <span className="ltr">{bank.swift}</span></div>}
-            </div> : (access.is_owner || canPay) ? <div className="sub">ما فيه بيانات بنك. أضفها من "تعديل".</div> : null}
+            </div> : (access.is_owner || canPay) ? <div className="sub">{tr('ما فيه بيانات بنك. أضفها من "تعديل".')}</div> : null}
           </div>
           <div className="card form" style={{ gap: 6 }}>
-            <strong>الأوراق</strong>
-            <div>السجل التجاري: {sup.cr_no || '—'} · الرخصة: {sup.licence_no || '—'}</div>
-            <div>انتهاء الرخصة: {sup.licence_expiry ? fmtDate(sup.licence_expiry) : '—'} · انتهاء العقد: {sup.contract_expiry ? fmtDate(sup.contract_expiry) : '—'}</div>
-            {sup.doc_paths?.length > 0 && <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>{sup.doc_paths.map((x, i) => <button key={x} className="chip" style={{ minHeight: 30 }} onClick={() => openFile('attachments', x)}>ورقة {i + 1}</button>)}</div>}
+            <strong>{tr('الأوراق')}</strong>
+            <div>{tr('السجل التجاري')}: {sup.cr_no || '—'} · {tr('الرخصة')}: {sup.licence_no || '—'}</div>
+            <div>{tr('انتهاء الرخصة')}: {sup.licence_expiry ? fmtDate(sup.licence_expiry) : '—'} · {tr('انتهاء العقد')}: {sup.contract_expiry ? fmtDate(sup.contract_expiry) : '—'}</div>
+            {sup.doc_paths?.length > 0 && <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>{sup.doc_paths.map((x, i) => <button key={x} className="chip" style={{ minHeight: 30 }} onClick={() => openFile('attachments', x)}>{tr('ورقة {v}', { v: i + 1 })}</button>)}</div>}
           </div>
         </div>)}
 
       {tab === 'notes' && (
         <div className="form" style={{ gap: 10 }}>
           <div className="card form" style={{ gap: 8 }}>
-            <div className="chips">{[['note', 'ملاحظة'], ['problem', 'مشكلة'], ['agreement', 'اتفاق']].map(([kk, l]) => <button key={kk} className={'chip' + (note.kind === kk ? ' on' : '')} onClick={() => setNote({ ...note, kind: kk })}>{l}</button>)}</div>
-            <textarea className="input" rows={2} placeholder="مثلاً: البضاعة وصلت متأخرة ٣ ساعات" value={note.body} onChange={(e) => setNote({ ...note, body: e.target.value })} aria-label="الملاحظة" />
-            <button className="btn primary" disabled={!note.body.trim()} onClick={addNote}>إضافة</button>
+            <div className="chips">{[['note', tr('ملاحظة')], ['problem', tr('مشكلة')], ['agreement', tr('اتفاق')]].map(([kk, l]) => <button key={kk} className={'chip' + (note.kind === kk ? ' on' : '')} onClick={() => setNote({ ...note, kind: kk })}>{l}</button>)}</div>
+            <textarea className="input" rows={2} placeholder={tr('مثلاً: البضاعة وصلت متأخرة ٣ ساعات')} value={note.body} onChange={(e) => setNote({ ...note, body: e.target.value })} aria-label={tr('الملاحظة')} />
+            <button className="btn primary" disabled={!note.body.trim()} onClick={addNote}>{tr('إضافة')}</button>
           </div>
           <div className="card list" style={{ padding: '4px 14px' }}>
-            {notes.length === 0 && <div className="empty">ما فيه ملاحظات</div>}
+            {notes.length === 0 && <div className="empty">{tr('ما فيه ملاحظات')}</div>}
             {notes.map((x) => (
               <div key={x.id} className="list-item" style={{ alignItems: 'flex-start' }}>
-                <span className={'pill ' + (x.kind === 'problem' ? 'red' : x.kind === 'agreement' ? 'blue' : 'gray')}>{x.kind === 'problem' ? 'مشكلة' : x.kind === 'agreement' ? 'اتفاق' : 'ملاحظة'}</span>
+                <span className={'pill ' + (x.kind === 'problem' ? 'red' : x.kind === 'agreement' ? 'blue' : 'gray')}>{x.kind === 'problem' ? tr('مشكلة') : x.kind === 'agreement' ? tr('اتفاق') : tr('ملاحظة')}</span>
                 <span className="grow" style={{ whiteSpace: 'pre-line' }}>{x.body}<div className="sub">{x.employees?.full_name || ''} · {fmtDate(x.created_at)}</div></span>
               </div>))}
             {p?.lines?.filter((l) => l.issue !== 'none').slice(0, 20).map((l, i) => (
               <div key={'i' + i} className="list-item">
-                <span className={'pill ' + (l.issue === 'short' || l.issue === 'return' ? 'red' : 'amber')}>{ISSUES[l.issue][0]}</span>
-                <span className="grow">{l.item || l.raw}{l.issue_note ? `: ${l.issue_note}` : ''}<div className="sub">من فاتورة {l.invoice_no || ''} · {fmtDate(l.d)}</div></span>
+                <span className={'pill ' + (l.issue === 'short' || l.issue === 'return' ? 'red' : 'amber')}>{tr(ISSUES[l.issue][0])}</span>
+                <span className="grow">{l.item || l.raw}{l.issue_note ? `: ${l.issue_note}` : ''}<div className="sub">{tr('من فاتورة')} {l.invoice_no || ''} · {fmtDate(l.d)}</div></span>
               </div>))}
           </div>
         </div>)}

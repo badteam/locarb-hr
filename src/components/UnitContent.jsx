@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useLang } from '../lib/i18n.jsx'
 
 // Stock units that are already a weight/volume: the system knows the grams without asking.
 export const MEASURE_UNITS = { 'كغ': [1000, 'g'], 'كيلو': [1000, 'g'], 'غرام': [1, 'g'], 'جرام': [1, 'g'], 'لتر': [1000, 'ml'], 'مل': [1, 'ml'] }
@@ -37,17 +38,19 @@ export function parseWeight(text) {
   return w.each ? w : null
 }
 
-export const fmtContent = (grams, measure = 'g') => {
+// pass the page's tr to get the unit word in the reader's language
+export const fmtContent = (grams, measure = 'g', tr = (s) => s) => {
   const g = Number(grams)
   if (!g) return ''
   const big = measure === 'ml' ? 'لتر' : 'كيلو', small = measure === 'ml' ? 'مل' : 'جرام'
-  return g >= 1000 ? `${+(g / 1000).toFixed(3)} ${big}` : `${+g.toFixed(1)} ${small}`
+  return g >= 1000 ? `${+(g / 1000).toFixed(3)} ${tr(big)}` : `${+g.toFixed(1)} ${tr(small)}`
 }
 
 // "How much is in one carton/bag/…": weight or volume, plus how many pieces.
 // "How much is in one carton/bag/…": how many pieces, and/or the weight (of the whole unit or of one piece).
 // Either one is enough to save: pieces let the meal cost price a piece, weight lets it price a kilo / 100 g.
 export default function UnitContent({ unit, grams, pieces, measure, onChange, required, compact }) {
+  const { tr, tn } = useLang()
   const toState = (g, ms, per = 'all') => {
     let n = Number(g)
     if (n && per === 'one' && Number(pieces) > 1) n = n / Number(pieces)
@@ -62,32 +65,32 @@ export default function UnitContent({ unit, grams, pieces, measure, onChange, re
     setSt(next)
     onChange({ grams: Math.round(total(next, pcs) * 1000) / 1000 || null, measure: next.mu === 'l' || next.mu === 'ml' ? 'ml' : 'g', pieces: pcs })
   }
-  const u = unit || 'الوحدة'
+  const u = tn(unit) || tr('الوحدة')
   const ok = toGrams(st) > 0 || Number(pieces) > 1
   const g = total(st, pieces), pcs = Number(pieces) || 0
   return (
     <div className="form" style={{ gap: 8, background: required && !ok ? '#FFFBEB' : '#F7F9F5', borderRadius: 10, padding: compact ? 8 : 10 }}>
-      <span className="lbl" style={{ fontSize: compact ? 13 : undefined }}>الـ{u} الواحد فيه كام؟{required ? ' (مهم لحساب الكوست)' : ''}</span>
+      <span className="lbl" style={{ fontSize: compact ? 13 : undefined }}>{tr('الـ{u} الواحد فيه كام؟', { u })}{required ? tr(' (مهم لحساب الكوست)') : ''}</span>
       <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-        <span className="sub" style={{ minWidth: 70 }}>عدد الحبات</span>
-        <input className="input num" style={{ width: 90 }} type="number" step="1" min="0" value={pieces ?? ''} placeholder="مثلاً 6"
-          onChange={(e) => emit(st, e.target.value === '' ? null : Number(e.target.value))} aria-label="عدد الحبات" />
-        <span className="sub">حبة</span>
+        <span className="sub" style={{ minWidth: 70 }}>{tr('عدد الحبات')}</span>
+        <input className="input num" style={{ width: 90 }} type="number" step="1" min="0" value={pieces ?? ''} placeholder={tr('مثلاً 6')}
+          onChange={(e) => emit(st, e.target.value === '' ? null : Number(e.target.value))} aria-label={tr('عدد الحبات')} />
+        <span className="sub">{tr('حبة')}</span>
       </div>
       <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-        <span className="sub" style={{ minWidth: 70 }}>الوزن</span>
-        <input className="input num" style={{ width: 90 }} type="number" step="any" min="0" value={st.amt} placeholder={pcs > 1 ? 'اختياري' : 'مثلاً 10'}
-          onChange={(e) => emit({ ...st, amt: e.target.value })} aria-label={`وزن الـ${u}`} />
-        <select className="input" style={{ width: 'auto' }} value={st.mu} onChange={(e) => emit({ ...st, mu: e.target.value })} aria-label="كيلو أو جرام أو لتر">
-          <option value="kg">كيلو</option><option value="g">جرام</option><option value="l">لتر</option><option value="ml">مل</option>
+        <span className="sub" style={{ minWidth: 70 }}>{tr('الوزن')}</span>
+        <input className="input num" style={{ width: 90 }} type="number" step="any" min="0" value={st.amt} placeholder={pcs > 1 ? tr('اختياري') : tr('مثلاً 10')}
+          onChange={(e) => emit({ ...st, amt: e.target.value })} aria-label={tr('وزن الـ{u}', { u })} />
+        <select className="input" style={{ width: 'auto' }} value={st.mu} onChange={(e) => emit({ ...st, mu: e.target.value })} aria-label={tr('كيلو أو جرام أو لتر')}>
+          <option value="kg">{tr('كيلو')}</option><option value="g">{tr('جرام')}</option><option value="l">{tr('لتر')}</option><option value="ml">{tr('مل')}</option>
         </select>
-        {pcs > 1 && <select className="input" style={{ width: 'auto' }} value={st.per} onChange={(e) => emit({ ...st, per: e.target.value })} aria-label="وزن مين">
-          <option value="all">للـ{u} كله</option><option value="one">للحبة الواحدة</option>
+        {pcs > 1 && <select className="input" style={{ width: 'auto' }} value={st.per} onChange={(e) => emit({ ...st, per: e.target.value })} aria-label={tr('وزن مين')}>
+          <option value="all">{tr('للـ{u} كله', { u })}</option><option value="one">{tr('للحبة الواحدة')}</option>
         </select>}
       </div>
       {(g > 0 || pcs > 1) && <div className="sub" style={{ fontSize: 12 }}>
-        = الـ{u} فيه {pcs > 1 ? `${pcs} حبة` : ''}{pcs > 1 && g > 0 ? ' · ' : ''}{g > 0 ? fmtContent(g, st.mu === 'l' || st.mu === 'ml' ? 'ml' : 'g') : ''}{pcs > 1 && g > 0 ? ` (الحبة ${fmtContent(g / pcs, st.mu === 'l' || st.mu === 'ml' ? 'ml' : 'g')})` : ''}</div>}
-      {!compact && <div className="sub">اكتب عدد الحبات لو بتستخدمه بالحبة (كيس خبز فيه 6 حبات)، والوزن لو بتستخدمه بالجرام (كرتونة جمبري 10 كيلو). لو تعرف الاتنين اكتبهم، عشان السعرات تتحسب صح.</div>}
+        {tr('= الـ{u} فيه', { u })} {pcs > 1 ? tr('{pcs} حبة', { pcs }) : ''}{pcs > 1 && g > 0 ? ' · ' : ''}{g > 0 ? fmtContent(g, st.mu === 'l' || st.mu === 'ml' ? 'ml' : 'g', tr) : ''}{pcs > 1 && g > 0 ? ` ${tr('(الحبة {v})', { v: fmtContent(g / pcs, st.mu === 'l' || st.mu === 'ml' ? 'ml' : 'g', tr) })}` : ''}</div>}
+      {!compact && <div className="sub">{tr('اكتب عدد الحبات لو بتستخدمه بالحبة (كيس خبز فيه 6 حبات)، والوزن لو بتستخدمه بالجرام (كرتونة جمبري 10 كيلو). لو تعرف الاتنين اكتبهم، عشان السعرات تتحسب صح.')}</div>}
     </div>
   )
 }

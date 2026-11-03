@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { supabase, fmtDate, selectAll } from '../../lib/supabase'
-import { kwd, loadLookups } from '../../lib/inv'
+import { supabase, selectAll } from '../../lib/supabase'
+import { kwd, loadLookups, itemNames } from '../../lib/inv'
 import { useAccess } from '../../lib/access.jsx'
 import { startRead, compress } from './Invoices.jsx'
 import { isPdf } from '../../lib/pdfPages'
@@ -9,6 +9,7 @@ import { splitPdf } from '../../lib/pdfSplit'
 import { parsePack, parseWeight, MEASURE_UNITS, fmtContent } from '../../components/UnitContent.jsx'
 import Icon from '../../components/Icon.jsx'
 import ItemSearchSheet from '../../components/ItemSearchSheet.jsx'
+import { useLang } from '../../lib/i18n.jsx'
 
 // Old invoices uploaded only to learn prices: no quantities go into stock, nothing becomes payable.
 // A price is written only on items that have no price yet, once per item.
@@ -31,19 +32,19 @@ function stockPrice(line, item, packFactor) {
   const wm = pk?.measure || parseWeight(ut)?.measure || parseWeight(line.raw_name)?.measure || 'g'
   const invCarton = CARTON_RE.test(ut) || CARTON_RE.test(line.raw_name || '')
   const itemCarton = /كرتون/.test(unit)
-  if (Number(packFactor) > 1) return { price: price / Number(packFactor), how: `وحدة الفاتورة = ${Number(packFactor)} ${unit}` }
+  if (Number(packFactor) > 1) return { price: price / Number(packFactor), how: ['وحدة الفاتورة = {n} {unit}', { n: Number(packFactor), unit }] }
   if (mu) {
-    if (perKilo) return { price: price * mu[0] / 1000, how: 'الفاتورة بالكيلو' }
-    if (w) { const k = w / mu[0]; return { price: price / k, how: `وحدة الفاتورة فيها ${fmtContent(w, wm)} = ${+k.toFixed(3)} ${unit}` } }
-    return { price, how: `اعتبرت وحدة الفاتورة = 1 ${unit}` }
+    if (perKilo) return { price: price * mu[0] / 1000, how: ['الفاتورة بالكيلو'] }
+    if (w) { const k = w / mu[0]; return { price: price / k, how: ['وحدة الفاتورة فيها {w} = {k} {unit}', { w: { g: w, m: wm }, k: +k.toFixed(3), unit }] } }
+    return { price, how: ['اعتبرت وحدة الفاتورة = 1 {unit}', { unit }] }
   }
   if (perKilo) {
     const g = Number(item.unit_grams)
-    if (g) return { price: price * g / 1000, how: `الفاتورة بالكيلو، والـ${unit} = ${fmtContent(g, item.unit_measure)}` }
-    return { price: 0, skip: `الفاتورة بسعر الكيلو، والـ${unit} مش معروف وزنه. اكتب وزنه في الصنف وارفعها تاني` }
+    if (g) return { price: price * g / 1000, how: ['الفاتورة بالكيلو، والـ{unit} = {g}', { unit, g: { g, m: item.unit_measure } }] }
+    return { price: 0, skip: ['الفاتورة بسعر الكيلو، والـ{unit} مش معروف وزنه. اكتب وزنه في الصنف وارفعها تاني', { unit }] }
   }
   if (itemCarton) return { price, ...(w ? { grams: w, measure: wm, ...(pk ? { pieces: pk.n } : {}) } : {}) }
-  if (pk && invCarton) return { price: price / pk.n, how: `الكرتونة فيها ${pk.n} ${unit}`, grams: pk.each, measure: pk.measure }
+  if (pk && invCarton) return { price: price / pk.n, how: ['الكرتونة فيها {n} {unit}', { n: pk.n, unit }], grams: pk.each, measure: pk.measure }
   return { price, ...(w && !invCarton ? { grams: w, measure: wm } : {}) }
 }
 
@@ -53,6 +54,7 @@ const ST = {
 }
 
 export default function PriceFill() {
+  const { tr, tn, fmtDate, lang } = useLang()
   const { access } = useAccess()
   const [lk, setLk] = useState(null)
   const [jobs, setJobs] = useState([])
@@ -73,7 +75,7 @@ export default function PriceFill() {
         const key = x.id
         if (started.current.has(key)) continue
         started.current.add(key)
-        setJobs((l) => (l.some((j) => j.key === key) ? l : [...l, { key, name: 'فاتورة اترفعت قبل كده', id: x.id, state: 'بيقارن الأسعار…' }]))
+        setJobs((l) => (l.some((j) => j.key === key) ? l : [...l, { key, name: tr('فاتورة اترفعت قبل كده'), id: x.id, state: tr('بيقارن الأسعار…') }]))
         queue.current = queue.current.then(() => apply(key, x.id))
       }
     })
@@ -89,18 +91,18 @@ export default function PriceFill() {
       let parts = [{ file }]
       if (isPdf(file)) {
         const key = crypto.randomUUID()
-        setJobs((l) => [...l, { key, name: file.name, state: 'بشوف كم فاتورة في الملف…' }])
+        setJobs((l) => [...l, { key, name: file.name, state: tr('بشوف كم فاتورة في الملف…') }])
         try { parts = await splitPdf(file, { kind: 'invoices', employeeId: access.employee?.id, onState: (t) => upd(key, { state: t }) }) }
         catch (e) {
-          const m = e.message === 'no_credit' ? 'رصيد قارئ الفواتير خلص' : e.message === 'not_configured' ? 'قارئ الفواتير مش متفعّل' : 'ما قدرت أفتح الـ PDF: ' + (e.message || e)
+          const m = e.message === 'no_credit' ? tr('رصيد قارئ الفواتير خلص') : e.message === 'not_configured' ? tr('قارئ الفواتير مش متفعّل') : tr('ما قدرت أفتح الـ PDF: ') + (e.message || e)
           upd(key, { state: null, error: m }); continue
         }
         setJobs((l) => l.filter((j) => j.key !== key))
       }
       for (const p of parts) {
         const key = crypto.randomUUID()
-        const name = parts.length > 1 ? `${p.title || file.name} · ${p.from === p.to ? `صفحة ${p.from}` : `صفحات ${p.from}-${p.to}`} من ${p.pages}` : file.name
-        setJobs((l) => [...l, { key, name, state: 'قاعد يرفع…' }])
+        const name = parts.length > 1 ? `${p.title || file.name} · ${p.from === p.to ? tr('صفحة {p} من {n}', { p: p.from, n: p.pages }) : tr('صفحات {a}-{b} من {n}', { a: p.from, b: p.to, n: p.pages })}` : file.name
+        setJobs((l) => [...l, { key, name, state: tr('قاعد يرفع…') }])
         read(key, [p.file]).then((id) => { if (id) queue.current = queue.current.then(() => apply(key, id)) })
       }
     }
@@ -120,10 +122,10 @@ export default function PriceFill() {
         paths.push(path)
       }
       await supabase.from('purchase_invoices').update({ image_paths: paths }).eq('id', inv.id)
-      upd(key, { state: 'قاعد يقرا الفاتورة…', id: inv.id })
+      upd(key, { state: tr('قاعد يقرا الفاتورة…'), id: inv.id })
       const r = await startRead(inv.id)
-      if (r?.error) throw new Error(r.error === 'no_credit' ? 'رصيد قارئ الفواتير خلص' : r.error === 'not_configured' ? 'قارئ الفواتير مش متفعّل' : r.error)
-      upd(key, { state: 'بيقارن الأسعار…' })
+      if (r?.error) throw new Error(r.error === 'no_credit' ? tr('رصيد قارئ الفواتير خلص') : r.error === 'not_configured' ? tr('قارئ الفواتير مش متفعّل') : r.error)
+      upd(key, { state: tr('بيقارن الأسعار…') })
       return inv.id
     } catch (e) { upd(key, { state: null, error: e.message || String(e) }); return null }
   }
@@ -133,8 +135,8 @@ export default function PriceFill() {
       const { data: inv } = await supabase.from('purchase_invoices')
         .select('id,invoice_no,invoice_date,supplier_id,total_read,supplier_name_read,suppliers(name),purchase_invoice_lines(id,line_no,raw_name,qty,unit_text,unit_price,item_id,match_score,pack_factor,inv_items!purchase_invoice_lines_item_id_fkey(id,name_ar,last_price,avg_cost,alert_base_price,unit_grams,unit_measure,inv_units(name)))')
         .eq('id', id).single()
-      if (!inv) throw new Error('ما قدرتش أفتح الفاتورة بعد القراءة')
-      const head = { supplier: inv.suppliers?.name || inv.supplier_name_read || 'مورد غير معروف', supplier_id: inv.supplier_id, no: inv.invoice_no, date: inv.invoice_date, total: inv.total_read }
+      if (!inv) throw new Error(tr('ما قدرتش أفتح الفاتورة بعد القراءة'))
+      const head = { supplier: inv.suppliers?.name || inv.supplier_name_read || tr('مورد غير معروف'), supplier_id: inv.supplier_id, no: inv.invoice_no, date: inv.invoice_date, total: inv.total_read }
 
       // same invoice uploaded before (as a real invoice, or already used for prices)?
       let dup = null
@@ -148,7 +150,7 @@ export default function PriceFill() {
       }
       if (dup) {
         await supabase.from('purchase_invoices').update({ status: 'rejected', notes: 'تسعير فقط: فاتورة متدبلة' }).eq('id', id)
-        upd(key, { state: null, head, dup: dup.price_only ? 'اترفعت قبل كده للتسعير' : 'موجودة في فواتير الموردين', rows: [] })
+        upd(key, { state: null, head, dup: dup.price_only ? tr('اترفعت قبل كده للتسعير') : tr('موجودة في فواتير الموردين'), rows: [] })
         return
       }
 
@@ -233,36 +235,42 @@ export default function PriceFill() {
     if (!r.error) { priced.current.delete(row.it.id); upd(key, (x) => ({ rows: x.rows.map((y, n) => (n === i ? { ...y, st: 'undone' } : y)) })) }
   }
 
+  // stockPrice explains itself as [Arabic phrase, params]
+  const howText = (h) => {
+    if (!Array.isArray(h)) return tr(h)
+    const p = Object.fromEntries(Object.entries(h[1] || {}).map(([k, v]) => [k, k === 'unit' ? tn(v) : v && typeof v === 'object' ? fmtContent(v.g, v.m, tr) : v]))
+    return tr(h[0], p)
+  }
   const all = jobs.flatMap((j) => j.rows || [])
   const n = (st) => all.filter((r) => r.st === st).length
 
   return (
     <div style={{ maxWidth: 900 }}>
-      <div className="page-head"><div><h1>تسعير من فواتير قديمة</h1>
-        <div className="sub">ارفع فواتير قديمة. السيستم ياخد منها <b>الأسعار بس</b>: الكميات ما تدخلش المخزون، والفاتورة ما تتحسبش عليك فلوس.</div></div>
-        <Link className="btn" to="/inventory">رجوع للمخزون</Link></div>
+      <div className="page-head"><div><h1>{tr('تسعير من فواتير قديمة')}</h1>
+        <div className="sub">{tr('ارفع فواتير قديمة. السيستم ياخد منها')} <b>{tr('الأسعار بس')}</b>: {tr('الكميات ما تدخلش المخزون، والفاتورة ما تتحسبش عليك فلوس.')}</div></div>
+        <Link className="btn" to="/inventory">{tr('رجوع للمخزون')}</Link></div>
 
       <div className="card" style={{ marginBottom: 14 }}>
         <ul className="sub" style={{ margin: 0, paddingInlineStart: 18, lineHeight: 1.9 }}>
-          <li>الصنف اللي <b>عنده سعر</b> في المخزون: ما يتغيرش.</li>
-          <li>الصنف اللي <b>ما لوش سعر</b>: ياخد السعر من الفاتورة، مرة واحدة بس، حتى لو الصنف متكرر في كذا فاتورة.</li>
-          <li>الفاتورة <b>المتدبلة</b> (نفس المورد ونفس الرقم، أو نفس التاريخ والمبلغ): تتقال لك ومش بتتقرا.</li>
-          <li>لو اسم الصنف في الفاتورة <b>مش متأكد منه</b>، بيسألك «هو ده الصنف؟» قبل ما يحط السعر.</li>
-          <li>لو الفاتورة بالكرتونة ومكتوب «10 × 1 كغ»، بيحوّل السعر لسعر وحدة المخزون (الكيلو أو الكيس).</li>
+          <li>{tr('الصنف اللي')} <b>{tr('عنده سعر')}</b> {tr('في المخزون: ما يتغيرش.')}</li>
+          <li>{tr('الصنف اللي')} <b>{tr('ما لوش سعر')}</b>: {tr('ياخد السعر من الفاتورة، مرة واحدة بس، حتى لو الصنف متكرر في كذا فاتورة.')}</li>
+          <li>{tr('الفاتورة')} <b>{tr('المتدبلة')}</b> ({tr('نفس المورد ونفس الرقم، أو نفس التاريخ والمبلغ): تتقال لك ومش بتتقرا.')}</li>
+          <li>{tr('لو اسم الصنف في الفاتورة')} <b>{tr('مش متأكد منه')}</b>{tr('، ')}{tr('بيسألك «هو ده الصنف؟» قبل ما يحط السعر.')}</li>
+          <li>{tr('لو الفاتورة بالكرتونة ومكتوب «10 × 1 كغ»، بيحوّل السعر لسعر وحدة المخزون (الكيلو أو الكيس).')}</li>
         </ul>
       </div>
 
       <label className="upload" style={{ height: 140, marginBottom: 16, opacity: lk ? 1 : 0.5 }}>
         <input type="file" accept="image/*,application/pdf" multiple disabled={!lk} onChange={(e) => { add([...e.target.files]); e.target.value = '' }} />
-        <Icon name="camera" size={30} /><strong style={{ fontSize: 15, color: 'var(--ink)' }}>اختار صور الفواتير القديمة</strong><span>تقدر تختار كذا فاتورة مرة واحدة (كل صورة = فاتورة)</span>
+        <Icon name="camera" size={30} /><strong style={{ fontSize: 15, color: 'var(--ink)' }}>{tr('اختار صور الفواتير القديمة')}</strong><span>{tr('تقدر تختار كذا فاتورة مرة واحدة (كل صورة = فاتورة)')}</span>
       </label>
 
       {all.length > 0 && <div className="grid stats" style={{ marginBottom: 14 }}>
-        <div className="card stat"><div className="label">اتسعّر</div><div className="value num" style={{ color: 'var(--ok)' }}>{n('set')}</div></div>
-        <div className="card stat"><div className="label">عنده سعر (ما اتغيرش)</div><div className="value num">{n('has') + n('done')}</div></div>
-        {n('confirm') > 0 && <div className="card stat" style={{ borderColor: '#F3DDA8' }}><div className="label">محتاج تأكيد منك</div><div className="value num" style={{ color: 'var(--amber)' }}>{n('confirm')}</div></div>}
-        <div className="card stat"><div className="label">مش موجود في المخزون</div><div className="value num" style={{ color: n('none') ? 'var(--amber)' : undefined }}>{n('none')}</div></div>
-        <div className="card stat"><div className="label">فواتير متدبلة</div><div className="value num">{jobs.filter((j) => j.dup).length}</div></div>
+        <div className="card stat"><div className="label">{tr('اتسعّر')}</div><div className="value num" style={{ color: 'var(--ok)' }}>{n('set')}</div></div>
+        <div className="card stat"><div className="label">{tr('عنده سعر (ما اتغيرش)')}</div><div className="value num">{n('has') + n('done')}</div></div>
+        {n('confirm') > 0 && <div className="card stat" style={{ borderColor: '#F3DDA8' }}><div className="label">{tr('محتاج تأكيد منك')}</div><div className="value num" style={{ color: 'var(--amber)' }}>{n('confirm')}</div></div>}
+        <div className="card stat"><div className="label">{tr('مش موجود في المخزون')}</div><div className="value num" style={{ color: n('none') ? 'var(--amber)' : undefined }}>{n('none')}</div></div>
+        <div className="card stat"><div className="label">{tr('فواتير متدبلة')}</div><div className="value num">{jobs.filter((j) => j.dup).length}</div></div>
       </div>}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -270,29 +278,29 @@ export default function PriceFill() {
           <div key={j.key} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div className="row" style={{ flexWrap: 'wrap' }}>
               <span className="grow"><div style={{ fontWeight: 600 }}>{j.head ? j.head.supplier : j.name}</div>
-                <div className="sub">{j.head ? [j.head.no && `رقم ${j.head.no}`, j.head.date && fmtDate(j.head.date), j.head.total != null && `${kwd(j.head.total)} د.ك`].filter(Boolean).join(' · ') : j.name}</div></span>
+                <div className="sub">{j.head ? [j.head.no && tr('رقم {no}', { no: j.head.no }), j.head.date && fmtDate(j.head.date), j.head.total != null && tr('{total} د.ك', { total: kwd(j.head.total) })].filter(Boolean).join(' · ') : j.name}</div></span>
               {j.state && <span className="sub"><span className="spinner" /> {j.state}</span>}
-              {j.dup && <span className="pill amber">متدبلة: {j.dup}، ما اتقرتش</span>}
-              {j.rows && !j.dup && <span className="pill ok">{j.rows.filter((r) => r.st === 'set').length} سعر جديد</span>}
+              {j.dup && <span className="pill amber">{tr('متدبلة: {dup}، ما اتقرتش', { dup: j.dup })}</span>}
+              {j.rows && !j.dup && <span className="pill ok">{tr('{n} سعر جديد', { n: j.rows.filter((r) => r.st === 'set').length })}</span>}
             </div>
-            {j.error && <div className="error">{j.error}</div>}
+            {j.error && <div className="error">{tr(j.error)}</div>}
             {j.rows?.length > 0 && <div className="table-wrap"><table>
-              <thead><tr><th>في الفاتورة</th><th>الصنف في المخزون</th><th>السعر</th><th></th></tr></thead>
+              <thead><tr><th>{tr('في الفاتورة')}</th><th>{tr('الصنف في المخزون')}</th><th>{tr('السعر')}</th><th></th></tr></thead>
               <tbody>{j.rows.map((r, i) => (
                 <tr key={r.l.id}>
                   <td><div>{r.l.raw_name}</div><div className="cell-sub num">{kwd(r.l.unit_price)}{r.l.unit_text ? ` / ${r.l.unit_text}` : ''}</div></td>
-                  <td>{r.it ? <><div>{r.it.name_ar}</div><div className="cell-sub">{r.it.inv_units?.name}{r.st === 'has' ? ` · سعره ${kwd(r.it.last_price)}` : ''}</div></> : <span className="sub">—</span>}</td>
-                  <td>{r.p ? <><div className="num">{kwd(r.p)} / {r.it?.inv_units?.name || ''}</div>{r.how && <div className="cell-sub">{r.how}</div>}</> : r.how ? <div className="cell-sub">{r.how}</div> : '—'}</td>
-                  <td><span className={'pill ' + ST[r.st][1]}>{ST[r.st][0]}</span>
+                  <td>{r.it ? <><div>{itemNames(r.it, lang)[0]}</div><div className="cell-sub">{tn(r.it.inv_units?.name)}{r.st === 'has' ? ` · ${tr('سعره {last_price}', { last_price: kwd(r.it.last_price) })}` : ''}</div></> : <span className="sub">—</span>}</td>
+                  <td>{r.p ? <><div className="num">{kwd(r.p)} / {tn(r.it?.inv_units?.name || '')}</div>{r.how && <div className="cell-sub">{howText(r.how)}</div>}</> : r.how ? <div className="cell-sub">{howText(r.how)}</div> : '—'}</td>
+                  <td><span className={'pill ' + ST[r.st][1]}>{tr(ST[r.st][0])}</span>
                     {r.st === 'confirm' && <div className="row" style={{ gap: 6, marginTop: 6 }}>
-                      <button className="chip on" style={{ minHeight: 28 }} onClick={() => confirm(j.key, i, true)}>أيوه، حط السعر</button>
-                      <button className="chip" style={{ minHeight: 28 }} onClick={() => confirm(j.key, i, false)}>مش هو</button>
-                      <button className="chip" style={{ minHeight: 28 }} onClick={() => setPicking({ key: j.key, i })}>اختار غيره</button></div>}
-                    {r.st === 'set' && <button className="chip" style={{ minHeight: 28, marginInlineStart: 6 }} onClick={() => undo(j.key, i)}>تراجع</button>}
+                      <button className="chip on" style={{ minHeight: 28 }} onClick={() => confirm(j.key, i, true)}>{tr('أيوه، حط السعر')}</button>
+                      <button className="chip" style={{ minHeight: 28 }} onClick={() => confirm(j.key, i, false)}>{tr('مش هو')}</button>
+                      <button className="chip" style={{ minHeight: 28 }} onClick={() => setPicking({ key: j.key, i })}>{tr('اختار غيره')}</button></div>}
+                    {r.st === 'set' && <button className="chip" style={{ minHeight: 28, marginInlineStart: 6 }} onClick={() => undo(j.key, i)}>{tr('تراجع')}</button>}
                     {r.st !== 'confirm' && <div style={{ marginTop: 6 }}>
                       <button className={'chip' + (r.it ? '' : ' on')} style={{ minHeight: 28 }} disabled={busyRow === `${j.key}:${i}`} onClick={() => setPicking({ key: j.key, i })}>
-                        {busyRow === `${j.key}:${i}` ? <span className="spinner" /> : null} {r.it ? 'غيّر الصنف' : 'اختار الصنف'}</button>
-                      {r.manual && <span className="cell-sub" style={{ marginInlineStart: 6 }}>ربطته أنت</span>}</div>}</td>
+                        {busyRow === `${j.key}:${i}` ? <span className="spinner" /> : null} {r.it ? tr('غيّر الصنف') : tr('اختار الصنف')}</button>
+                      {r.manual && <span className="cell-sub" style={{ marginInlineStart: 6 }}>{tr('ربطته أنت')}</span>}</div>}</td>
                 </tr>))}</tbody></table></div>}
           </div>))}
       </div>

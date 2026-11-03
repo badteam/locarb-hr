@@ -37,7 +37,7 @@ export function BranchPicker({ branch, setBranch, any, options }) {
 const REASONS = ['خربان', 'انتهت الصلاحية', 'طاح أو انكسر', 'رجّعه زبون']
 
 export function WasteSheet({ branch, items, onClose, onSaved, isKitchen = false }) {
-  const { tr, lang } = useLang()
+  const { tr, lang, tn } = useLang()
   const [q, setQ] = useState('')
   const [item, setItem] = useState(null)
   const [qty, setQty] = useState('')
@@ -65,17 +65,17 @@ export function WasteSheet({ branch, items, onClose, onSaved, isKitchen = false 
         <div className="sheet-head"><h2 style={{ fontSize: 20 }}>{tr('تسجيل تالف')}</h2>
           <button type="button" className="icon-btn" aria-label={tr('إغلاق')} onClick={onClose}><Icon name="x" /></button></div>
         {item ? (
-          <div className="card row"><span className="grow" style={{ fontWeight: 600 }}>{itemNames(item, lang)[0]}<div className="cell-sub">{tr(item.unit || '')}</div></span>
+          <div className="card row"><span className="grow" style={{ fontWeight: 600 }}>{itemNames(item, lang)[0]}<div className="cell-sub">{tn(item.unit || '')}</div></span>
             <button className="btn" style={{ minHeight: 36 }} onClick={() => setItem(null)}>{tr('غيّر')}</button></div>
         ) : (
           <div className="field"><label htmlFor="ws">{tr('الصنف')}</label>
             <input id="ws" className="input" placeholder={tr('دوّر على الصنف')} value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
             {found.length > 0 && <div className="card list" style={{ padding: '0 10px' }}>{found.map((i) =>
               <button key={i.id} className="list-item" style={{ width: '100%', background: 'none', border: 0, cursor: 'pointer', textAlign: 'start' }} onClick={() => setItem(i)}>
-                <span className="grow">{itemNames(i, lang)[0]}<div className="cell-sub">{itemNames(i, lang)[1]}{i.unit ? ` · ${tr(i.unit)}` : ''}</div></span></button>)}</div>}
+                <span className="grow">{itemNames(i, lang)[0]}<div className="cell-sub">{itemNames(i, lang)[1]}{i.unit ? ` · ${tn(i.unit)}` : ''}</div></span></button>)}</div>}
           </div>
         )}
-        <div className="field"><label htmlFor="wq">{tr('الكمية')} {item ? `(${tr(branchPieces(item, isKitchen) ? 'حبة' : item.unit || '')})` : ''}</label>
+        <div className="field"><label htmlFor="wq">{tr('الكمية')} {item ? `(${(branchPieces(item, isKitchen) ? tr('حبة') : tn(item.unit || ''))})` : ''}</label>
           <input id="wq" className="input num" inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value.replace(/[^\d.]/g, ''))} /></div>
         <div className="field"><span className="lbl">{tr('السبب')}</span>
           <div className="chips">{[...REASONS, 'غيره'].map((r) => <button key={r} type="button" className={'chip' + (reason === r ? ' on' : '')} onClick={() => setReason(r)}>{tr(r)}</button>)}</div>
@@ -89,7 +89,7 @@ export function WasteSheet({ branch, items, onClose, onSaved, isKitchen = false 
 
 export default function BranchStock() {
   const { can } = useAccess()
-  const { tr, lang, fmtDate, fmtTime } = useLang()
+  const { tr, lang, fmtDate, fmtTime, tn } = useLang()
   const bc = useBranchChoice()
   const { branch } = bc
   const [items, setItems] = useState([])
@@ -147,8 +147,8 @@ export default function BranchStock() {
           <tbody>{shown.slice(0, 200).map((i) => {
             const l = levels[i.id]
             const n = branchPieces(i, isKitchen)
-            return <tr key={i.id}><td><div className="row" style={{ gap: 10 }}><ProductImage itemId={i.id} size={38} /><div>{itemNames(i, lang)[0]}<div className="cell-sub">{tr(i.category || '')}</div></div></div></td>
-              <td><span className="num" style={{ fontWeight: 600, color: l && Number(l.qty) < 0 ? 'var(--red)' : undefined }}>{l ? qtyFmt(n ? toPieces(l.qty, n) : l.qty) : '—'}</span> <span className="sub">{tr(n ? 'حبة' : i.unit || '')}</span></td>
+            return <tr key={i.id}><td><div className="row" style={{ gap: 10 }}><ProductImage itemId={i.id} size={38} /><div>{itemNames(i, lang)[0]}<div className="cell-sub">{tn(i.category || '')}</div></div></div></td>
+              <td><span className="num" style={{ fontWeight: 600, color: l && Number(l.qty) < 0 ? 'var(--red)' : undefined }}>{l ? qtyFmt(n ? toPieces(l.qty, n) : l.qty) : '—'}</span> <span className="sub">{(n ? tr('حبة') : tn(i.unit || ''))}</span></td>
               <td className="sub">{l ? fmtDate(l.updated_at) : ''}</td></tr>
           })}</tbody>
         </table>

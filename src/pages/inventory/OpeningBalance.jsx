@@ -3,9 +3,10 @@ import { Link } from 'react-router-dom'
 import writeXlsxFile from 'write-excel-file/browser'
 import readXlsxFile from 'read-excel-file/browser'
 import { supabase, selectAll } from '../../lib/supabase'
-import { kwd, qtyFmt, loadLookups, invErr } from '../../lib/inv'
+import { kwd, qtyFmt, loadLookups, invErr, itemNames } from '../../lib/inv'
 import ProductImage from '../../components/ProductImage.jsx'
 import Icon from '../../components/Icon.jsx'
+import { useLang } from '../../lib/i18n.jsx'
 
 // Opening balance: quantity + unit cost per item for one place.
 const draftKey = (b) => `opening-draft-${b}`
@@ -14,6 +15,7 @@ const writeDraft = (b, v) => { try { localStorage.setItem(draftKey(b), JSON.stri
 const clean = (v) => String(v ?? '').replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[^\d.]/g, '')
 
 export default function OpeningBalance() {
+  const { tr, tn, lang } = useLang()
   const [lookups, setLookups] = useState(null)
   const [branch, setBranch] = useState('')
   const [items, setItems] = useState([])
@@ -127,8 +129,8 @@ export default function OpeningBalance() {
       }
       setVals(next); writeDraft(branch, next)
       setOnlyFilled(true)
-      setMsg(`انقرى ${n} صنف من الملف${skipped ? `، و${skipped} سطر ما عرفناه` : ''}. راجعهم واضغط "حفظ رصيد أول المدة".`)
-    } catch (e) { setErr('ما قدرنا نقرا الملف: ' + (e.message || e)) }
+      setMsg(`${tr('انقرى {n} صنف من الملف{v}. راجعهم واضغط "حفظ رصيد أول المدة"', { n, v: skipped ? `${tr('، ')}${tr('و{skipped} سطر ما عرفناه', { skipped })}` : '' })}.`)
+    } catch (e) { setErr(tr('ما قدرنا نقرا الملف: ') + (e.message || e)) }
     setBusy('')
   }
 
@@ -137,11 +139,11 @@ export default function OpeningBalance() {
     const lines = filled.map(([item_id, v]) => ({ item_id, qty: v.qty === '' ? null : v.qty, price: v.price === '' ? null : v.price }))
     const { data, error } = await supabase.rpc('set_opening_balance', { p_branch: branch, p_lines: lines })
     setBusy(''); setConfirm(false)
-    if (error) { setErr(invErr(error)); return }
+    if (error) { setErr(tr(invErr(error))); return }
     clearTimeout(pushTimer.current)
     writeDraft(branch, {}); setVals({}); setOnlyFilled(false)
     await supabase.from('opening_drafts').upsert({ branch_id: branch, vals: {}, updated_at: new Date().toISOString() })
-    setMsg(`انحفظ رصيد أول المدة: ${data.lines} صنف بقيمة ${kwd(data.value)} د.ك.`)
+    setMsg(`${tr('انحفظ رصيد أول المدة: {lines} صنف بقيمة {value} د.ك', { lines: data.lines, value: kwd(data.value) })}.`)
     supabase.from('stock_levels').select('item_id,qty').eq('branch_id', branch).then(({ data: d }) => setLevels(Object.fromEntries((d || []).map((x) => [x.item_id, Number(x.qty)]))))
     selectAll(() => supabase.from('inv_stock').select('id,name_ar,name_en,unit,category_id,category,avg_cost,last_price').eq('active', true).order('name_ar').order('id')).then((data) => setItems(data || []))
   }
@@ -151,32 +153,31 @@ export default function OpeningBalance() {
   return (
     <div style={{ paddingBottom: 90 }}>
       <div className="page-head">
-        <div><Link to="/inventory" className="sub" style={{ textDecoration: 'none' }}>→ المخزون</Link><h1 style={{ marginTop: 4 }}>رصيد أول المدة</h1>
-          <div className="sub">اكتب الكمية الموجودة وسعر الوحدة لكل صنف. الكمية تصير هي الرصيد، والسعر يصير متوسط التكلفة.</div></div>
-        <select className="input" style={{ width: 'auto' }} value={branch} onChange={(e) => setBranch(e.target.value)} aria-label="المكان">
-          {lookups.stockBranches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+        <div><Link to="/inventory" className="sub" style={{ textDecoration: 'none' }}>{tr('→ المخزون')}</Link><h1 style={{ marginTop: 4 }}>{tr('رصيد أول المدة')}</h1>
+          <div className="sub">{tr('اكتب الكمية الموجودة وسعر الوحدة لكل صنف. الكمية تصير هي الرصيد، والسعر يصير متوسط التكلفة.')}</div></div>
+        <select className="input" style={{ width: 'auto' }} value={branch} onChange={(e) => setBranch(e.target.value)} aria-label={tr('المكان')}>
+          {lookups.stockBranches.map((b) => <option key={b.id} value={b.id}>{tn(b.name)}</option>)}
         </select>
       </div>
 
       <div className="card row" style={{ flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
-        <span className="grow sub">أسهل طريقة: نزّل ملف الإكسل، اكتب الكمية والسعر قدام كل صنف، وارفعه.</span>
-        <button className="btn" disabled={!!busy} onClick={exportTemplate}>{busy === 'xl' ? <span className="spinner" /> : <Icon name="doc" />} تنزيل ملف إكسل</button>
-        <label className="btn" style={{ cursor: 'pointer' }}>{busy === 'import' ? <span className="spinner" /> : <Icon name="plus" />} رفع الملف
+        <span className="grow sub">{tr('أسهل طريقة: نزّل ملف الإكسل، اكتب الكمية والسعر قدام كل صنف، وارفعه.')}</span>
+        <button className="btn" disabled={!!busy} onClick={exportTemplate}>{busy === 'xl' ? <span className="spinner" /> : <Icon name="doc" />} {tr('تنزيل ملف إكسل')}</button>
+        <label className="btn" style={{ cursor: 'pointer' }}>{busy === 'import' ? <span className="spinner" /> : <Icon name="plus" />} {tr('رفع الملف')}
           <input type="file" accept=".xlsx" style={{ display: 'none' }} onChange={(e) => { importFile(e.target.files[0]); e.target.value = '' }} /></label>
       </div>
       {msg && <div className="notice" style={{ marginBottom: 12 }}>{msg}</div>}
       {err && <div className="error" style={{ marginBottom: 12 }}>{err}</div>}
       {filled.length > 0 && <div className="warn" style={{ marginBottom: 12 }}><Icon name="warn" />
-        فيه مسودة لسه ما اتحفظتش: {filled.length} صنف مكتوب له كمية أو سعر{draftPrices ? ` (منهم ${draftPrices} سعر لأصناف ما لهاش سعر في السيستم)` : ''}.
-        المسودة بتظهر لكل اللي بيفتحوا الصفحة، بس ما بتدخلش المخزون إلا لما تضغط «حفظ».{draftInfo?.at ? ` آخر تعديل ${new Date(draftInfo.at).toLocaleString('ar-KW', { timeZone: 'Asia/Kuwait', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}.` : ''}</div>}
+        {tr('فيه مسودة لسه ما اتحفظتش: {n} صنف مكتوب له كمية أو سعر', { n: filled.length })}{draftPrices ? ` ${tr('(منهم {draftPrices} سعر لأصناف ما لهاش سعر في السيستم)', { draftPrices })}` : ''}{tr('. المسودة بتظهر لكل اللي بيفتحوا الصفحة، بس ما بتدخلش المخزون إلا لما تضغط «حفظ».')}{draftInfo?.at ? ` ${tr('آخر تعديل {v}', { v: new Date(draftInfo.at).toLocaleString('ar-KW', { timeZone: 'Asia/Kuwait', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }) })}.` : ''}</div>}
 
       <div className="toolbar">
-        <div className="search"><Icon name="search" size={18} /><input className="input" placeholder="دوّر على صنف" value={q} onChange={(e) => { setQ(e.target.value); setLimit(120) }} /></div>
-        <select className="input" style={{ width: 'auto', flex: '0 1 220px' }} value={cat} onChange={(e) => { setCat(e.target.value); setLimit(120) }} aria-label="التصنيف">
-          <option value="">كل التصنيفات</option>{lookups.categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        <div className="search"><Icon name="search" size={18} /><input className="input" placeholder={tr('دوّر على صنف')} value={q} onChange={(e) => { setQ(e.target.value); setLimit(120) }} /></div>
+        <select className="input" style={{ width: 'auto', flex: '0 1 220px' }} value={cat} onChange={(e) => { setCat(e.target.value); setLimit(120) }} aria-label={tr('التصنيف')}>
+          <option value="">{tr('كل التصنيفات')}</option>{lookups.categories.map((c) => <option key={c.id} value={c.id}>{tn(c.name)}</option>)}
         </select>
-        <label className="check"><input type="checkbox" checked={onlyFilled} onChange={(e) => setOnlyFilled(e.target.checked)} /> اللي كتبت لها بس</label>
-        <label className="check"><input type="checkbox" checked={noPriceOnly} onChange={(e) => { setNoPriceOnly(e.target.checked); setLimit(120) }} /> بدون سعر بس ({unpricedCount}{draftPrices ? ` · في السيستم ${dbUnpriced}` : ''})</label>
+        <label className="check"><input type="checkbox" checked={onlyFilled} onChange={(e) => setOnlyFilled(e.target.checked)} /> {tr('اللي كتبت لها بس')}</label>
+        <label className="check"><input type="checkbox" checked={noPriceOnly} onChange={(e) => { setNoPriceOnly(e.target.checked); setLimit(120) }} /> {tr('بدون سعر بس')} ({unpricedCount}{draftPrices ? ` · ${tr('في السيستم {dbUnpriced}', { dbUnpriced })}` : ''})</label>
       </div>
 
       <div className="order-list">
@@ -187,38 +188,38 @@ export default function OpeningBalance() {
             <div key={i.id} className="order-row">
               <div className="row" style={{ gap: 10 }}>
                 <ProductImage itemId={i.id} size={44} />
-                <div className="grow"><div style={{ fontWeight: 600 }}>{i.name_ar}</div>
-                  <div className="cell-sub">{!(Number(i.avg_cost) > 0 || Number(i.last_price) > 0) && <span className="pill amber" style={{ marginInlineEnd: 6 }}>بدون سعر</span>}{i.category}{i.unit ? ` · ${i.unit}` : ''}{levels[i.id] != null ? ` · الرصيد الحالي ${qtyFmt(levels[i.id])}` : ''}{i.avg_cost ? ` · التكلفة الحالية ${kwd(i.avg_cost)}` : ''}</div></div>
+                <div className="grow"><div style={{ fontWeight: 600 }}>{itemNames(i, lang)[0]}</div>
+                  <div className="cell-sub">{!(Number(i.avg_cost) > 0 || Number(i.last_price) > 0) && <span className="pill amber" style={{ marginInlineEnd: 6 }}>{tr('بدون سعر')}</span>}{tn(i.category)}{i.unit ? ` · ${tn(i.unit)}` : ''}{levels[i.id] != null ? ` · ${tr('الرصيد الحالي {v}', { v: qtyFmt(levels[i.id]) })}` : ''}{i.avg_cost ? ` · ${tr('التكلفة الحالية {avg_cost}', { avg_cost: kwd(i.avg_cost) })}` : ''}</div></div>
               </div>
               <div className="grid" style={{ gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                <div className="field"><span className="lbl" style={{ fontSize: 12 }}>الكمية {i.unit ? `(${i.unit})` : ''}</span>
-                  <input className="input num" style={{ height: 44 }} inputMode="decimal" placeholder="—" value={v.qty ?? ''} onChange={(e) => setV(i.id, 'qty', e.target.value)} aria-label={`كمية ${i.name_ar}`} /></div>
-                <div className="field"><span className="lbl" style={{ fontSize: 12 }}>سعر الوحدة د.ك</span>
-                  <input className="input num" style={{ height: 44 }} inputMode="decimal" placeholder={i.avg_cost ? kwd(i.avg_cost) : '—'} value={v.price ?? ''} onChange={(e) => setV(i.id, 'price', e.target.value)} aria-label={`سعر ${i.name_ar}`} /></div>
-                <div className="field"><span className="lbl" style={{ fontSize: 12 }}>القيمة</span>
+                <div className="field"><span className="lbl" style={{ fontSize: 12 }}>{tr('الكمية')} {i.unit ? `(${tn(i.unit)})` : ''}</span>
+                  <input className="input num" style={{ height: 44 }} inputMode="decimal" placeholder="—" value={v.qty ?? ''} onChange={(e) => setV(i.id, 'qty', e.target.value)} aria-label={tr('كمية {name_ar}', { name_ar: itemNames(i, lang)[0] })} /></div>
+                <div className="field"><span className="lbl" style={{ fontSize: 12 }}>{tr('سعر الوحدة د.ك')}</span>
+                  <input className="input num" style={{ height: 44 }} inputMode="decimal" placeholder={i.avg_cost ? kwd(i.avg_cost) : '—'} value={v.price ?? ''} onChange={(e) => setV(i.id, 'price', e.target.value)} aria-label={tr('سعر {name_ar}', { name_ar: itemNames(i, lang)[0] })} /></div>
+                <div className="field"><span className="lbl" style={{ fontSize: 12 }}>{tr('القيمة')}</span>
                   <div className="input num" style={{ height: 44, display: 'flex', alignItems: 'center', background: '#F7F9F5' }}>{v.qty ? kwd(Number(v.qty) * price) : '—'}</div></div>
               </div>
             </div>
           )
         })}
-        {shown.length === 0 && <div className="card empty">ما فيه أصناف هنا</div>}
-        {shown.length > limit && <button className="btn" onClick={() => setLimit(limit + 120)}>عرض المزيد ({shown.length - limit})</button>}
+        {shown.length === 0 && <div className="card empty">{tr('ما فيه أصناف هنا')}</div>}
+        {shown.length > limit && <button className="btn" onClick={() => setLimit(limit + 120)}>{tr('عرض المزيد')} ({shown.length - limit})</button>}
       </div>
 
       <div className="order-bar">
-        <div className="grow"><strong>{filled.length}</strong> صنف · <span className="num">{kwd(total)}</span> د.ك</div>
-        <button className="btn primary" disabled={!filled.length || !branch} onClick={() => setConfirm(true)}>حفظ رصيد أول المدة</button>
+        <div className="grow"><strong>{filled.length}</strong> {tr('صنف')} · <span className="num">{kwd(total)}</span> {tr('د.ك')}</div>
+        <button className="btn primary" disabled={!filled.length || !branch} onClick={() => setConfirm(true)}>{tr('حفظ رصيد أول المدة')}</button>
       </div>
 
       {confirm && (
         <div className="overlay" onClick={(e) => e.target === e.currentTarget && !busy && setConfirm(false)}>
           <div className="sheet form">
-            <div className="sheet-head"><h2 style={{ fontSize: 20 }}>تأكيد رصيد أول المدة</h2>
-              <button type="button" className="icon-btn" aria-label="إغلاق" onClick={() => setConfirm(false)}><Icon name="x" /></button></div>
-            <div>{filled.length} صنف في <strong>{branchName}</strong> بقيمة <strong className="num">{kwd(total)}</strong> د.ك.</div>
-            <div className="sub">الكمية اللي كتبتها بتصير هي رصيد الصنف في {branchName}، والسعر بيصير متوسط التكلفة وآخر سعر للصنف.</div>
-            {noPrice > 0 && <div className="warn"><Icon name="warn" /> {noPrice} صنف له كمية بدون سعر. بينحفظ، بس قيمته في التقارير بتطلع صفر.</div>}
-            <button className="btn primary block" disabled={!!busy} onClick={save}>{busy === 'save' ? <span className="spinner" /> : null} حفظ</button>
+            <div className="sheet-head"><h2 style={{ fontSize: 20 }}>{tr('تأكيد رصيد أول المدة')}</h2>
+              <button type="button" className="icon-btn" aria-label={tr('إغلاق')} onClick={() => setConfirm(false)}><Icon name="x" /></button></div>
+            <div>{tr('{n} صنف في', { n: filled.length })} <strong>{tn(branchName)}</strong> {tr('بقيمة')} <strong className="num">{kwd(total)}</strong> {tr('د.ك.')}</div>
+            <div className="sub">{tr('الكمية اللي كتبتها بتصير هي رصيد الصنف في {branchName}، والسعر بيصير متوسط التكلفة وآخر سعر للصنف.', { branchName: tn(branchName) })}</div>
+            {noPrice > 0 && <div className="warn"><Icon name="warn" /> {tr('{noPrice} صنف له كمية بدون سعر. بينحفظ، بس قيمته في التقارير بتطلع صفر.', { noPrice })}</div>}
+            <button className="btn primary block" disabled={!!busy} onClick={save}>{busy === 'save' ? <span className="spinner" /> : null} {tr('حفظ')}</button>
           </div>
         </div>
       )}
