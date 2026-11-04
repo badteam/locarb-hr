@@ -503,6 +503,16 @@ export default function Inventory() {
   const [unitsOpen, setUnitsOpen] = useState(false)
   const [pending, setPending] = useState(0)
   const [filling, setFilling] = useState(null)
+  // which place's quantity the list shows: the kitchen, one branch, or every place together
+  const [place, setPlace] = useState('kitchen')
+  const [placeQty, setPlaceQty] = useState({})
+  useEffect(() => {
+    if (place === 'kitchen' || place === 'all') return
+    selectAll(() => supabase.from('stock_levels').select('item_id,qty').eq('branch_id', place).order('item_id'))
+      .then((rows) => setPlaceQty(Object.fromEntries(rows.map((r) => [r.item_id, Number(r.qty)])))).catch(() => setPlaceQty({}))
+  }, [place])
+  const qtyOf = (i) => (place === 'kitchen' ? Number(i.kitchen_qty) : place === 'all' ? Number(i.total_qty) : placeQty[i.id] ?? 0)
+  const placeName = place === 'kitchen' ? tr('المطبخ') : place === 'all' ? tr('كل الأماكن') : tn(lookups?.branches.find((b) => b.id === place)?.name || '')
 
   const load = useCallback(() => {
     selectAll(() => supabase.from('inv_stock').select('*').order('name_ar').order('id')).then(setItems).catch(() => {})
@@ -516,14 +526,15 @@ export default function Inventory() {
       (filter === 'inactive' ? !i.active : i.active) &&
       (!cat || i.category_id === cat) &&
       (filter !== 'low' || Number(i.kitchen_qty) < Number(i.min_qty)) &&
+      (filter !== 'here' || qtyOf(i) !== 0) &&
       (filter !== 'critical' || i.is_critical) &&
       (filter !== 'content' || needsContent(i)) &&
       (!s || i.name_ar.toLowerCase().includes(s) || (i.name_en || '').toLowerCase().includes(s)))
-  }, [items, q, cat, filter])
+  }, [items, q, cat, filter, place, placeQty]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const active = items.filter((i) => i.active)
   const low = active.filter((i) => Number(i.min_qty) > 0 && Number(i.kitchen_qty) < Number(i.min_qty)).length
-  const value = active.reduce((a, i) => a + Math.max(Number(i.kitchen_qty), 0) * Number(i.avg_cost || 0), 0)
+  const value = active.reduce((a, i) => a + Math.max(qtyOf(i), 0) * Number(i.avg_cost || 0), 0)
   const canEdit = can('manage_inventory')
   const noNut = active.filter((i) => i.kcal_100 == null)
   const noContent = active.filter(needsContent).length
@@ -570,24 +581,29 @@ export default function Inventory() {
           <div className="label">{tr('تحت الحد الأدنى')}</div><div className="value num" style={{ color: low ? 'var(--amber)' : undefined }}>{low}</div></button>
         <Link className="card stat" to="/inventory/invoices" style={{ textDecoration: 'none', color: 'inherit' }}>
           <div className="label">{tr('فواتير مفتوحة (استلام أو مراجعة)')}</div><div className="value num">{pending}</div></Link>
-        <div className="card stat"><div className="label">{tr('قيمة مخزون المطبخ')}</div><div className="value num" style={{ fontSize: 24 }}>{kwd(value)}</div><div className="sub">{tr('د.ك')}</div></div>
+        <div className="card stat"><div className="label">{tr('قيمة المخزون')}: {placeName}</div><div className="value num" style={{ fontSize: 24 }}>{kwd(value)}</div><div className="sub">{tr('د.ك')}</div></div>
       </div>
 
       <div className="toolbar">
         <div className="search"><Icon name="search" size={18} /><input className="input" placeholder={tr('دوّر على صنف بالعربي أو الإنجليزي')} value={q} onChange={(e) => { setQ(e.target.value); setLimit(PAGE) }} /></div>
+        <select className="input" style={{ width: 'auto', flex: '0 1 200px' }} value={place} onChange={(e) => { setPlace(e.target.value); setLimit(PAGE) }} aria-label={tr('المكان')}>
+          <option value="kitchen">{tr('المطبخ المركزي')}</option>
+          {(lookups?.stockBranches || []).filter((b) => !b.is_central_kitchen).map((b) => <option key={b.id} value={b.id}>{tn(b.name)}</option>)}
+          <option value="all">{tr('كل الأماكن مع بعض')}</option>
+        </select>
         <select className="input" style={{ width: 'auto', flex: '0 1 200px' }} value={cat} onChange={(e) => { setCat(e.target.value); setLimit(PAGE) }} aria-label={tr('التصنيف')}>
           <option value="">{tr('كل التصنيفات')}</option>
           {lookups?.categories.map((c) => <option key={c.id} value={c.id}>{tn(c.name)}</option>)}
         </select>
       </div>
       <div className="chips" style={{ marginBottom: 14 }}>
-        {[['all', tr('الكل')], ['low', tr('تحت الحد الأدنى')], ['critical', tr('الجرد اليومي')], ...(noContent ? [['content', tr('ناقص وزن الكرتونة/الكيس ({noContent})', { noContent })]] : []), ['inactive', tr('موقوفة')]].map(([k, l]) =>
+        {[['all', tr('الكل')], ['here', tr('موجود في {p}', { p: placeName })], ['low', tr('تحت الحد الأدنى')], ['critical', tr('الجرد اليومي')], ...(noContent ? [['content', tr('ناقص وزن الكرتونة/الكيس ({noContent})', { noContent })]] : []), ['inactive', tr('موقوفة')]].map(([k, l]) =>
           <button key={k} className={'chip' + (filter === k ? ' on' : '')} onClick={() => { setFilter(k); setLimit(PAGE) }}>{l}</button>)}
       </div>
 
       <div className="card table-wrap" style={{ padding: '4px 10px' }}>
         <table>
-          <thead><tr><th>{tr('الصنف')}</th><th>{tr('التصنيف')}</th><th>{tr('في المطبخ')}</th><th>{tr('الحد الأدنى')}</th><th>{tr('آخر سعر')}</th><th></th></tr></thead>
+          <thead><tr><th>{tr('الصنف')}</th><th>{tr('التصنيف')}</th><th>{tr('في')} {placeName}</th><th>{tr('الحد الأدنى')}</th><th>{tr('آخر سعر')}</th><th></th></tr></thead>
           <tbody>
             {shown.slice(0, limit).map((i) => {
               const isLow = Number(i.min_qty) > 0 && Number(i.kitchen_qty) < Number(i.min_qty)
@@ -600,7 +616,7 @@ export default function Inventory() {
                       {needsContent(i) ? <div className="cell-sub" style={{ color: 'var(--amber)' }}>{tr('الـ{unit} فيه كام حبة أو كيلو؟ ناقص', { unit: tn(i.unit) })}</div>
                         : (i.unit_grams || Number(i.unit_pieces) > 1) && !isMeasureUnit(i.unit) ? <div className="cell-sub">{tr('الـ{unit}', { unit: tn(i.unit) })} = {[Number(i.unit_pieces) > 1 && tr('{unit_pieces} حبة', { unit_pieces: Number(i.unit_pieces) }), i.unit_grams && fmtContent(i.unit_grams, i.unit_measure, tr)].filter(Boolean).join(' · ')}</div> : null}</div></div></td>
                   <td className="sub">{tn(i.category)}</td>
-                  <td><span className="num" style={{ fontWeight: 600 }}>{qtyFmt(i.kitchen_qty)}</span> <span className="sub">{tn(i.unit)}</span></td>
+                  <td><span className="num" style={{ fontWeight: 600, color: qtyOf(i) < 0 ? 'var(--red)' : undefined }}>{qtyFmt(qtyOf(i))}</span> <span className="sub">{tn(i.unit)}</span></td>
                   <td className="num sub">{Number(i.min_qty) ? qtyFmt(i.min_qty) : '—'}</td>
                   <td className="num">{kwd(i.last_price)}</td>
                   <td>{isLow ? <span className="pill amber">{tr('ناقص')}</span> : i.is_critical ? <span className="pill gray">{tr('يومي')}</span> : null}</td>
