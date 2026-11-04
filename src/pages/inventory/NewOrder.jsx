@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase, selectAll } from '../../lib/supabase'
 import { useAccess } from '../../lib/access.jsx'
@@ -6,6 +6,7 @@ import { useLang } from '../../lib/i18n.jsx'
 import { qtyFmt, loadLookups, invErr, itemNames, branchPieces, toPieces } from '../../lib/inv'
 import Icon from '../../components/Icon.jsx'
 import ProductImage from '../../components/ProductImage.jsx'
+import VoiceOrder from '../../components/VoiceOrder.jsx'
 
 const num = (v) => (v === '' || v == null ? null : Number(v))
 
@@ -39,6 +40,9 @@ export default function NewOrder() {
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [draftAt, setDraftAt] = useState(null)   // last time the draft was saved on the server
+  const [voice, setVoice] = useState(false)
+  const draftReady = useRef(false)              // don't save over the draft before it has been loaded
 
   const anyBranch = access.is_owner || access.branch_scope === 'all' || can('approve_branch_requests') || can('manage_inventory')
 
@@ -60,7 +64,49 @@ export default function NewOrder() {
     })
     supabase.from('stock_levels').select('item_id,qty').eq('branch_id', branch).then(({ data }) => setStock(Object.fromEntries((data || []).map((x) => [x.item_id, x.qty]))))
   }, [branch])
-  useEffect(() => { setLines({}); loadBranch() }, [loadBranch])
+  // the order is a draft saved on the server while typing: leaving the page, a locked phone or another phone keeps it
+  const localKey = `order-draft-${branch}`
+  useEffect(() => {
+    draftReady.current = false; setLines({}); setNote(''); setDraftAt(null); loadBranch()
+    if (!branch) return
+    supabase.from('branch_order_drafts').select('lines,note,updated_at').eq('branch_id', branch).maybeSingle().then(({ data }) => {
+      let local = null
+      try { local = JSON.parse(localStorage.getItem(`order-draft-${branch}`) || 'null') } catch { /* private mode */ }
+      const pickLocal = local && (!data || new Date(local.at) > new Date(data.updated_at))
+      const d = pickLocal ? { lines: local.lines, note: local.note } : data
+      if (d?.lines) setLines(d.lines)
+      if (d?.note) setNote(d.note)
+      if (data && !pickLocal) setDraftAt(data.updated_at)
+      draftReady.current = true
+    })
+  }, [loadBranch, branch])
+  const compact = useCallback(() => Object.fromEntries(Object.entries(lines).filter(([, l]) => Number(l.qty) > 0 || (l.on_hand !== '' && l.on_hand != null))), [lines])
+  const saveDraft = useCallback(async () => {
+    if (!draftReady.current || !branch) return
+    const data = compact()
+    try { localStorage.setItem(localKey, JSON.stringify({ lines: data, note, at: new Date().toISOString() })) } catch { /* private mode */ }
+    const { data: at, error } = await supabase.rpc('save_order_draft', { p_branch: branch, p_lines: data, p_note: note || null })
+    if (!error) { setDraftAt(at); try { localStorage.removeItem(localKey) } catch { /* ignore */ } }
+  }, [branch, compact, note, localKey])
+  useEffect(() => { const t = setTimeout(saveDraft, 1200); return () => clearTimeout(t) }, [saveDraft])
+  useEffect(() => {
+    const flush = () => { if (document.visibilityState === 'hidden') saveDraft() }
+    document.addEventListener('visibilitychange', flush)
+    return () => document.removeEventListener('visibilitychange', flush)
+  }, [saveDraft])
+  const clearDraft = async () => {
+    if (!window.confirm(tr('تمسح كل اللي اخترته وتبدأ من جديد؟'))) return
+    setLines({}); setNote('')
+    await supabase.rpc('save_order_draft', { p_branch: branch, p_lines: {}, p_note: null }); setDraftAt(null)
+  }
+  const addVoice = (picked) => {
+    setLines((ls) => {
+      const n = { ...ls }
+      for (const p of picked) { const cur = n[p.item_id] || {}; n[p.item_id] = { ...cur, qty: String(Math.round(((Number(cur.qty) || 0) + Number(p.qty)) * 1000) / 1000), touched: true } }
+      return n
+    })
+    setVoice(false)
+  }
 
   const byId = useMemo(() => Object.fromEntries(items.map((i) => [i.id, i])), [items])
   const favList = useMemo(() => Object.keys(favs).map((id) => byId[id]).filter(Boolean).sort((a, b) => (a.category || '').localeCompare(b.category || '') || a.name_ar.localeCompare(b.name_ar)), [favs, byId])
@@ -106,7 +152,11 @@ export default function NewOrder() {
     const payload = chosen.map(([item_id, l]) => ({ item_id, qty: Number(l.qty) || 0, on_hand: num(l.on_hand) }))
     const { data, error } = await supabase.rpc('submit_branch_request', { p_branch: branch, p_lines: payload, p_note: note || null })
     setBusy(false)
-    if (error) { setErr(tr(invErr(error))); setConfirm(false) } else nav(`/inventory/orders/${data}`, { replace: true })
+    if (error) { setErr(tr(invErr(error))); setConfirm(false) } else {
+      draftReady.current = false
+      try { localStorage.removeItem(localKey) } catch { /* ignore */ }
+      nav(`/inventory/orders/${data}`, { replace: true })
+    }
   }
 
   if (!lookups) return <div className="center sub" style={{ minHeight: 300 }}><span className="spinner" /></div>
@@ -170,6 +220,7 @@ export default function NewOrder() {
         <a href="#all" className={tab === 'all' ? 'on' : ''} onClick={(e) => { e.preventDefault(); setTab('all') }}><Icon name="search" size={16} /> {tr('كل الأصناف')}</a>
       </div>
       {err && <div className="error" style={{ marginBottom: 12 }}>{err}</div>}
+      {branch && <button className="btn block" style={{ marginBottom: 12, minHeight: 52, fontSize: 16 }} onClick={() => setVoice(true)}>🎤 {tr('اطلب بالصوت')}</button>}
 
       {tab === 'fav' && (
         <>
@@ -197,10 +248,13 @@ export default function NewOrder() {
       )}
 
       <div className="order-bar">
-        <div className="grow">{tr('{n} صنف في الطلب', { n: ordered.length })}{chosen.length > ordered.length ? <span className="sub"> · {tr('{n} انجرد بس', { n: chosen.length - ordered.length })}</span> : null}</div>
+        <div className="grow">{tr('{n} صنف في الطلب', { n: ordered.length })}{chosen.length > ordered.length ? <span className="sub"> · {tr('{n} انجرد بس', { n: chosen.length - ordered.length })}</span> : null}
+          {chosen.length > 0 && <div className="sub" style={{ fontSize: 12 }}>{draftAt ? `✓ ${tr('المسودة محفوظة')} ${new Date(draftAt).toLocaleTimeString(lang === 'ar' ? 'ar-KW' : 'en-GB', { hour: '2-digit', minute: '2-digit' })}` : tr('يحفظ المسودة…')}
+            {' · '}<button type="button" className="linkish" style={{ background: 'none', border: 0, padding: 0, color: 'var(--red)', cursor: 'pointer', fontSize: 12 }} onClick={clearDraft}>{tr('امسح وابدأ من جديد')}</button></div>}</div>
         <button className="btn primary" disabled={!ordered.length || !branch} onClick={() => setConfirm(true)}>{tr('راجع وأرسل')}</button>
       </div>
 
+      {voice && <VoiceOrder items={items} favs={favs} onAdd={addVoice} onClose={() => setVoice(false)} />}
       {confirm && (
         <div className="overlay" onClick={(e) => e.target === e.currentTarget && !busy && setConfirm(false)}>
           <div className="sheet form">

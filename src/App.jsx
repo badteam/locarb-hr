@@ -1,4 +1,4 @@
-import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
+import { Routes, Route, NavLink, Navigate, useLocation, Link } from 'react-router-dom'
 import { useCallback, useEffect, useState } from 'react'
 import { useAccess } from './lib/access.jsx'
 import { supabase } from './lib/supabase'
@@ -46,6 +46,7 @@ import Reports from './pages/inventory/Reports.jsx'
 import OpeningBalance from './pages/inventory/OpeningBalance.jsx'
 import NewOrder from './pages/inventory/NewOrder.jsx'
 import OrderDetail from './pages/inventory/OrderDetail.jsx'
+import Delivery from './pages/inventory/Delivery.jsx'
 import OrderImport from './pages/inventory/OrderImport.jsx'
 import Devices from './pages/devices/Devices.jsx'
 import DeviceNames from './pages/devices/DeviceNames.jsx'
@@ -100,6 +101,19 @@ function useBadges(enabled, path) {
 
 const BRANCH_PATHS = ['/inventory/orders', '/inventory/stock', '/inventory/count']
 const ADMIN_PATHS = ['/monitor', '/fleet', '/branch-location', '/devices', '/smart-upload', '/branch-docs', '/maintenance', '/transactions', '/settings', '/overtime', '/dashboard', '/payroll', '/attendance', '/documents', '/employees', '/branches', '/roles']
+
+// a page this account can't open (or an old link): say so instead of silently jumping to the home page
+function NotAllowed() {
+  const { tr } = useLang()
+  const location = useLocation()
+  if (location.pathname === '/' || location.pathname === '') return <Navigate to="/" replace />
+  return (
+    <div className="card form" style={{ maxWidth: 480, margin: '40px auto', textAlign: 'center' }}>
+      <h2 style={{ fontSize: 18 }}>{tr('الصفحة هذي مو ضمن صلاحياتك')}</h2>
+      <div className="sub">{tr('إذا تحتاجها كلم الإدارة يضيفون لك الصلاحية.')}</div>
+      <Link className="btn primary" to="/">{tr('الصفحة الرئيسية')}</Link>
+    </div>)
+}
 
 export default function App() {
   const { access } = useAccess()
@@ -174,6 +188,7 @@ function Shell() {
   const invNav = [
     { to: '/inventory', icon: 'box', label: tr('المخزون'), show: canInv },
     { to: '/inventory/orders', icon: 'list', label: tr('طلبات الفروع'), show: canOrders },
+    { to: '/inventory/delivery', icon: 'truck', label: tr('طلبيات اليوم'), show: can('deliver_orders') },
     { to: '/inventory/orders/import', icon: 'download', label: tr('رفع طلبيات إكسل'), show: can('manage_inventory') || can('approve_branch_requests') },
     { to: '/inventory/stock', icon: 'check', label: tr('رصيد الفرع والجرد'), show: canCount },
     { to: '/inventory/monitor', icon: 'shield', label: tr('المراقب'), show: canMonitor },
@@ -204,7 +219,7 @@ function Shell() {
   const withBadge = (list) => list.map((x) => ({ ...x, badge: x.badge ?? (badges[x.to] || 0) }))
   const nav = withBadge((section === 'inv' ? invNav : section === 'dev' ? devNav : section === 'fleet' ? fleetNav : section === 'monitor' ? monitorNav : hrNav).filter((x) => x.show))
 
-  const INV_MOBILE = ['/inventory', '/inventory/orders', '/inventory/stock', '/inventory/invoices', '/inventory/reports']
+  const INV_MOBILE = ['/inventory/delivery', '/inventory', '/inventory/orders', '/inventory/stock', '/inventory/invoices', '/inventory/reports']
   const pick = (paths) => paths.map((p) => nav.find((x) => x.to === p)).filter(Boolean)
   const mobileNav = section === 'inv'
     ? [...pick(INV_MOBILE).slice(0, 3), ...pick(['/notifications'])]
@@ -215,13 +230,23 @@ function Shell() {
       ? pick(['/', '/dashboard', '/documents', '/notifications'])
       : pick(['/', '/leaves', '/my-documents', '/notifications'])
 
-  // each section is its own app, opened from its own tile in the portal (no tabs to jump between them)
-  const sectionTitle = { inv: tr('المخزون والتوريد'), dev: tr('الأجهزة والأبواب'), fleet: tr('GPS السيارات'), monitor: tr('سند · مراقبة الأنظمة') }[section]
+  // HR and inventory are one app with two tabs (same people, same roles); devices, GPS and سند stand alone
+  const sectionTitle = { dev: tr('الأجهزة والأبواب'), fleet: tr('GPS السيارات'), monitor: tr('سند · مراقبة الأنظمة') }[section]
+  const canInvSection = canInv || canOrders || canCount || canInvoices || canMonitor || can('deliver_orders')
+  const invHome = canInv ? '/inventory' : canOrders ? '/inventory/orders' : can('deliver_orders') ? '/inventory/delivery' : canCount ? '/inventory/stock' : '/inventory/invoices'
+  const sum = (list) => list.filter((x) => x.show && x.to !== '/notifications').reduce((a, x) => a + (badges[x.to] || 0), 0)
+  const switcher = canInvSection && (section === 'hr' || section === 'inv') && (
+    <div className="seg no-print" role="tablist" aria-label={tr('القسم')}>
+      <NavLink to="/" className={section === 'hr' ? 'on' : ''} role="tab" aria-selected={section === 'hr'}><Icon name="users" size={18} /> {tr('الموارد البشرية')}{section !== 'hr' && sum(hrNav) ? <span className="badge">{sum(hrNav)}</span> : null}</NavLink>
+      <NavLink to={invHome} className={section === 'inv' ? 'on' : ''} role="tab" aria-selected={section === 'inv'}><Icon name="box" size={18} /> {tr('المخزون والتوريد')}{section !== 'inv' && sum(invNav) ? <span className="badge">{sum(invNav)}</span> : null}</NavLink>
+    </div>
+  )
 
   return (
     <div className="shell">
       <aside className="side no-print">
         <div className="brand">LoCarb{sectionTitle ? <div className="sub" style={{ fontWeight: 500, marginTop: 2 }}>{sectionTitle}</div> : null}</div>
+        {switcher}
         {nav.map((x) => (
           <NavLink key={x.to} to={x.to} end={!['/inventory/invoices', '/inventory/orders', '/inventory/suppliers'].includes(x.to)} className={({ isActive }) => 'navlink' + (isActive ? ' active' : '')}>
             <Icon name={x.icon} /> {x.label} {x.badge ? <span className="badge">{x.badge}</span> : null}
@@ -235,6 +260,7 @@ function Shell() {
       </aside>
 
       <main className="main" dir={adminPage ? 'rtl' : dir} lang={adminPage ? 'ar' : undefined}>
+        {switcher && <div className="mobile-only" style={{ marginBottom: 16 }}>{switcher}</div>}
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/my-documents" element={<MyDocuments />} />
@@ -276,6 +302,7 @@ function Shell() {
           {canOrders && <Route path="/inventory/orders/new" element={<NewOrder />} />}
           {(can('manage_inventory') || can('approve_branch_requests')) && <Route path="/inventory/orders/import" element={<OrderImport />} />}
           {canOrders && <Route path="/inventory/orders/:id" element={<OrderDetail />} />}
+          {(can('deliver_orders') || can('approve_branch_requests') || can('manage_inventory')) && <Route path="/inventory/delivery" element={<Delivery />} />}
           {canDev && <Route path="/devices" element={<Devices />} />}
           {canDev && <Route path="/devices/log" element={<DeviceLog />} />}
           {can('manage_devices') && <Route path="/devices/:id/names" element={<DeviceNames />} />}
@@ -285,7 +312,7 @@ function Shell() {
           {canFleet && <Route path="/fleet/notifications" element={<Notifications linkPrefix="/fleet" />} />}
           {canFleet && <Route path="/fleet/alerts" element={<FleetAlerts />} />}
           {canFleet && <Route path="/fleet/vehicles" element={<FleetVehicles />} />}
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<NotAllowed />} />
         </Routes>
       </main>
 

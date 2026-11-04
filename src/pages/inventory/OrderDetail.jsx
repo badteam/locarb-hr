@@ -79,6 +79,7 @@ export default function OrderDetail() {
 
       {r.note && <div className="card" style={{ marginBottom: 12 }}><span className="sub">{tr('ملاحظة الفرع:')} </span>{r.note}</div>}
       {r.status === 'dispatched' && <div className="notice" style={{ marginBottom: 12 }}>{tr('أرسلها {n}', { n: r.sender?.full_name || tr('المطبخ') })} · {fmtDate(r.dispatched_at)} {fmtTime(r.dispatched_at)}{r.decision_note ? ` · ${r.decision_note}` : ''}</div>}
+      {r.status === 'dispatched' && r.picked_up_at && <div className="notice" style={{ marginBottom: 12 }}>🚚 {tr('السواق استلمها من المطبخ')} · {fmtDate(r.picked_up_at)}{r.pickup_note ? ` · ${r.pickup_note}` : ''}</div>}
       {r.status === 'received' && <div className="notice" style={{ marginBottom: 12 }}>{tr('استلمها {n}', { n: r.receiver?.full_name || tr('الفرع') })} · {fmtDate(r.received_at)}{r.receive_note ? ` · ${r.receive_note}` : ''}</div>}
       {r.status === 'rejected' && <div className="error" style={{ marginBottom: 12 }}>{tr('انرفض')}{r.decision_note ? `: ${r.decision_note}` : ''}</div>}
       {msg && <div className="notice" style={{ marginBottom: 12 }}>{msg}</div>}
@@ -100,7 +101,7 @@ export default function OrderDetail() {
                 <div className="grow"><div style={{ fontWeight: 600 }}>{n1}</div>{n2 && <div className="cell-sub">{n2}</div>}
                   <div className="cell-sub">
                     {l.on_hand != null ? `${tr('عندهم {n}', { n: branchPieces({ ...l.inv_items, unit: l.inv_items?.inv_units?.name }, false) ? `${qtyFmt(toPieces(l.on_hand, branchPieces({ ...l.inv_items, unit: l.inv_items?.inv_units?.name }, false)))} ${tr('حبة')}` : qtyFmt(l.on_hand) })} · ` : ''}{tr('طلبوا {n}', { n: qtyFmt(l.requested_qty) })} {unit}
-                    {l.sent_qty != null ? ` · ${tr('انرسل {n}', { n: qtyFmt(l.sent_qty) })}` : ''}{l.received_qty != null ? ` · ${tr('وصل {n}', { n: qtyFmt(l.received_qty) })}` : ''}
+                    {l.sent_qty != null ? ` · ${tr('انرسل {n}', { n: qtyFmt(l.sent_qty) })}` : ''}{l.picked_qty != null && Number(l.picked_qty) !== Number(l.sent_qty) ? ` · ${tr('السواق استلم {n}', { n: qtyFmt(l.picked_qty) })}` : ''}{l.received_qty != null ? ` · ${tr('وصل {n}', { n: qtyFmt(l.received_qty) })}` : ''}
                     {canDispatch && kq != null ? ` · ${tr('في المطبخ {n}', { n: qtyFmt(kq) })}` : ''}</div>
                 </div>
                 {short && <span className="pill amber">{tr('المطبخ ما يكفي')}</span>}
