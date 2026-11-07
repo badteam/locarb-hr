@@ -138,8 +138,17 @@ Deno.serve(async (req) => {
     return json({ error: "not_configured" }, 503);
   }
 
+  const startedAt = new Date().toISOString();
   await db.from("purchase_invoices").update({ status: "reading", read_error: null }).eq("id", invoice_id);
+  // another read of the same invoice finished while this one was working: keep its lines, write nothing
+  const readByOther = async () => {
+    const { data } = await admin.from("purchase_invoice_lines").select("id").eq("invoice_id", invoice_id).gt("created_at", startedAt).limit(1);
+    if (!data?.length) return false;
+    await admin.from("purchase_invoices").update({ status: "review" }).eq("id", invoice_id).eq("status", "reading");
+    return true;
+  };
   const fail = async (msg: string, code = 500) => {
+    if (await readByOther()) return json({ ok: true, skipped: "already_read" });
     await db.from("purchase_invoices").update({ status: "failed", read_error: msg.slice(0, 500) }).eq("id", invoice_id);
     return json({ error: msg }, code);
   };
@@ -192,7 +201,9 @@ Deno.serve(async (req) => {
     }
     const date = /^\d{4}-\d{2}-\d{2}$/.test(r.invoice_date ?? "") ? r.invoice_date : null;
 
-    await db.from("purchase_invoice_lines").delete().eq("invoice_id", invoice_id);
+    if (await readByOther()) return json({ ok: true, skipped: "already_read" });
+    const { error: dErr } = await db.from("purchase_invoice_lines").delete().eq("invoice_id", invoice_id);
+    if (dErr) return await fail(dErr.message);
     const lines = r.lines.map((l: any, i: number) => {
       const qty = Number(l.qty) || 0;
       let price = Number(l.unit_price) || 0;
@@ -208,7 +219,11 @@ Deno.serve(async (req) => {
         pack_factor: factor, pack_source: it && factor !== 1 ? "invoice" : null, pack_read: read };
     });
     const { error: lErr } = await db.from("purchase_invoice_lines").insert(lines);
-    if (lErr) return await fail(lErr.message);
+    if (lErr) {
+      // the database allows one line per number: a second read racing this one lands here
+      if ((lErr as any).code === "23505" || await readByOther()) return json({ ok: true, skipped: "already_read" });
+      return await fail(lErr.message);
+    }
 
     await db.from("purchase_invoices").update({
       supplier_id, supplier_name_read: r.supplier_name ?? null,
