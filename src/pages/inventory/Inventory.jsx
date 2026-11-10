@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAccess } from '../../lib/access.jsx'
 import { kwd, qtyFmt, loadLookups, clearLookups, invErr, MOVE_KIND, nutSource, branchPieces, toPieces, itemNames } from '../../lib/inv'
 import { selectAll } from '../../lib/supabase'
 import Icon from '../../components/Icon.jsx'
-import ProductImage, { ProductPhotoLarge, refreshProductImages } from '../../components/ProductImage.jsx'
+import ProductImage, { refreshProductImages } from '../../components/ProductImage.jsx'
 import { loginEmail } from '../../lib/supabase'
 import { compress } from './Invoices.jsx'
 import UnitContent, { isMeasureUnit, NONFOOD_CATS, MEASURE_UNITS, fmtContent } from '../../components/UnitContent.jsx'
@@ -274,6 +274,111 @@ function PriceBreakdown({ item, onFix }) {
   )
 }
 
+// every photo of the item (main, label, all stock-take photos, uploads from here):
+// one big photo, small thumbnails under it, tap to open full screen.
+// "update by photos" uploads new product photos, makes the first one the main photo
+// and reads the label again (nutrition, ingredients, allergens).
+function ItemGallery({ item, canEdit, onChanged }) {
+  const { tr } = useLang()
+  const [photos, setPhotos] = useState(null) // [{ path, url }]
+  const [sel, setSel] = useState(0)
+  const [full, setFull] = useState(false)
+  const [busy, setBusy] = useState('')
+  const [msg, setMsg] = useState({ ok: '', err: '' })
+  const [main, setMain] = useState(null)
+  const touchRef = useRef(0)
+  const load = useCallback(async () => {
+    const [{ data, error }, { data: row }] = await Promise.all([
+      supabase.rpc('item_photo_paths', { p_item: item.id }),
+      supabase.from('inv_items').select('image_path,nutrition_label_path').eq('id', item.id).maybeSingle()])
+    setMain(row?.image_path || null)
+    let paths = error ? [row?.image_path, row?.nutrition_label_path].filter(Boolean) : (data || [])
+    paths = [...new Set(paths)]
+    if (!paths.length) { setPhotos([]); return }
+    const { data: s } = await supabase.storage.from('product-photos').createSignedUrls(paths, 60 * 60 * 6)
+    const urls = Object.fromEntries((s || []).filter((x) => x.signedUrl).map((x) => [x.path, x.signedUrl]))
+    setPhotos(paths.filter((p) => urls[p]).map((p) => ({ path: p, url: urls[p] })))
+  }, [item.id])
+  useEffect(() => { load() }, [load])
+
+  const upload = async (files) => {
+    setBusy('up'); setMsg({ ok: '', err: '' })
+    const paths = []
+    for (const f of files) {
+      const x = await compress(f)
+      const path = `labels/${item.id}/${Date.now()}-${paths.length}.jpg`
+      const up = await supabase.storage.from('product-photos').upload(path, x, { contentType: x.type || 'image/jpeg' })
+      if (up.error) { setMsg({ ok: '', err: tr('ما قدرنا نرفع الصورة: ') + up.error.message }); setBusy(''); return }
+      paths.push(path)
+    }
+    // first new photo = front of the product = main photo
+    const u = await supabase.from('inv_items').update({ image_path: paths[0] }).eq('id', item.id)
+    if (!u.error) setMain(paths[0])
+    setBusy('read')
+    const r = await fillNutrition(item.id, 'label', paths.slice(0, 4))
+    setBusy('')
+    if (r?.ok) setMsg({ ok: tr('اتحدثت الصور واتقرت القيم الغذائية والمكونات من جديد'), err: '' })
+    else setMsg({ ok: tr('الصور اتحفظت'), err: tr(nutritionErr(r?.error), { e: r?.error }) })
+    refreshProductImages(); setSel(0); await load(); onChanged?.()
+  }
+  const makeMain = async (p) => {
+    setBusy('main')
+    const u = await supabase.from('inv_items').update({ image_path: p }).eq('id', item.id)
+    setBusy('')
+    if (u.error) { setMsg({ ok: '', err: tr(invErr(u.error)) }); return }
+    setMain(p); refreshProductImages(); onChanged?.()
+  }
+
+  if (photos === null) return null
+  const n = photos.length
+  const cur = photos[Math.min(sel, Math.max(0, n - 1))]
+  const go = (d) => setSel((s) => (s + d + n) % n)
+  const upBtn = canEdit && (
+    <label className="btn" style={{ position: 'relative', overflow: 'hidden' }}>
+      <input type="file" accept="image/*" multiple style={{ position: 'absolute', inset: 0, opacity: 0 }} disabled={!!busy}
+        onChange={(e) => { const f = [...e.target.files]; e.target.value = ''; if (f.length) upload(f) }} />
+      {busy === 'up' || busy === 'read' ? <span className="spinner" /> : <Icon name="camera" />} {busy === 'read' ? tr('بنقرا الملصق…') : tr('حدّث المنتج بالصور')}</label>)
+  return (
+    <div className="card form" style={{ gap: 10 }}>
+      {n > 0 && <>
+        <img src={cur.url} alt="" onClick={() => setFull(true)}
+          style={{ width: '100%', height: 240, objectFit: 'contain', borderRadius: 14, background: '#fff', border: '1px solid var(--line)', cursor: 'zoom-in' }} />
+        {n > 1 && <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4, WebkitOverflowScrolling: 'touch' }}>
+          {photos.map((p, i) => (
+            <button key={p.path} type="button" onClick={() => setSel(i)} aria-label={tr('صورة {i}', { i: i + 1 })}
+              style={{ flex: '0 0 auto', width: 58, height: 58, padding: 0, borderRadius: 10, overflow: 'hidden', background: '#fff', position: 'relative',
+                border: i === sel ? '2px solid var(--brand, #5B6B2E)' : '1px solid var(--line)' }}>
+              <img src={p.url} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              {p.path === main && <span style={{ position: 'absolute', insetInlineStart: 2, top: 2, background: 'rgba(0,0,0,.6)', color: '#fff', fontSize: 9, borderRadius: 6, padding: '0 4px' }}>{tr('الرئيسية')}</span>}
+            </button>))}
+        </div>}
+        <div className="sub">{tr('{n} صورة · اضغط على الصورة تكبر', { n })}</div>
+      </>}
+      {n === 0 && <div className="empty" style={{ padding: 8 }}>{tr('ما فيه صور للصنف للحين')}</div>}
+      {canEdit && <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>{upBtn}</div>}
+      {canEdit && <div className="sub">{tr('صوّر واجهة المنتج أول، وبعدين الملصق والمكونات. أول صورة تصير الصورة الرئيسية.')}</div>}
+      {msg.ok && <div className="sub" style={{ color: 'var(--ok)' }}>{msg.ok}</div>}
+      {msg.err && <div className="error">{msg.err}</div>}
+      {full && cur && (
+        <div className="overlay" style={{ alignItems: 'center', background: 'rgba(0,0,0,.92)', zIndex: 80, flexDirection: 'column' }}
+          onClick={(e) => e.target === e.currentTarget && setFull(false)}
+          onTouchStart={(e) => { touchRef.current = e.touches[0].clientX }}
+          onTouchEnd={(e) => { const d = e.changedTouches[0].clientX - touchRef.current; if (Math.abs(d) > 50 && n > 1) go(d < 0 ? 1 : -1) }}>
+          <button type="button" className="icon-btn" aria-label={tr('إغلاق')} onClick={() => setFull(false)}
+            style={{ position: 'absolute', top: 'calc(12px + env(safe-area-inset-top))', insetInlineEnd: 12, background: '#fff' }}><Icon name="x" /></button>
+          <img src={cur.url} alt="" style={{ maxWidth: '96vw', maxHeight: '78vh', objectFit: 'contain' }} />
+          <div className="row" style={{ gap: 10, marginTop: 14, flexWrap: 'wrap', justifyContent: 'center' }}>
+            {n > 1 && <button type="button" className="btn" onClick={() => go(-1)}>‹</button>}
+            <span style={{ color: '#fff' }} className="num">{sel + 1} / {n}</span>
+            {n > 1 && <button type="button" className="btn" onClick={() => go(1)}>›</button>}
+            {canEdit && cur.path !== main && <button type="button" className="btn" disabled={!!busy} onClick={() => makeMain(cur.path)}>{busy === 'main' ? <span className="spinner" /> : <Icon name="star" />} {tr('خليها الصورة الرئيسية')}</button>}
+            <a className="btn" href={cur.url} target="_blank" rel="noreferrer"><Icon name="download" /></a>
+          </div>
+        </div>)}
+    </div>
+  )
+}
+
 function ItemSheet({ item, lookups, canEdit, onClose, onChanged }) {
   const { tr, fmtDate, lang, tn } = useLang()
   const [levels, setLevels] = useState([])
@@ -283,6 +388,7 @@ function ItemSheet({ item, lookups, canEdit, onClose, onChanged }) {
   const [adjust, setAdjust] = useState(false)
   const [removing, setRemoving] = useState(false)
   const [rmErr, setRmErr] = useState('')
+  const [nutVer, setNutVer] = useState(0)
   // never-used items are deleted; items with history (movements, invoices, orders, counts) are stopped so the history stays
   const remove = async () => {
     setRmErr('')
@@ -308,7 +414,7 @@ function ItemSheet({ item, lookups, canEdit, onClose, onChanged }) {
         <div className="sheet-head"><div className="row" style={{ gap: 12 }}><ProductImage itemId={item.id} size={56} />
           <div><h2 style={{ fontSize: 20 }}>{itemNames(item, lang)[0]}</h2><div className="sub">{itemNames(item, lang)[1]}{item.brand ? ` · ${item.brand}` : ''}</div></div></div>
           <button type="button" className="icon-btn" aria-label={tr('إغلاق')} onClick={onClose}><Icon name="x" /></button></div>
-        <ProductPhotoLarge itemId={item.id} />
+        <ItemGallery item={item} canEdit={canEdit} onChanged={() => { setNutVer((v) => v + 1); onChanged() }} />
         <div className="grid stats">
           <div className="card stat"><div className="label">{tr('في المطبخ')}</div><div className="value num">{qtyFmt(item.kitchen_qty)}</div><div className="sub">{tn(item.unit)}</div></div>
           <div className="card stat"><div className="label">{tr('آخر سعر')}</div><div className="value num" style={{ fontSize: 22 }}>{kwd(item.last_price)}</div><div className="sub">{tr('د.ك /')} {tn(item.unit) || tr('وحدة')}</div></div>
@@ -321,7 +427,7 @@ function ItemSheet({ item, lookups, canEdit, onClose, onChanged }) {
             : <button className="btn" onClick={async () => { await supabase.from('inv_items').update({ active: true }).eq('id', item.id); onChanged(); onClose() }}>{tr('رجّع الصنف')}</button>}
           <button className="btn" onClick={() => setAdjust(true)}>{tr('تالف أو تعديل كمية')}</button>
         </div>}
-        <NutritionCard itemId={item.id} canEdit={canEdit} onChanged={onChanged} />
+        <NutritionCard key={nutVer} itemId={item.id} canEdit={canEdit} onChanged={onChanged} />
         {levels.length > 0 && <div className="card"><strong style={{ fontSize: 14 }}>{tr('الكمية في كل مكان')}</strong>
           <div className="list">{levels.map((l) => { const n = branchPieces(item, l.branches?.is_central_kitchen); return <div key={l.branch_id} className="list-item"><span className="grow">{tn(l.branches?.name)}</span><span className="num">{n ? tr('{v} حبة', { v: qtyFmt(toPieces(l.qty, n)) }) : `${qtyFmt(l.qty)} ${tn(item.unit) || ''}`}</span></div> })}</div></div>}
         <div className="card"><strong style={{ fontSize: 14 }}>{tr('أسعار الموردين')}</strong>
@@ -518,7 +624,13 @@ export default function Inventory() {
     selectAll(() => supabase.from('inv_stock').select('*').order('name_ar').order('id')).then(setItems).catch(() => {})
     supabase.from('purchase_invoices').select('id', { count: 'exact', head: true }).eq('price_only', false).in('status', ['draft', 'reading', 'review', 'failed']).then(({ count }) => setPending(count || 0))
   }, [])
-  useEffect(() => { load(); loadLookups(true).then(setLookups); refreshProductImages() }, [load])
+  // how many photos each item has (badge on the list thumbnail)
+  const [photoCount, setPhotoCount] = useState({})
+  const loadCounts = useCallback(() => {
+    selectAll(() => supabase.rpc('item_photo_counts').order('item_id'))
+      .then((rows) => setPhotoCount(Object.fromEntries(rows.map((r) => [r.item_id, r.n])))).catch(() => {})
+  }, [])
+  useEffect(() => { load(); loadLookups(true).then(setLookups); refreshProductImages(); loadCounts() }, [load, loadCounts])
 
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase()
@@ -609,7 +721,8 @@ export default function Inventory() {
               const isLow = Number(i.min_qty) > 0 && Number(i.kitchen_qty) < Number(i.min_qty)
               return (
                 <tr key={i.id} className="row-btn" onClick={() => setOpen(i)} tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && setOpen(i)}>
-                  <td><div className="row" style={{ gap: 10 }}><ProductImage itemId={i.id} size={42} />
+                  <td><div className="row" style={{ gap: 10 }}><span style={{ position: 'relative', flexShrink: 0 }}><ProductImage itemId={i.id} size={42} />
+                    {photoCount[i.id] > 1 && <span className="num" title={tr('{n} صورة', { n: photoCount[i.id] })} style={{ position: 'absolute', bottom: -4, insetInlineEnd: -4, minWidth: 18, height: 18, padding: '0 4px', borderRadius: 9, background: '#1F2A22', color: '#fff', fontSize: 11, lineHeight: '18px', textAlign: 'center', border: '2px solid #fff' }}>{photoCount[i.id]}</span>}</span>
                     <div><div style={{ fontWeight: 500 }}>{itemNames(i, lang)[0]}</div><div className="cell-sub">{itemNames(i, lang)[1]}</div>
                       {i.kcal_100 != null ? <div className="cell-sub">{Math.round(i.kcal_100)} {tr('سعرة/١٠٠غ · ب {v} · ك {v2} · د {v3}', { v: Number(i.protein_100 ?? 0).toFixed(0), v2: Number(i.carbs_100 ?? 0).toFixed(0), v3: Number(i.fat_100 ?? 0).toFixed(0) })}{nutSource(i.nutrition_source) ? <> · <span className={'pill ' + nutSource(i.nutrition_source).cls} style={{ fontSize: 11, padding: '0 6px' }}>{tr(nutSource(i.nutrition_source).label)}</span></> : null}</div>
                         : <div className="cell-sub" style={{ color: 'var(--amber)' }}>{tr('بدون سعرات')}</div>}
@@ -629,7 +742,7 @@ export default function Inventory() {
         {shown.length > limit && <div style={{ padding: 12, textAlign: 'center' }}><button className="btn" onClick={() => setLimit(limit + PAGE)}>{tr('عرض المزيد')} ({shown.length - limit})</button></div>}
       </div>
 
-      {open && lookups && <ItemSheet item={open} lookups={lookups} canEdit={canEdit} onClose={() => setOpen(null)} onChanged={load} />}
+      {open && lookups && <ItemSheet item={open} lookups={lookups} canEdit={canEdit} onClose={() => setOpen(null)} onChanged={() => { load(); loadCounts() }} />}
       {adding && lookups && <ItemForm lookups={lookups} onClose={() => setAdding(false)} onSaved={load} />}
       {resetOpen && lookups && <ResetStock lookups={lookups} onClose={() => setResetOpen(false)} onDone={(m) => { setNotice(m); load() }} />}
       {catsOpen && <NamesSheet table="inv_categories" refCol="category_id" title={tr('التصنيفات')} singular="تصنيف" onClose={() => setCatsOpen(false)} onChanged={() => { load(); loadLookups(true).then(setLookups) }} />}
