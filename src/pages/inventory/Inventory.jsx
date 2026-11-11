@@ -286,6 +286,8 @@ function ItemGallery({ item, canEdit, onChanged }) {
   const [busy, setBusy] = useState('')
   const [msg, setMsg] = useState({ ok: '', err: '' })
   const [main, setMain] = useState(null)
+  const [undo, setUndo] = useState(null) // { path, wasMain } of the photo just removed
+  const undoTimer = useRef(0)
   const touchRef = useRef(0)
   const load = useCallback(async () => {
     const [{ data, error }, { data: row }] = await Promise.all([
@@ -328,6 +330,40 @@ function ItemGallery({ item, canEdit, onChanged }) {
     if (u.error) { setMsg({ ok: '', err: tr(invErr(u.error)) }); return }
     setMain(p); refreshProductImages(); onChanged?.()
   }
+  // X = remove the photo from this item (the file stays, so "تراجع" brings it back)
+  const hide = async (p) => {
+    setMsg({ ok: '', err: '' })
+    const wasMain = p.path === main
+    setPhotos((ph) => ph.filter((x) => x.path !== p.path))
+    setSel((i) => Math.max(0, Math.min(i, (photos?.length || 1) - 2)))
+    const { data, error } = await supabase.rpc('item_photo_hide', { p_item: item.id, p_path: p.path, p_hide: true })
+    if (error) { setMsg({ ok: '', err: tr(invErr(error)) }); load(); return }
+    setMain(data?.main || null)
+    clearTimeout(undoTimer.current)
+    setUndo({ path: p.path, wasMain })
+    undoTimer.current = setTimeout(() => setUndo(null), 10000)
+    if (wasMain) refreshProductImages()
+    onChanged?.()
+  }
+  const unhide = async () => {
+    const u = undo
+    if (!u) return
+    clearTimeout(undoTimer.current); setUndo(null)
+    const { error } = await supabase.rpc('item_photo_hide', { p_item: item.id, p_path: u.path, p_hide: false })
+    if (error) { setMsg({ ok: '', err: tr(invErr(error)) }); return }
+    if (u.wasMain) await makeMain(u.path)
+    await load(); onChanged?.()
+  }
+  useEffect(() => () => clearTimeout(undoTimer.current), [])
+  const xStyle = { position: 'absolute', top: 2, insetInlineEnd: 2, width: 22, height: 22, borderRadius: 11, border: 'none', padding: 0,
+    background: 'rgba(0,0,0,.65)', color: '#fff', display: 'grid', placeItems: 'center', cursor: 'pointer' }
+  const undoBar = undo && (
+    <div role="status" style={{ position: 'fixed', insetInline: 12, bottom: 'calc(16px + env(safe-area-inset-bottom))', zIndex: 95, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
+      <div className="row" style={{ gap: 12, background: '#1F2A22', color: '#fff', borderRadius: 12, padding: '10px 14px', boxShadow: '0 6px 20px rgba(0,0,0,.25)', pointerEvents: 'auto' }}>
+        <span>{tr('اتمسحت الصورة')}</span>
+        <button type="button" className="btn" style={{ minHeight: 32 }} onClick={unhide}>{tr('تراجع')}</button>
+      </div>
+    </div>)
 
   if (photos === null) return null
   const n = photos.length
@@ -341,16 +377,23 @@ function ItemGallery({ item, canEdit, onChanged }) {
   return (
     <div className="card form" style={{ gap: 10 }}>
       {n > 0 && <>
-        <img src={cur.url} alt="" onClick={() => setFull(true)}
-          style={{ width: '100%', height: 240, objectFit: 'contain', borderRadius: 14, background: '#fff', border: '1px solid var(--line)', cursor: 'zoom-in' }} />
+        <div style={{ position: 'relative' }}>
+          <img src={cur.url} alt="" onClick={() => setFull(true)}
+            style={{ width: '100%', height: 240, objectFit: 'contain', borderRadius: 14, background: '#fff', border: '1px solid var(--line)', cursor: 'zoom-in', display: 'block' }} />
+          {canEdit && <button type="button" aria-label={tr('امسح الصورة')} title={tr('امسح الصورة')} onClick={() => hide(cur)}
+            style={{ ...xStyle, top: 8, insetInlineEnd: 8, width: 32, height: 32, borderRadius: 16 }}><Icon name="x" /></button>}
+        </div>
         {n > 1 && <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4, WebkitOverflowScrolling: 'touch' }}>
           {photos.map((p, i) => (
-            <button key={p.path} type="button" onClick={() => setSel(i)} aria-label={tr('صورة {i}', { i: i + 1 })}
-              style={{ flex: '0 0 auto', width: 58, height: 58, padding: 0, borderRadius: 10, overflow: 'hidden', background: '#fff', position: 'relative',
-                border: i === sel ? '2px solid var(--brand, #5B6B2E)' : '1px solid var(--line)' }}>
-              <img src={p.url} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              {p.path === main && <span style={{ position: 'absolute', insetInlineStart: 2, top: 2, background: 'rgba(0,0,0,.6)', color: '#fff', fontSize: 9, borderRadius: 6, padding: '0 4px' }}>{tr('الرئيسية')}</span>}
-            </button>))}
+            <div key={p.path} style={{ flex: '0 0 auto', position: 'relative' }}>
+              <button type="button" onClick={() => setSel(i)} aria-label={tr('صورة {i}', { i: i + 1 })}
+                style={{ width: 58, height: 58, padding: 0, borderRadius: 10, overflow: 'hidden', background: '#fff', position: 'relative', display: 'block',
+                  border: i === sel ? '2px solid var(--brand, #5B6B2E)' : '1px solid var(--line)' }}>
+                <img src={p.url} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                {p.path === main && <span style={{ position: 'absolute', insetInlineStart: 2, bottom: 2, background: 'rgba(0,0,0,.6)', color: '#fff', fontSize: 9, borderRadius: 6, padding: '0 4px' }}>{tr('الرئيسية')}</span>}
+              </button>
+              {canEdit && <button type="button" aria-label={tr('امسح الصورة')} onClick={() => hide(p)} style={xStyle}><Icon name="x" size={14} /></button>}
+            </div>))}
         </div>}
         <div className="sub">{tr('{n} صورة · اضغط على الصورة تكبر', { n })}</div>
       </>}
@@ -359,6 +402,7 @@ function ItemGallery({ item, canEdit, onChanged }) {
       {canEdit && <div className="sub">{tr('صوّر واجهة المنتج أول، وبعدين الملصق والمكونات. أول صورة تصير الصورة الرئيسية.')}</div>}
       {msg.ok && <div className="sub" style={{ color: 'var(--ok)' }}>{msg.ok}</div>}
       {msg.err && <div className="error">{msg.err}</div>}
+      {undoBar}
       {full && cur && (
         <div className="overlay" style={{ alignItems: 'center', background: 'rgba(0,0,0,.92)', zIndex: 80, flexDirection: 'column' }}
           onClick={(e) => e.target === e.currentTarget && setFull(false)}
@@ -373,6 +417,7 @@ function ItemGallery({ item, canEdit, onChanged }) {
             {n > 1 && <button type="button" className="btn" onClick={() => go(1)}>›</button>}
             {canEdit && cur.path !== main && <button type="button" className="btn" disabled={!!busy} onClick={() => makeMain(cur.path)}>{busy === 'main' ? <span className="spinner" /> : <Icon name="star" />} {tr('خليها الصورة الرئيسية')}</button>}
             <a className="btn" href={cur.url} target="_blank" rel="noreferrer"><Icon name="download" /></a>
+            {canEdit && <button type="button" className="btn" onClick={() => { hide(cur); if (n <= 1) setFull(false) }}><Icon name="trash" /> {tr('امسح الصورة')}</button>}
           </div>
         </div>)}
     </div>
