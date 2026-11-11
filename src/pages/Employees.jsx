@@ -220,7 +220,7 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
             <div className="field"><label htmlFor="r">الدور والصلاحيات</label>
               <select id="r" className="input" value={f.role_id} onChange={set('role_id')} disabled={!access.is_owner || isOwnerRow}>
                 {isOwnerRow ? <option>المالك</option> : roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-              </select></div>
+              </select>{!access.is_owner && !isOwnerRow && <span className="sub" style={{ fontSize: 12 }}>🔒 الصلاحيات يغيرها المالك بس</span>}</div>
             <div className="field"><label htmlFor="h">تاريخ التعيين</label><input id="h" type="date" className="input" value={f.hire_date} onChange={set('hire_date')} /></div>
           </div>
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
