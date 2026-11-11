@@ -181,7 +181,7 @@ function Shell() {
     { to: '/employees', icon: 'users', label: tr('الموظفين'), show: can('view_employees') || can('manage_employees') },
     { to: '/branches', icon: 'branch', label: tr('الفروع'), show: can('manage_branches') },
     { to: '/branch-location', icon: 'pin', label: tr('موقع الفرع'), show: canLocation && !can('manage_branches') },
-    { to: '/roles', icon: 'shield', label: tr('الأدوار والصلاحيات'), show: access.is_owner },
+    { to: '/roles', icon: 'shield', label: tr('الأدوار والصلاحيات'), show: access.is_owner || can('manage_roles') },
     { to: '/settings', icon: 'gear', label: tr('الإعدادات'), show: access.is_owner },
     { to: '/notifications', icon: 'bell', label: t('nav_notifications'), show: true, badge: unread },
   ]
@@ -282,7 +282,7 @@ function Shell() {
           {canLocation && <Route path="/branch-location" element={<BranchLocation />} />}
           {(can('view_employees') || can('manage_employees')) && <Route path="/employees" element={<Employees />} />}
           {can('manage_branches') && <Route path="/branches" element={<Branches />} />}
-          {access.is_owner && <Route path="/roles" element={<Roles />} />}
+          {(access.is_owner || can('manage_roles')) && <Route path="/roles" element={<Roles />} />}
           {access.is_owner && <Route path="/settings" element={<Settings />} />}
           {canInv && <Route path="/inventory" element={<Inventory />} />}
           {can('manage_inventory') && <Route path="/inventory/opening" element={<OpeningBalance />} />}

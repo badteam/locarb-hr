@@ -90,6 +90,7 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
     } catch (e2) { setErr(errMsg(e2)) }
   }
   const isOwnerRow = emp?.app_role === 'admin'
+  const canRoles = access.is_owner || can('manage_roles')
 
   const resetPw = async () => {
     setErr(''); setOk('')
@@ -110,13 +111,13 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
         civil_id: f.civil_id.replace(/\D/g, '') || null, nationality: f.nationality || null,
         name_ar: f.name_ar.trim() || null, name_en: f.name_en.trim() || null, birth_date: f.birth_date || null, gender: f.gender || null, passport_no: f.passport_no.trim() || null, address: f.address.trim() || null,
         bio_pin: String(f.bio_pin).replace(/\D/g, '') || null }
-      if (!access.is_owner) delete row.role_id
+      if (!canRoles) delete row.role_id
       if (!canPay) { delete row.leave_balance; delete row.ot_mode; delete row.ot_rate; delete row.ot_multiplier }
       let id = emp?.id
       if (emp) {
         const { error } = await supabase.from('employees').update(row).eq('id', emp.id); if (error) throw error
       } else {
-        if (!access.is_owner) row.role_id = roles.find((r) => r.name === 'موظف')?.id || null
+        if (!canRoles) row.role_id = roles.find((r) => r.name === 'موظف')?.id || null
         const { data, error } = await supabase.from('employees').insert(row).select('id').single(); if (error) throw error
         id = data.id
       }
@@ -218,9 +219,9 @@ function EmployeeForm({ emp, branches, shifts, roles, onClose, onSaved }) {
           </div>}
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
             <div className="field"><label htmlFor="r">الدور والصلاحيات</label>
-              <select id="r" className="input" value={f.role_id} onChange={set('role_id')} disabled={!access.is_owner || isOwnerRow}>
+              <select id="r" className="input" value={f.role_id} onChange={set('role_id')} disabled={!canRoles || isOwnerRow}>
                 {isOwnerRow ? <option>المالك</option> : roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-              </select>{!access.is_owner && !isOwnerRow && <span className="sub" style={{ fontSize: 12 }}>🔒 الصلاحيات يغيرها المالك بس</span>}</div>
+              </select></div>
             <div className="field"><label htmlFor="h">تاريخ التعيين</label><input id="h" type="date" className="input" value={f.hire_date} onChange={set('hire_date')} /></div>
           </div>
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>

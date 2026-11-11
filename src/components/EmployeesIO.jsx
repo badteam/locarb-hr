@@ -138,7 +138,7 @@ export default function EmployeesIO({ branches, shifts, roles, onDone }) {
           hire_date: dateStr(g('hire_date')), working_hours: num(g('working_hours')), annual_leave_days: num(g('annual_leave_days')) ?? 30,
           weekly_holidays: days, active: activeRaw ? !['لا', 'no', 'false', '0'].includes(activeRaw.toLowerCase()) : true,
         }
-        if (access.is_owner && roleName && roleName !== 'المالك') row.role_id = rByName[roleName] || null
+        if ((access.is_owner || can('manage_roles')) && roleName && roleName !== 'المالك') row.role_id = rByName[roleName] || null
         const extra = {}
         if (pay) {
           if (idx.leave_balance >= 0 && s(g('leave_balance')) !== '') row.leave_balance = num(g('leave_balance'))
