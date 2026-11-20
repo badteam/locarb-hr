@@ -7,6 +7,7 @@ import { qtyFmt, loadLookups, invErr, itemNames, branchPieces, toPieces } from '
 import Icon from '../../components/Icon.jsx'
 import ProductImage from '../../components/ProductImage.jsx'
 import VoiceOrder from '../../components/VoiceOrder.jsx'
+import { qtySuspect, QtyWarn, KgHint } from '../../components/QtyCheck.jsx'
 
 const num = (v) => (v === '' || v == null ? null : Number(v))
 
@@ -52,7 +53,7 @@ export default function NewOrder() {
       const own = l.branches.find((b) => b.id === access.employee.branch_id && !b.is_central_kitchen)
       setBranch(own?.id || (anyBranch ? l.branches.find((b) => !b.is_central_kitchen)?.id : '') || '')
     })
-    selectAll(() => supabase.from('inv_stock').select('id,name_ar,name_en,unit,unit_pieces,branch_by_piece,category_id,category,active').eq('active', true).order('name_ar').order('id')).then((data) => setItems(data || []))
+    selectAll(() => supabase.from('inv_stock').select('id,name_ar,name_en,unit,unit_pieces,unit_grams,branch_by_piece,category_id,category,active').eq('active', true).order('name_ar').order('id')).then((data) => setItems(data || []))
   }, [access.employee.branch_id, anyBranch])
 
   const loadBranch = useCallback(() => {
@@ -126,7 +127,8 @@ export default function NewOrder() {
     if (('on_hand' in patch || 'on_hand_p' in patch) && !cur.touched && favs[id] != null && num(next.on_hand) != null) {
       next.qty = String(Math.max(0, Math.round((Number(favs[id]) - Number(next.on_hand)) * 1000) / 1000))
     }
-    if ('qty' in patch) next.touched = true
+    if ('qty' in patch) { next.touched = true; next.qty_ok = false }
+    if ('on_hand' in patch || 'on_hand_p' in patch) next.on_ok = false
     return { ...ls, [id]: next }
   })
 
@@ -146,10 +148,17 @@ export default function NewOrder() {
 
   const chosen = Object.entries(lines).filter(([, l]) => Number(l.qty) > 0 || num(l.on_hand) != null)
   const ordered = chosen.filter(([, l]) => Number(l.qty) > 0)
+  // grams typed into a kilo box: "on hand" against the book stock, the order against the usual / stock
+  const onRef = (id) => Number(stock[id]) || 0
+  const qtyRef = (id, l) => Math.max(Number(favs[id]) || 0, Number(stock[id]) || 0, Number(l.on_hand) || 0)
+  const onBad = (id, l) => num(l.on_hand) != null && qtySuspect(l.on_hand, onRef(id))
+  const qtyBad = (id, l) => Number(l.qty) > 0 && qtySuspect(l.qty, qtyRef(id, l))
+  const unconfirmed = chosen.filter(([id, l]) => (onBad(id, l) && !l.on_ok) || (qtyBad(id, l) && !l.qty_ok)).length
 
   const submit = async () => {
+    if (unconfirmed) { setConfirm(false); setErr(tr('فيه {n} رقم كبير وايد. صلّحه أو أكّد إنه صحيح قبل الإرسال.', { n: unconfirmed })); return }
     setBusy(true); setErr('')
-    const payload = chosen.map(([item_id, l]) => ({ item_id, qty: Number(l.qty) || 0, on_hand: num(l.on_hand) }))
+    const payload = chosen.map(([item_id, l]) => ({ item_id, qty: Number(l.qty) || 0, on_hand: num(l.on_hand), ...(onBad(item_id, l) ? { confirmed_large: true } : {}) }))
     const { data, error } = await supabase.rpc('submit_branch_request', { p_branch: branch, p_lines: payload, p_note: note || null })
     setBusy(false)
     if (error) { setErr(tr(invErr(error))); setConfirm(false) } else {
@@ -192,12 +201,17 @@ export default function NewOrder() {
                   onChange={(e) => setLine(i.id, { on_hand_p: e.target.value.replace(/[^\d.]/g, '') })} aria-label={`${tr('عندكم الحين')} (${tr('حبة')}): ${itemNames(i, lang)[0]}`} />
                 <span className="cell-sub" style={{ marginTop: 2 }}>{tr('بالحبة')}</span>
               </>) : (
-              <input className="input num" style={{ height: 44 }} inputMode="decimal" placeholder="—" value={l.on_hand ?? ''}
-                onChange={(e) => setLine(i.id, { on_hand: e.target.value.replace(/[^\d.]/g, '') })} aria-label={`${tr('عندكم الحين')}: ${itemNames(i, lang)[0]}`} />)}</div>
+              <><input className="input num" style={{ height: 44 }} inputMode="decimal" placeholder="—" value={l.on_hand ?? ''}
+                onChange={(e) => setLine(i.id, { on_hand: e.target.value.replace(/[^\d.]/g, '') })} aria-label={`${tr('عندكم الحين')}: ${itemNames(i, lang)[0]}`} />
+                <KgHint item={i} tr={tr} /></>)}</div>
             <div className="field"><span className="lbl" style={{ fontSize: 12 }}>{tr('تطلبون')}</span>
               <Stepper tr={tr} value={l.qty} onChange={(v) => setLine(i.id, { qty: v })} label={`${tr('تطلبون')}: ${itemNames(i, lang)[0]}`} /></div>
           </div>
         )}
+        {!editFav && onBad(i.id, l) && <QtyWarn tr={tr} item={branchPieces(i, false) ? {} : i} unit={tn(i.unit || '')} value={l.on_hand} expected={onRef(i.id)} confirmed={l.on_ok}
+          onFix={(v) => setLine(i.id, { on_hand: v })} onConfirm={(ok) => setLines((ls) => ({ ...ls, [i.id]: { ...ls[i.id], on_ok: ok } }))} />}
+        {!editFav && qtyBad(i.id, l) && <QtyWarn tr={tr} item={i} unit={tn(i.unit || '')} value={l.qty} expected={qtyRef(i.id, l)} confirmed={l.qty_ok}
+          onFix={(v) => setLine(i.id, { qty: v })} onConfirm={(ok) => setLines((ls) => ({ ...ls, [i.id]: { ...ls[i.id], qty_ok: ok } }))} />}
       </div>
     )
   }
@@ -251,7 +265,8 @@ export default function NewOrder() {
         <div className="grow">{tr('{n} صنف في الطلب', { n: ordered.length })}{chosen.length > ordered.length ? <span className="sub"> · {tr('{n} انجرد بس', { n: chosen.length - ordered.length })}</span> : null}
           {chosen.length > 0 && <div className="sub" style={{ fontSize: 12 }}>{draftAt ? `✓ ${tr('المسودة محفوظة')} ${new Date(draftAt).toLocaleTimeString(lang === 'ar' ? 'ar-KW' : 'en-GB', { hour: '2-digit', minute: '2-digit' })}` : tr('يحفظ المسودة…')}
             {' · '}<button type="button" className="linkish" style={{ background: 'none', border: 0, padding: 0, color: 'var(--red)', cursor: 'pointer', fontSize: 12 }} onClick={clearDraft}>{tr('امسح وابدأ من جديد')}</button></div>}</div>
-        <button className="btn primary" disabled={!ordered.length || !branch} onClick={() => setConfirm(true)}>{tr('راجع وأرسل')}</button>
+        {unconfirmed > 0 && <span className="sub" style={{ color: 'var(--amber)', fontWeight: 600 }}>{tr('{n} رقم يحتاج تأكيد', { n: unconfirmed })}</span>}
+        <button className="btn primary" disabled={!ordered.length || !branch || unconfirmed > 0} onClick={() => setConfirm(true)}>{tr('راجع وأرسل')}</button>
       </div>
 
       {voice && <VoiceOrder items={items} favs={favs} onAdd={addVoice} onClose={() => setVoice(false)} />}

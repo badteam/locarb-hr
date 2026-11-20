@@ -8,6 +8,7 @@ import { useBranchChoice, BranchPicker } from './BranchStock.jsx'
 import Icon from '../../components/Icon.jsx'
 import ProductImage from '../../components/ProductImage.jsx'
 import { fmtContent, isMeasureUnit } from '../../components/UnitContent.jsx'
+import { qtySuspect, gramsFix, KgHint } from '../../components/QtyCheck.jsx'
 
 const SCOPES = [['fav', 'المفضلة'], ['critical', 'الجرد اليومي'], ['stock', 'الأصناف الموجودة'], ['cat', 'تصنيف'], ['all', 'كل الأصناف']]
 const SCOPE_HINT = {
@@ -98,7 +99,7 @@ export default function StockCount() {
     if (!it || v == null) return false
     const bp = branchPieces(it, isKitchen)
     const exp = levels[id] || 0
-    return isLarge(v, exp) || serverLarge(Number(v), exp, it.avg_cost) || (bp ? isLarge(toPieces(v, bp), toPieces(exp, bp)) : false)
+    return isLarge(v, exp) || qtySuspect(v, exp) || serverLarge(Number(v), exp, it.avg_cost) || (bp ? isLarge(toPieces(v, bp), toPieces(exp, bp)) : false)
   }
   const large = new Set(entered.filter(([id, v]) => largeOf(id, v)).map(([id]) => id))
   const unconfirmed = [...large].filter((id) => !okLarge.has(id))
@@ -181,11 +182,14 @@ export default function StockCount() {
                   <input className="input num" style={{ width: 110, height: 46, fontSize: 17, fontWeight: 600 }} inputMode="decimal" placeholder="—" value={v}
                     onChange={(e) => setCount(i.id, e.target.value.replace(/[^\d.]/g, ''))} aria-label={`${tr('العدد الفعلي')} (${unitWord}): ${itemNames(i, lang)[0]}`} /></label>
                 {pack && <span className="cell-sub" style={{ marginTop: 0 }}>{pack}</span>}
+                {!bp && <KgHint item={i} tr={tr} />}
               </div>)}
             </div>
             {big && (
               <div className="warn" role="alert" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
                 <span><Icon name="warn" /> {tr('الرقم هذا أكبر وايد من المتوقع: كتبت {got} {u} والمتوقع {exp}. تأكد إنك عادّ بالـ{u}، مو بالحبة أو بالجرام.', { got: qtyFmt(bp ? toPieces(tot, bp) : tot), u: unitWord, exp: qtyFmt(exp) })}</span>
+                {!bp && !n && gramsFix(tot, i) != null && <button type="button" className="btn primary" style={{ height: 40, alignSelf: 'flex-start' }}
+                  onClick={() => { setCount(i.id, String(gramsFix(tot, i))); toggleOk(i.id, false) }}>{tr('كاتبه بالجرام؟ صلّحه لـ {f} {u}', { f: qtyFmt(gramsFix(tot, i)), u: unitWord })}</button>}
                 <label className="check" style={{ fontWeight: 600 }}><input type="checkbox" checked={okLarge.has(i.id)} onChange={(e) => toggleOk(i.id, e.target.checked)} /> {tr('الرقم صحيح، أكّده')}</label>
               </div>)}
             </div>

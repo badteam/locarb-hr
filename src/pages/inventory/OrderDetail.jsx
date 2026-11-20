@@ -6,6 +6,7 @@ import { useLang } from '../../lib/i18n.jsx'
 import { qtyFmt, kwd, ORDER_STATUS, invErr, itemNames, loadLookups, branchPieces, toPieces } from '../../lib/inv'
 import Icon from '../../components/Icon.jsx'
 import ProductImage from '../../components/ProductImage.jsx'
+import { qtySuspect, QtyWarn, KgHint } from '../../components/QtyCheck.jsx'
 
 export default function OrderDetail() {
   const { id } = useParams()
@@ -20,10 +21,11 @@ export default function OrderDetail() {
   const [err, setErr] = useState('')
   const [msg, setMsg] = useState('')
   const [rejecting, setRejecting] = useState(false)
+  const [okBig, setOkBig] = useState({})   // line id -> confirmed a very large number
 
   const load = useCallback(async () => {
     const { data } = await supabase.from('branch_requests')
-      .select('*, branches:branch_id(name,name_en), creator:created_by(full_name), sender:dispatched_by(full_name), receiver:received_by(full_name), branch_request_lines(*, inv_items(name_ar,name_en,unit_pieces,branch_by_piece,inv_units(name,name_en)))')
+      .select('*, branches:branch_id(name,name_en), creator:created_by(full_name), sender:dispatched_by(full_name), receiver:received_by(full_name), branch_request_lines(*, inv_items(name_ar,name_en,unit_pieces,unit_grams,branch_by_piece,inv_units(name,name_en)))')
       .eq('id', id).maybeSingle()
     if (!data) { setR(false); return }
     setR(data)
@@ -55,12 +57,19 @@ export default function OrderDetail() {
     await load()
     return data
   }
-  const payload = (key) => lines.map((l) => ({ id: l.id, [key]: Number(edit[l.id]) || 0 }))
+  // grams typed into a kilo box: what is sent is checked against what was ordered, what arrived against what was sent
+  const refOf = (l) => (canDispatch ? Number(l.requested_qty) : Number(l.sent_qty)) || 0
+  const bigOf = (l) => qtySuspect(edit[l.id], refOf(l))
+  const unconfirmed = () => lines.filter((l) => bigOf(l) && !okBig[l.id]).length
+  const payload = (key) => lines.map((l) => ({ id: l.id, [key]: Number(edit[l.id]) || 0, ...(bigOf(l) ? { confirmed_large: true } : {}) }))
+  const guard = () => { const n = unconfirmed(); if (n) setErr(tr('فيه {n} رقم كبير وايد. صلّحه أو أكّد إنه صحيح.', { n })); return !n }
   const dispatch = async () => {
+    if (!guard()) return
     const d = await act('dispatch', () => supabase.rpc('dispatch_branch_request', { p_id: id, p_lines: payload('sent_qty'), p_note: note || null }))
     if (d) setMsg(tr('انرسل {n} صنف بقيمة {v} د.ك وانخصم من مخزون المطبخ', { n: d.lines, v: kwd(d.value) }))
   }
   const receive = async () => {
+    if (!guard()) return
     const d = await act('receive', () => supabase.rpc('receive_branch_request', { p_id: id, p_lines: payload('received_qty'), p_note: note || null }))
     if (d) setMsg(d.differences?.length ? tr('انستلم، والفروقات انرسلت للمطبخ') : tr('انستلم كامل وانضاف لمخزون الفرع'))
   }
@@ -111,9 +120,12 @@ export default function OrderDetail() {
                 <div className="row" style={{ gap: 10 }}>
                   <label className="sub grow" htmlFor={`q-${l.id}`}>{canDispatch ? tr('بترسل') : tr('وصل فعلاً')} ({unit})</label>
                   <input id={`q-${l.id}`} className="input num" style={{ width: 120, height: 44 }} inputMode="decimal" value={edit[l.id] ?? ''}
-                    onChange={(e) => setEdit({ ...edit, [l.id]: e.target.value.replace(/[^\d.]/g, '') })} />
+                    onChange={(e) => { setEdit({ ...edit, [l.id]: e.target.value.replace(/[^\d.]/g, '') }); setOkBig({ ...okBig, [l.id]: false }) }} />
                 </div>
               )}
+              {editable && <KgHint item={{ ...l.inv_items, unit: l.inv_items?.inv_units?.name }} tr={tr} />}
+              {editable && bigOf(l) && <QtyWarn tr={tr} item={{ ...l.inv_items, unit: l.inv_items?.inv_units?.name }} unit={unit} value={edit[l.id]} expected={refOf(l)}
+                confirmed={okBig[l.id]} onFix={(v) => { setEdit({ ...edit, [l.id]: v }); setOkBig({ ...okBig, [l.id]: false }) }} onConfirm={(ok) => setOkBig({ ...okBig, [l.id]: ok })} />}
             </div>
           )
         })}
