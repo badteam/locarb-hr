@@ -53,7 +53,14 @@ export default function NewOrder() {
       const own = l.branches.find((b) => b.id === access.employee.branch_id && !b.is_central_kitchen)
       setBranch(own?.id || (anyBranch ? l.branches.find((b) => !b.is_central_kitchen)?.id : '') || '')
     })
-    selectAll(() => supabase.from('inv_stock').select('id,name_ar,name_en,unit,unit_pieces,unit_grams,branch_by_piece,category_id,category,active').eq('active', true).order('name_ar').order('id')).then((data) => setItems(data || []))
+    // kitchen rules per item: 'hidden' never shows to branches, 'paused' shows but cannot be ordered for now
+    Promise.all([
+      selectAll(() => supabase.from('inv_stock').select('id,name_ar,name_en,unit,unit_pieces,unit_grams,branch_by_piece,category_id,category,active').eq('active', true).order('name_ar').order('id')),
+      selectAll(() => supabase.from('inv_items').select('id,branch_order,branch_order_note').neq('branch_order', 'open').order('id')).catch(() => []),
+    ]).then(([data, rules]) => {
+      const m = Object.fromEntries((rules || []).map((x) => [x.id, x]))
+      setItems((data || []).filter((i) => m[i.id]?.branch_order !== 'hidden').map((i) => (m[i.id] ? { ...i, paused: true, pause_note: m[i.id].branch_order_note } : i)))
+    })
   }, [access.employee.branch_id, anyBranch])
 
   const loadBranch = useCallback(() => {
@@ -110,12 +117,15 @@ export default function NewOrder() {
   }
 
   const byId = useMemo(() => Object.fromEntries(items.map((i) => [i.id, i])), [items])
-  const favList = useMemo(() => Object.keys(favs).map((id) => byId[id]).filter(Boolean).sort((a, b) => (a.category || '').localeCompare(b.category || '') || a.name_ar.localeCompare(b.name_ar)), [favs, byId])
+  // same order as the kitchen shelves: meat together, vegetables together … (category order, then name)
+  const catOrder = useMemo(() => Object.fromEntries((lookups?.categories || []).map((c, n) => [c.id, c.sort_order ?? 1000 + n])), [lookups])
+  const byCat = useCallback((a, b) => (catOrder[a.category_id] ?? 9999) - (catOrder[b.category_id] ?? 9999) || a.name_ar.localeCompare(b.name_ar), [catOrder])
+  const favList = useMemo(() => Object.keys(favs).map((id) => byId[id]).filter(Boolean).sort(byCat), [favs, byId, byCat])
   const allList = useMemo(() => {
     const s = q.trim().toLowerCase()
     if (!s && !cat) return []
-    return items.filter((i) => (!cat || i.category_id === cat) && (!s || i.name_ar.toLowerCase().includes(s) || (i.name_en || '').toLowerCase().includes(s))).slice(0, 80)
-  }, [items, q, cat])
+    return items.filter((i) => (!cat || i.category_id === cat) && (!s || i.name_ar.toLowerCase().includes(s) || (i.name_en || '').toLowerCase().includes(s))).sort(byCat).slice(0, 80)
+  }, [items, q, cat, byCat])
 
   const setLine = (id, patch) => setLines((ls) => {
     const cur = ls[id] || {}
@@ -146,8 +156,10 @@ export default function NewOrder() {
     await supabase.from('branch_favorites').update({ par_qty: num(favs[id]) }).eq('branch_id', branch).eq('item_id', id)
   }
 
-  const chosen = Object.entries(lines).filter(([, l]) => Number(l.qty) > 0 || num(l.on_hand) != null)
-  const ordered = chosen.filter(([, l]) => Number(l.qty) > 0)
+  const chosen = Object.entries(lines).filter(([id, l]) => byId[id] && (Number(l.qty) > 0 || num(l.on_hand) != null))
+    .sort(([a], [b]) => byCat(byId[a], byId[b]))
+  const blocked = chosen.filter(([id, l]) => byId[id]?.paused && Number(l.qty) > 0)
+  const ordered = chosen.filter(([id, l]) => Number(l.qty) > 0 && !byId[id]?.paused)
   // grams typed into a kilo box: "on hand" against the book stock, the order against the usual / stock
   const onRef = (id) => Number(stock[id]) || 0
   const qtyRef = (id, l) => Math.max(Number(favs[id]) || 0, Number(stock[id]) || 0, Number(l.on_hand) || 0)
@@ -158,7 +170,7 @@ export default function NewOrder() {
   const submit = async () => {
     if (unconfirmed) { setConfirm(false); setErr(tr('فيه {n} رقم كبير وايد. صلّحه أو أكّد إنه صحيح قبل الإرسال.', { n: unconfirmed })); return }
     setBusy(true); setErr('')
-    const payload = chosen.map(([item_id, l]) => ({ item_id, qty: Number(l.qty) || 0, on_hand: num(l.on_hand), ...(onBad(item_id, l) ? { confirmed_large: true } : {}) }))
+    const payload = chosen.map(([item_id, l]) => ({ item_id, qty: byId[item_id]?.paused ? 0 : Number(l.qty) || 0, on_hand: num(l.on_hand), ...(onBad(item_id, l) ? { confirmed_large: true } : {}) }))
     const { data, error } = await supabase.rpc('submit_branch_request', { p_branch: branch, p_lines: payload, p_note: note || null })
     setBusy(false)
     if (error) { setErr(tr(invErr(error))); setConfirm(false) } else {
@@ -184,6 +196,7 @@ export default function NewOrder() {
           <div className="grow">
             <div style={{ fontWeight: 600 }}>{itemNames(i, lang)[0]}</div>
             {itemNames(i, lang)[1] && <div className="cell-sub">{itemNames(i, lang)[1]}</div>}
+            {i.paused && <div className="pill amber" style={{ fontSize: 12, marginTop: 2 }}>⏸ {tr('موقوف مؤقتاً من المطبخ')}{i.pause_note ? ` · ${i.pause_note}` : ''}</div>}
             <div className="cell-sub">{tn(i.unit || '')}{par != null && Number(par) > 0 ? ` · ${tr('العادي عندكم {n}', { n: qtyFmt(par) })}` : ''}{cur != null ? ` · ${tr('آخر رصيد {n}', { n: branchPieces(i, false) ? `${qtyFmt(toPieces(cur, branchPieces(i, false)))} ${tr('حبة')}` : qtyFmt(cur) })}` : ''}</div>
           </div>
         </div>
@@ -205,7 +218,9 @@ export default function NewOrder() {
                 onChange={(e) => setLine(i.id, { on_hand: e.target.value.replace(/[^\d.]/g, '') })} aria-label={`${tr('عندكم الحين')}: ${itemNames(i, lang)[0]}`} />
                 <KgHint item={i} tr={tr} /></>)}</div>
             <div className="field"><span className="lbl" style={{ fontSize: 12 }}>{tr('تطلبون')}</span>
-              <Stepper tr={tr} value={l.qty} onChange={(v) => setLine(i.id, { qty: v })} label={`${tr('تطلبون')}: ${itemNames(i, lang)[0]}`} /></div>
+              {i.paused ? <div className="sub" style={{ padding: '10px 0' }}>{Number(l.qty) > 0
+                ? <button type="button" className="btn" style={{ minHeight: 36 }} onClick={() => setLine(i.id, { qty: '' })}>{tr('شيله من الطلب')}</button> : tr('ما ينفع ينطلب الحين')}</div>
+                : <Stepper tr={tr} value={l.qty} onChange={(v) => setLine(i.id, { qty: v })} label={`${tr('تطلبون')}: ${itemNames(i, lang)[0]}`} />}</div>
           </div>
         )}
         {!editFav && onBad(i.id, l) && <QtyWarn tr={tr} item={branchPieces(i, false) ? {} : i} unit={tn(i.unit || '')} value={l.on_hand} expected={onRef(i.id)} confirmed={l.on_ok}
@@ -266,18 +281,21 @@ export default function NewOrder() {
           {chosen.length > 0 && <div className="sub" style={{ fontSize: 12 }}>{draftAt ? `✓ ${tr('المسودة محفوظة')} ${new Date(draftAt).toLocaleTimeString(lang === 'ar' ? 'ar-KW' : 'en-GB', { hour: '2-digit', minute: '2-digit' })}` : tr('يحفظ المسودة…')}
             {' · '}<button type="button" className="linkish" style={{ background: 'none', border: 0, padding: 0, color: 'var(--red)', cursor: 'pointer', fontSize: 12 }} onClick={clearDraft}>{tr('امسح وابدأ من جديد')}</button></div>}</div>
         {unconfirmed > 0 && <span className="sub" style={{ color: 'var(--amber)', fontWeight: 600 }}>{tr('{n} رقم يحتاج تأكيد', { n: unconfirmed })}</span>}
+        {blocked.length > 0 && <span className="sub" style={{ color: 'var(--amber)', fontWeight: 600 }}>{tr('{n} صنف موقوف مؤقتاً وما بينطلب', { n: blocked.length })}</span>}
         <button className="btn primary" disabled={!ordered.length || !branch || unconfirmed > 0} onClick={() => setConfirm(true)}>{tr('راجع وأرسل')}</button>
       </div>
 
-      {voice && <VoiceOrder items={items} favs={favs} onAdd={addVoice} onClose={() => setVoice(false)} />}
+      {voice && <VoiceOrder items={items.filter((i) => !i.paused)} favs={favs} onAdd={addVoice} onClose={() => setVoice(false)} />}
       {confirm && (
         <div className="overlay" onClick={(e) => e.target === e.currentTarget && !busy && setConfirm(false)}>
           <div className="sheet form">
             <div className="sheet-head"><h2 style={{ fontSize: 20 }}>{tr('طلب {b}', { b: tn(branchName) })}</h2>
               <button type="button" className="icon-btn" aria-label={tr('إغلاق')} onClick={() => setConfirm(false)}><Icon name="x" /></button></div>
             <div className="card list" style={{ padding: '2px 12px' }}>
-              {ordered.map(([id, l]) => <div key={id} className="list-item"><span className="grow">{itemNames(byId[id], lang)[0]}</span>
-                <span className="num" style={{ fontWeight: 600 }}>{qtyFmt(l.qty)}</span><span className="sub">{tn(byId[id]?.unit || '')}</span></div>)}
+              {ordered.map(([id, l], k) => <div key={id}>
+                {(k === 0 || byId[ordered[k - 1][0]]?.category_id !== byId[id]?.category_id) && <div className="sub" style={{ fontWeight: 700, padding: '8px 0 2px' }}>{tn(byId[id]?.category) || tr('بدون تصنيف')}</div>}
+                <div className="list-item"><span className="grow">{itemNames(byId[id], lang)[0]}</span>
+                <span className="num" style={{ fontWeight: 600 }}>{qtyFmt(l.qty)}</span><span className="sub">{tn(byId[id]?.unit || '')}</span></div></div>)}
             </div>
             <div className="field"><label htmlFor="nt">{tr('ملاحظة للمطبخ (اختياري)')}</label><input id="nt" className="input" value={note} onChange={(e) => setNote(e.target.value)} /></div>
             <button className="btn primary block" disabled={busy} onClick={submit}>{busy ? <span className="spinner" /> : null} {tr('أرسل الطلب للمطبخ')}</button>

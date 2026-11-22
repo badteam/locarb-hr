@@ -424,6 +424,43 @@ function ItemGallery({ item, canEdit, onChanged }) {
   )
 }
 
+// can the branches order this item from the central kitchen?
+// open = normal · paused = branches see it but can't order it for now · hidden = kitchen only, branches never see it
+const BRANCH_ORDER = [['open', 'متاح للفروع'], ['paused', 'موقوف مؤقتاً'], ['hidden', 'مخفي عن الفروع']]
+function BranchOrderCard({ itemId, canEdit, onChanged }) {
+  const { tr } = useLang()
+  const [v, setV] = useState(null)
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  useEffect(() => {
+    supabase.from('inv_items').select('branch_order,branch_order_note').eq('id', itemId).maybeSingle()
+      .then(({ data }) => { setV(data?.branch_order || 'open'); setNote(data?.branch_order_note || '') })
+  }, [itemId])
+  if (v === null) return null
+  const save = async (mode, n = note) => {
+    setBusy(true); setErr('')
+    const { error } = await supabase.from('inv_items').update({ branch_order: mode, branch_order_note: mode === 'paused' ? (n.trim() || null) : null }).eq('id', itemId)
+    setBusy(false)
+    if (error) { setErr(tr(invErr(error))); return }
+    setV(mode); onChanged?.()
+  }
+  return (
+    <div className="card form" style={{ gap: 8 }}>
+      <strong style={{ fontSize: 14 }}>{tr('طلب الفروع من المطبخ')}</strong>
+      {canEdit ? <div className="seg" style={{ maxWidth: 460 }}>
+        {BRANCH_ORDER.map(([k, t]) => <a key={k} href={'#' + k} className={v === k ? 'on' : ''} aria-disabled={busy}
+          onClick={(e) => { e.preventDefault(); if (!busy && v !== k) save(k) }}>{tr(t)}</a>)}
+      </div> : <span className={'pill ' + (v === 'open' ? 'ok' : v === 'paused' ? 'amber' : 'gray')}>{tr(BRANCH_ORDER.find((x) => x[0] === v)[1])}</span>}
+      <div className="sub">{v === 'open' ? tr('الفروع تشوفه وتطلبه عادي.') : v === 'paused' ? tr('الفروع تشوفه بس ما تقدر تطلبه لين ترجعه «متاح».') : tr('ما يطلع للفروع أبداً وهم يسوون الطلب. للمطبخ بس.')}</div>
+      {v === 'paused' && canEdit && <div className="row" style={{ gap: 6 }}>
+        <input className="input grow" placeholder={tr('السبب يطلع للفروع (اختياري)، مثلاً: خلصان لين الأحد')} value={note} onChange={(e) => setNote(e.target.value)} aria-label={tr('السبب')} />
+        <button className="btn" disabled={busy} onClick={() => save('paused', note)}>{tr('احفظ')}</button></div>}
+      {err && <div className="error">{err}</div>}
+    </div>
+  )
+}
+
 function ItemSheet({ item, lookups, canEdit, onClose, onChanged }) {
   const { tr, fmtDate, lang, tn } = useLang()
   const [levels, setLevels] = useState([])
@@ -472,6 +509,7 @@ function ItemSheet({ item, lookups, canEdit, onClose, onChanged }) {
             : <button className="btn" onClick={async () => { await supabase.from('inv_items').update({ active: true }).eq('id', item.id); onChanged(); onClose() }}>{tr('رجّع الصنف')}</button>}
           <button className="btn" onClick={() => setAdjust(true)}>{tr('تالف أو تعديل كمية')}</button>
         </div>}
+        <BranchOrderCard itemId={item.id} canEdit={canEdit} onChanged={onChanged} />
         <NutritionCard key={nutVer} itemId={item.id} canEdit={canEdit} onChanged={onChanged} />
         {levels.length > 0 && <div className="card"><strong style={{ fontSize: 14 }}>{tr('الكمية في كل مكان')}</strong>
           <div className="list">{levels.map((l) => { const n = branchPieces(item, l.branches?.is_central_kitchen); return <div key={l.branch_id} className="list-item"><span className="grow">{tn(l.branches?.name)}</span><span className="num">{n ? tr('{v} حبة', { v: qtyFmt(toPieces(l.qty, n)) }) : `${qtyFmt(l.qty)} ${tn(item.unit) || ''}`}</span></div> })}</div></div>}
@@ -671,9 +709,12 @@ export default function Inventory() {
   }, [])
   // how many photos each item has (badge on the list thumbnail)
   const [photoCount, setPhotoCount] = useState({})
+  const [orderRule, setOrderRule] = useState({})   // item id -> 'paused' | 'hidden' (branch ordering)
   const loadCounts = useCallback(() => {
     selectAll(() => supabase.rpc('item_photo_counts').order('item_id'))
       .then((rows) => setPhotoCount(Object.fromEntries(rows.map((r) => [r.item_id, r.n])))).catch(() => {})
+    selectAll(() => supabase.from('inv_items').select('id,branch_order').neq('branch_order', 'open').order('id'))
+      .then((rows) => setOrderRule(Object.fromEntries(rows.map((r) => [r.id, r.branch_order])))).catch(() => {})
   }, [])
   useEffect(() => { load(); loadLookups(true).then(setLookups); refreshProductImages(); loadCounts() }, [load, loadCounts])
 
@@ -768,7 +809,7 @@ export default function Inventory() {
                 <tr key={i.id} className="row-btn" onClick={() => setOpen(i)} tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && setOpen(i)}>
                   <td><div className="row" style={{ gap: 10 }}><span style={{ position: 'relative', flexShrink: 0 }}><ProductImage itemId={i.id} size={42} />
                     {photoCount[i.id] > 1 && <span className="num" title={tr('{n} صورة', { n: photoCount[i.id] })} style={{ position: 'absolute', bottom: -4, insetInlineEnd: -4, minWidth: 18, height: 18, padding: '0 4px', borderRadius: 9, background: '#1F2A22', color: '#fff', fontSize: 11, lineHeight: '18px', textAlign: 'center', border: '2px solid #fff' }}>{photoCount[i.id]}</span>}</span>
-                    <div><div style={{ fontWeight: 500 }}>{itemNames(i, lang)[0]}</div><div className="cell-sub">{itemNames(i, lang)[1]}</div>
+                    <div><div style={{ fontWeight: 500 }}>{itemNames(i, lang)[0]}{orderRule[i.id] && <span className={'pill ' + (orderRule[i.id] === 'paused' ? 'amber' : 'gray')} style={{ fontSize: 11, padding: '0 6px', marginInlineStart: 6 }}>{orderRule[i.id] === 'paused' ? tr('موقوف للفروع') : tr('مخفي عن الفروع')}</span>}</div><div className="cell-sub">{itemNames(i, lang)[1]}</div>
                       {i.kcal_100 != null ? <div className="cell-sub">{Math.round(i.kcal_100)} {tr('سعرة/١٠٠غ · ب {v} · ك {v2} · د {v3}', { v: Number(i.protein_100 ?? 0).toFixed(0), v2: Number(i.carbs_100 ?? 0).toFixed(0), v3: Number(i.fat_100 ?? 0).toFixed(0) })}{nutSource(i.nutrition_source) ? <> · <span className={'pill ' + nutSource(i.nutrition_source).cls} style={{ fontSize: 11, padding: '0 6px' }}>{tr(nutSource(i.nutrition_source).label)}</span></> : null}</div>
                         : <div className="cell-sub" style={{ color: 'var(--amber)' }}>{tr('بدون سعرات')}</div>}
                       {needsContent(i) ? <div className="cell-sub" style={{ color: 'var(--amber)' }}>{tr('الـ{unit} فيه كام حبة أو كيلو؟ ناقص', { unit: tn(i.unit) })}</div>
